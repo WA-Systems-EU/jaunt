@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a working ephemeral remote-devbox that stands up end-to-end with `tofu apply` on Hetzner and on UpCloud, sharing one provider-neutral cloud-init + idle-self-teardown agent.
+**Goal:** Build a working ephemeral remote-jauntbox that stands up end-to-end with `tofu apply` on Hetzner and on UpCloud, sharing one provider-neutral cloud-init + idle-self-teardown agent.
 
-**Architecture:** A shared `tofu/modules/devbox` renders the provider-neutral artifacts — a cloud-init user-data document and the idle-watch agent (a pure `decide()` shell function + systemd timer). Thin `tofu/hetzner` and `tofu/upcloud` roots wire provider-specific resources (server behind a `box_on` toggle, persistent volume, default-deny firewall, ephemeral Tailscale key) and inject a provider-specific `self-delete.sh`. Data lives on a persistent volume so the server is disposable.
+**Architecture:** A shared `tofu/modules/jauntbox` renders the provider-neutral artifacts — a cloud-init user-data document and the idle-watch agent (a pure `decide()` shell function + systemd timer). Thin `tofu/hetzner` and `tofu/upcloud` roots wire provider-specific resources (server behind a `box_on` toggle, persistent volume, default-deny firewall, ephemeral Tailscale key) and inject a provider-specific `self-delete.sh`. Data lives on a persistent volume so the server is disposable.
 
 **Tech Stack:** OpenTofu (`tofu`), Hetzner Cloud provider (`hetznercloud/hcloud`), UpCloud provider (`UpCloudLtd/upcloud`), Tailscale provider (`tailscale/tailscale`), cloud-init, POSIX shell (idle agent), systemd.
 
@@ -15,7 +15,7 @@
 - **No secrets in git.** `.gitignore` excludes `*.tfvars` (keep `*.tfvars.example`), `.terraform/`, `*.tfstate*`. Secrets (`HCLOUD_TOKEN`, `UPCLOUD_USERNAME`/`UPCLOUD_PASSWORD`, Tailscale API key) come from env.
 - **State:** local state for examples; document "use a remote backend for real use". Do NOT wire a remote backend in this plan.
 - **Git commits:** plain messages, NO `Co-Authored-By` trailer. Repo git identity: `Thomas <thomas@wa-systems.eu>` (already configured).
-- **Discovery convention:** server carries label `jaunt=<user>`; MagicDNS hostname is `<hostname_prefix>-<user>` (default prefix `devbox`).
+- **Discovery convention:** server carries label `jaunt=<user>`; MagicDNS hostname is `<hostname_prefix>-<user>` (default prefix `jauntbox`).
 - **Idle defaults:** day window `2h`, night window `1h`.
 - **Server toggle:** `box_on` bool; `count = var.box_on ? 1 : 0` on server + attachment. Volume is never gated by the toggle.
 - **Shared variable surface** both roots MUST expose identically: `box_on`, `user`, `plan`, `volume_size`, `ssh_public_key`, `hostname_prefix`, `public_ipv4`, `idle_day`, `idle_night`, `base_image`, plus one location var (`location` on Hetzner, `zone` on UpCloud).
@@ -69,7 +69,7 @@ site/.next/
 
 ```yaml
 plan: cax41                      # override server size for this project
-hostname_prefix: devbox          # → MagicDNS name devbox-<user>
+hostname_prefix: jauntbox          # → MagicDNS name jauntbox-<user>
 repos:
   - git@github.com:acme/app.git
 setup:                           # idempotent; runs on every up, fast when the volume is warm
@@ -103,15 +103,15 @@ git commit -m "chore: repo scaffold (README, MIT license, gitignore, example con
 ### Task 2: Idle `decide()` agent + table tests (TDD heart)
 
 **Files:**
-- Create: `tofu/modules/devbox/agent/idle-watch.sh`
-- Create: `tofu/modules/devbox/agent/decide_test.sh`
+- Create: `tofu/modules/jauntbox/agent/idle-watch.sh`
+- Create: `tofu/modules/jauntbox/agent/decide_test.sh`
 
 **Interfaces:**
 - Produces: shell function `decide` sourced by both the test and the agent's `main`. Signature (positional args, all integers except the verdict):
   `decide <active_sessions> <cpu_pct> <cpu_threshold> <keep_until_epoch> <now_epoch> <idle_seconds> <is_night 0|1> <day_window_secs> <night_window_secs> <grace_secs>` → prints one of `KEEP` / `WARN` / `DELETE` to stdout.
 - Produces: `main()` in `idle-watch.sh` that gathers real inputs and calls `decide`, then acts (WARN → notify; DELETE → run `/opt/jaunt/self-delete.sh`). The agent sources itself guarded so the test can source without running `main`.
 
-- [ ] **Step 1: Write the failing test** — `tofu/modules/devbox/agent/decide_test.sh`
+- [ ] **Step 1: Write the failing test** — `tofu/modules/jauntbox/agent/decide_test.sh`
 
 ```sh
 #!/bin/sh
@@ -171,7 +171,7 @@ exit $fail
 
 - [ ] **Step 2: Run the test, verify it fails**
 
-Run: `sh tofu/modules/devbox/agent/decide_test.sh`
+Run: `sh tofu/modules/jauntbox/agent/decide_test.sh`
 Expected: FAIL — `idle-watch.sh` does not exist yet (`No such file`).
 
 - [ ] **Step 3: Write minimal `idle-watch.sh` with `decide()` and a guarded `main`**
@@ -234,14 +234,14 @@ main() {
 
 - [ ] **Step 4: Run the test, verify it passes**
 
-Run: `sh tofu/modules/devbox/agent/decide_test.sh`
+Run: `sh tofu/modules/jauntbox/agent/decide_test.sh`
 Expected: all `ok` lines, exit 0.
 
 - [ ] **Step 5: Make the test executable and commit**
 
 ```bash
-chmod +x tofu/modules/devbox/agent/idle-watch.sh tofu/modules/devbox/agent/decide_test.sh
-git add tofu/modules/devbox/agent/
+chmod +x tofu/modules/jauntbox/agent/idle-watch.sh tofu/modules/jauntbox/agent/decide_test.sh
+git add tofu/modules/jauntbox/agent/
 git commit -m "feat(agent): pure idle decide() with exhaustive table tests"
 ```
 
@@ -250,12 +250,12 @@ git commit -m "feat(agent): pure idle decide() with exhaustive table tests"
 ### Task 3: systemd units + shared cloud-init template + module wiring
 
 **Files:**
-- Create: `tofu/modules/devbox/agent/jaunt-idle.service`
-- Create: `tofu/modules/devbox/agent/jaunt-idle.timer`
-- Create: `tofu/modules/devbox/cloud-init/user-data.tftpl`
-- Create: `tofu/modules/devbox/variables.tf`
-- Create: `tofu/modules/devbox/main.tf`
-- Create: `tofu/modules/devbox/outputs.tf`
+- Create: `tofu/modules/jauntbox/agent/jaunt-idle.service`
+- Create: `tofu/modules/jauntbox/agent/jaunt-idle.timer`
+- Create: `tofu/modules/jauntbox/cloud-init/user-data.tftpl`
+- Create: `tofu/modules/jauntbox/variables.tf`
+- Create: `tofu/modules/jauntbox/main.tf`
+- Create: `tofu/modules/jauntbox/outputs.tf`
 
 **Interfaces:**
 - Consumes: `agent/idle-watch.sh`, `agent/decide_test.sh` (Task 2).
@@ -344,8 +344,8 @@ runcmd:
 
 ```hcl
 variable "user"               { type = string }
-variable "hostname_prefix"    { type = string  default = "devbox" }
-variable "tailscale_tag"      { type = string  default = "tag:devbox" }
+variable "hostname_prefix"    { type = string  default = "jauntbox" }
+variable "tailscale_tag"      { type = string  default = "tag:jauntbox" }
 variable "tailscale_auth_key" { type = string  sensitive = true }
 variable "tailscale_extra_args" { type = string default = "--ephemeral" }
 variable "idle_day_secs"      { type = number  default = 7200 }
@@ -392,7 +392,7 @@ output "user_data" {
 
 Run:
 ```bash
-cd tofu/modules/devbox && tofu fmt && cat > /tmp/probe.tf <<'EOF'
+cd tofu/modules/jauntbox && tofu fmt && cat > /tmp/probe.tf <<'EOF'
 module "d" {
   source = "./"
   user = "alice"
@@ -411,7 +411,7 @@ Expected: `Success! The configuration is valid.` Then clean up `/tmp/probe`.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add tofu/modules/devbox/
+git add tofu/modules/jauntbox/
 git commit -m "feat(module): shared cloud-init + systemd units + user_data rendering"
 ```
 
@@ -428,7 +428,7 @@ git commit -m "feat(module): shared cloud-init + systemd units + user_data rende
 - Create: `tofu/hetzner/terraform.tfvars.example`
 
 **Interfaces:**
-- Consumes: `../modules/devbox` (Task 3) via `module.devbox.user_data`.
+- Consumes: `../modules/jauntbox` (Task 3) via `module.jauntbox.user_data`.
 - Produces: a `tofu apply`-able root exposing the shared variable surface (Global Constraints). Outputs: `hostname`, `magicdns`, `volume_id`.
 
 - [ ] **Step 1: Write `providers.tf`**
@@ -454,7 +454,7 @@ variable "user"           { type = string }
 variable "plan"           { type = string   default = "cax41" }
 variable "volume_size"    { type = number   default = 100 }
 variable "ssh_public_key" { type = string }
-variable "hostname_prefix"{ type = string   default = "devbox" }
+variable "hostname_prefix"{ type = string   default = "jauntbox" }
 variable "location"       { type = string   default = "fsn1" }
 variable "public_ipv4"    { type = bool      default = false }
 variable "idle_day"       { type = number    default = 7200 }
@@ -467,7 +467,7 @@ variable "setup_steps"    { type = list(string) default = [] }
 
 ```sh
 #!/bin/sh
-# Deletes THIS Hetzner server via the hcloud API. Token is devboxes-project-scoped.
+# Deletes THIS Hetzner server via the hcloud API. Token is jauntboxes-project-scoped.
 set -eu
 ID=$(curl -fsSL http://169.254.169.254/hetzner/v1/metadata/instance-id)
 curl -fsSL -X DELETE -H "Authorization: Bearer ${hcloud_token}" \
@@ -493,11 +493,11 @@ resource "tailscale_tailnet_key" "ephemeral" {
   ephemeral     = true
   reusable      = true
   preauthorized = true
-  tags          = ["tag:devbox"]
+  tags          = ["tag:jauntbox"]
 }
 
-module "devbox" {
-  source             = "../modules/devbox"
+module "jauntbox" {
+  source             = "../modules/jauntbox"
   user               = var.user
   hostname_prefix    = var.hostname_prefix
   tailscale_auth_key = tailscale_tailnet_key.ephemeral.key
@@ -510,7 +510,7 @@ module "devbox" {
   })
 }
 
-resource "hcloud_firewall" "devbox" {
+resource "hcloud_firewall" "jauntbox" {
   name = "jaunt-${var.user}"
   # default-deny inbound: NO port 22 (Tailscale SSH only). Allow all egress.
   rule { direction = "out" protocol = "tcp" port = "any" destination_ips = ["0.0.0.0/0", "::/0"] }
@@ -518,14 +518,14 @@ resource "hcloud_firewall" "devbox" {
   apply_to { label_selector = "jaunt=${var.user}" }
 }
 
-resource "hcloud_server" "devbox" {
+resource "hcloud_server" "jauntbox" {
   count       = var.box_on ? 1 : 0
   name        = "${var.hostname_prefix}-${var.user}"
   server_type = var.plan
   image       = var.base_image
   location    = var.location
   ssh_keys    = [hcloud_ssh_key.dev.id]
-  user_data   = module.devbox.user_data
+  user_data   = module.jauntbox.user_data
   labels      = { jaunt = var.user }
   public_net {
     ipv4_enabled = var.public_ipv4
@@ -536,7 +536,7 @@ resource "hcloud_server" "devbox" {
 resource "hcloud_volume_attachment" "data" {
   count     = var.box_on ? 1 : 0
   volume_id = hcloud_volume.data.id
-  server_id = hcloud_server.devbox[0].id
+  server_id = hcloud_server.jauntbox[0].id
   automount = false   # cloud-init mounts at /home explicitly
 }
 ```
@@ -554,7 +554,7 @@ output "volume_id" { value = hcloud_volume.data.id }
 ```hcl
 # Copy to terraform.tfvars and fill in. NEVER commit terraform.tfvars.
 # hcloud_token also readable from HCLOUD_TOKEN env; tailscale from TAILSCALE_API_KEY/TAILSCALE_TAILNET.
-hcloud_token   = "REDACTED-devboxes-project-token"
+hcloud_token   = "REDACTED-jauntboxes-project-token"
 user           = "alice"
 ssh_public_key = "ssh-ed25519 AAAA... alice@laptop"
 # box_on         = true   # flip to stand the box up
@@ -574,7 +574,7 @@ Expected: `Success! The configuration is valid.`
 
 ```bash
 git add tofu/hetzner/
-git commit -m "feat(hetzner): toggle-able devbox root (volume, firewall, tailscale, self-delete)"
+git commit -m "feat(hetzner): toggle-able jauntbox root (volume, firewall, tailscale, self-delete)"
 ```
 
 ---
@@ -590,7 +590,7 @@ git commit -m "feat(hetzner): toggle-able devbox root (volume, firewall, tailsca
 - Create: `tofu/upcloud/terraform.tfvars.example`
 
 **Interfaces:**
-- Consumes: `../modules/devbox` (Task 3).
+- Consumes: `../modules/jauntbox` (Task 3).
 - Produces: a `tofu apply`-able root mirroring the Hetzner variable surface, with `zone` in place of `location`. Outputs: `hostname`, `magicdns`, `volume_id`.
 
 - [ ] **Step 1: Write `providers.tf`**
@@ -615,7 +615,7 @@ variable "user"           { type = string }
 variable "plan"           { type = string   default = "2xCPU-4GB" }
 variable "volume_size"    { type = number   default = 100 }
 variable "ssh_public_key" { type = string }
-variable "hostname_prefix"{ type = string   default = "devbox" }
+variable "hostname_prefix"{ type = string   default = "jauntbox" }
 variable "zone"           { type = string   default = "fi-hel2" }
 variable "public_ipv4"    { type = bool      default = true }
 variable "idle_day"       { type = number    default = 7200 }
@@ -650,11 +650,11 @@ resource "tailscale_tailnet_key" "ephemeral" {
   ephemeral     = true
   reusable      = true
   preauthorized = true
-  tags          = ["tag:devbox"]
+  tags          = ["tag:jauntbox"]
 }
 
-module "devbox" {
-  source             = "../modules/devbox"
+module "jauntbox" {
+  source             = "../modules/jauntbox"
   user               = var.user
   hostname_prefix    = var.hostname_prefix
   tailscale_auth_key = tailscale_tailnet_key.ephemeral.key
@@ -668,7 +668,7 @@ module "devbox" {
   })
 }
 
-resource "upcloud_server" "devbox" {
+resource "upcloud_server" "jauntbox" {
   count    = var.box_on ? 1 : 0
   hostname = "${var.hostname_prefix}-${var.user}"
   zone     = var.zone
@@ -690,7 +690,7 @@ resource "upcloud_server" "devbox" {
   network_interface {
     type = "public"
   }
-  user_data = module.devbox.user_data
+  user_data = module.jauntbox.user_data
 }
 ```
 
@@ -728,7 +728,7 @@ Expected: `Success! The configuration is valid.`
 
 ```bash
 git add tofu/upcloud/
-git commit -m "feat(upcloud): devbox root mirroring hetzner variable surface"
+git commit -m "feat(upcloud): jauntbox root mirroring hetzner variable surface"
 ```
 
 ---
@@ -754,7 +754,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: idle decide() table tests
-        run: sh tofu/modules/devbox/agent/decide_test.sh
+        run: sh tofu/modules/jauntbox/agent/decide_test.sh
   tofu:
     runs-on: ubuntu-latest
     strategy:
@@ -778,7 +778,7 @@ Document: the shared-module + two-roots layout; the shared variable surface tabl
 
 Run:
 ```bash
-sh tofu/modules/devbox/agent/decide_test.sh
+sh tofu/modules/jauntbox/agent/decide_test.sh
 tofu -chdir=tofu/hetzner fmt -check -recursive && tofu -chdir=tofu/upcloud fmt -check -recursive
 ```
 Expected: tests pass; fmt reports no diffs.
@@ -805,7 +805,7 @@ Document the manual smoke procedure for each provider:
 1. Export creds (`HCLOUD_TOKEN` or `UPCLOUD_USERNAME`/`UPCLOUD_PASSWORD`; `TAILSCALE_API_KEY`/`TAILSCALE_TAILNET`).
 2. `cp terraform.tfvars.example terraform.tfvars`; set `user`, `ssh_public_key`.
 3. `tofu init && tofu apply -var box_on=true`.
-4. Wait for the box to appear on the tailnet; `ssh devbox-<user>` (Tailscale SSH); confirm `/home` is the mounted volume (`df -h /home`) and `systemctl status jaunt-idle.timer` is active.
+4. Wait for the box to appear on the tailnet; `ssh jauntbox-<user>` (Tailscale SSH); confirm `/home` is the mounted volume (`df -h /home`) and `systemctl status jaunt-idle.timer` is active.
 5. Create a marker file in `/home`; `tofu apply -var box_on=false` (deletes server, keeps volume); `tofu apply -var box_on=true` again; confirm the marker file survived.
 6. `tofu destroy` to remove the volume when done.
 

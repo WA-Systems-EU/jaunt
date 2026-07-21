@@ -1,7 +1,7 @@
 # jaunt — Tofu + Site Milestone — Design
 
 > **Status:** approved design (2026-07-21). This spec covers the *first public push* of jaunt:
-> a working OpenTofu devbox on Hetzner then UpCloud, plus a static site with launch blog
+> a working OpenTofu jauntbox on Hetzner then UpCloud, plus a static site with launch blog
 > content, published under `WA-Systems-EU/jaunt`. The Go CLI (`jaunt-cli-plan.md`) is a
 > **later** milestone and is deliberately out of scope here.
 >
@@ -23,14 +23,14 @@ cost-honest infrastructure work. Not a SaaS — the value is the pattern, not a 
 **This milestone delivers, tofu-only (no Go CLI yet):**
 
 1. A **repo scaffold** at `WA-Systems-EU/jaunt` (local: `Code/WaConstellation/jaunt`).
-2. A **Hetzner devbox** buildable end-to-end with `tofu apply` (toggle-based).
-3. A **UpCloud devbox** — the same pattern ported to a second EU provider.
+2. A **Hetzner jauntbox** buildable end-to-end with `tofu apply` (toggle-based).
+3. A **UpCloud jauntbox** — the same pattern ported to a second EU provider.
 4. A **static site + launch blog post** (Next.js + Tailwind, static export).
 5. **Publish**: public repo + site deployed via Odysseus.
 
 ### Success criteria
 
-- `tofu apply -var box_on=true` in `tofu/hetzner/` produces a **reachable, usable** devbox:
+- `tofu apply -var box_on=true` in `tofu/hetzner/` produces a **reachable, usable** jauntbox:
   persistent volume mounted at `/home`, Tailscale SSH working, idle self-teardown armed.
 - The same is true in `tofu/upcloud/` with the **same variable surface**.
 - Destroying the server (`-var box_on=false`) **never loses work** — data is on the volume.
@@ -61,7 +61,7 @@ jaunt/
 ├── .gitignore                 # *.tfvars (except *.example), .terraform/, tfstate, node_modules, out/
 ├── tofu/
 │   ├── modules/
-│   │   └── devbox/            # provider-NEUTRAL shared pieces
+│   │   └── jauntbox/            # provider-NEUTRAL shared pieces
 │   │       ├── cloud-init/    # templated: volume mount, Tailscale join, jaunt.yaml setup runner
 │   │       ├── agent/         # systemd unit + idle-watch decide() script (POSIX shell)
 │   │       ├── variables.tf   # inputs the shared templates need (hostname, tag, idle windows, …)
@@ -85,10 +85,10 @@ jaunt/
 └── cmd/  internal/            # RESERVED — Go CLI milestone; .gitkeep only for now
 ```
 
-**Two-provider structure — chosen approach (A).** The devbox pattern is ~80% provider-neutral
+**Two-provider structure — chosen approach (A).** The jauntbox pattern is ~80% provider-neutral
 (persistent volume, default-deny firewall, Tailscale join via cloud-init, idle self-teardown,
 discovery by label) and ~20% provider-specific (resource shapes, IP/network model, self-delete
-API call). We put the neutral 80% in `tofu/modules/devbox` (cloud-init templates + the idle
+API call). We put the neutral 80% in `tofu/modules/jauntbox` (cloud-init templates + the idle
 agent script) and keep thin `hetzner/` and `upcloud/` roots that wire provider resources and
 call the shared module. The signature idle-`decide()` behavior — the thing the blog is about —
 is written once and provably runs on both. (Rejected: two fully independent trees, which would
@@ -96,14 +96,14 @@ duplicate the agent + cloud-init and let them drift.)
 
 ---
 
-## 3. Shared devbox module (`tofu/modules/devbox`)
+## 3. Shared jauntbox module (`tofu/modules/jauntbox`)
 
 Provider-agnostic. Renders the artifacts both roots consume:
 
 - **cloud-init user-data** (templated) that on first boot:
   1. mounts the attached persistent volume at `/home` (idempotent; format only if empty),
   2. installs Tailscale and runs
-     `tailscale up --hostname <prefix>-<user> --advertise-tags=tag:devbox --ephemeral --ssh`
+     `tailscale up --hostname <prefix>-<user> --advertise-tags=tag:jauntbox --ephemeral --ssh`
      using an ephemeral auth key passed in as a template var,
   3. runs the `jaunt.yaml` `setup` steps (idempotent; fast when the volume is warm),
   4. installs the **idle-watch** systemd unit + timer and arms it.
@@ -134,7 +134,7 @@ Provider-agnostic. Renders the artifacts both roots consume:
 ## 4. Hetzner root (`tofu/hetzner`)
 
 Provider `hetznercloud/hcloud` (operates within one project — the token *is* the project;
-use a dedicated **`devboxes`** project so the on-box teardown token can never touch prod).
+use a dedicated **`jauntboxes`** project so the on-box teardown token can never touch prod).
 
 | Resource | Notes |
 |---|---|
@@ -143,14 +143,14 @@ use a dedicated **`devboxes`** project so the on-box teardown token can never to
 | `hcloud_server` | `count = var.box_on ? 1 : 0`; `image = var.base_image` (Packer snapshot id *or* stock Ubuntu); `user_data` from the shared module; label `jaunt=<user>` |
 | `hcloud_volume_attachment` | `count = var.box_on ? 1 : 0`; `automount = true` |
 | `hcloud_firewall` | **default-deny inbound**; **no port 22** (Tailscale SSH only); apply by label |
-| `tailscale_tailnet_key` | ephemeral, tagged `tag:devbox`, fed to the module |
+| `tailscale_tailnet_key` | ephemeral, tagged `tag:jauntbox`, fed to the module |
 
 **Network:** IPv6 enabled; IPv4 optional (`var.public_ipv4`, default off to drop the fee) — the
 box needs only *egress* to reach the tailnet; *ingress* is tailnet-only. **Variables** (the
 canonical surface both providers mirror): `box_on` (bool), `user`, `plan` (default `cax41`),
-`volume_size` (default 100), `ssh_public_key`, `hostname_prefix` (default `devbox`), `location`
+`volume_size` (default 100), `ssh_public_key`, `hostname_prefix` (default `jauntbox`), `location`
 (default `fsn1`), `public_ipv4` (default false), `idle_day` (default `2h`), `idle_night`
-(default `1h`), `base_image`. **Outputs:** `hostname` (`devbox-<user>`), `magicdns`, `volume_id`.
+(default `1h`), `base_image`. **Outputs:** `hostname` (`jauntbox-<user>`), `magicdns`, `volume_id`.
 `tofu apply -var box_on=true` → box up; `-var box_on=false` → box deleted, volume kept.
 
 ---
@@ -163,7 +163,7 @@ product (`box_on`, `user`, `plan`/size, `volume_size`, `ssh_public_key`, `hostna
 
 | Resource | Notes |
 |---|---|
-| `upcloud_storage` | persistent devbox data; independent of the server |
+| `upcloud_storage` | persistent jauntbox data; independent of the server |
 | `upcloud_server` | toggle via count; `user_data` from the shared module; **labels** for discovery (`jaunt=<user>`) |
 | storage attach | attach persistent storage to the server |
 | firewall | default-deny inbound + Tailscale SSH only |
@@ -176,7 +176,7 @@ the Tailscale join, the `jaunt.yaml` runner — comes from the shared module unc
 
 ## 6. Secrets & state
 
-- **Secrets** from env / secret manager, **never committed**: `HCLOUD_TOKEN` (devboxes project),
+- **Secrets** from env / secret manager, **never committed**: `HCLOUD_TOKEN` (jauntboxes project),
   UpCloud API creds (`UPCLOUD_USERNAME` / `UPCLOUD_PASSWORD` or token), Tailscale API key/OAuth.
   `.gitignore` excludes `*.tfvars` (keeps `*.tfvars.example`), `.terraform/`, `*.tfstate*`. SOPS
   is documented as the recommended manager but not required to run the examples.
@@ -194,7 +194,7 @@ the Tailscale join, the `jaunt.yaml` runner — comes from the shared module unc
   structure and finer details around that, not a bespoke visual language from scratch.
 - **Content:** one strong **launch post** — *"jaunt — an ephemeral remote development environment
   you pop into and out of"* — plus **outlines** (not full drafts) for 2–3 follow-ups:
-  EU-sovereign cost-honest infra; the same devbox on two providers; the idle-auto-down guarantee.
+  EU-sovereign cost-honest infra; the same jauntbox on two providers; the idle-auto-down guarantee.
 - **Landing copy** reuses the one canonical hook line everywhere (README + site + launch post).
 
 ---
@@ -215,7 +215,7 @@ the Tailscale join, the `jaunt.yaml` runner — comes from the shared module unc
 
 1. **Repo scaffold** — layout above, README stub, MIT LICENSE, `.gitignore`, `examples/jaunt.yaml`.
 2. **Shared module** — cloud-init templates + idle-watch `decide()` agent (the most-tested part).
-3. **Hetzner root** — full toggle-able devbox; validate `apply box_on=true` reaches a live box.
+3. **Hetzner root** — full toggle-able jauntbox; validate `apply box_on=true` reaches a live box.
 4. **UpCloud root** — mirror; validate same behavior + same variable surface.
 5. **Site** — Next.js/Tailwind static scaffold + launch post + Odysseus deploy config.
 6. **Publish** — push repo, deploy site (once domain / Odysseus target / Stitch look are in hand).
