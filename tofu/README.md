@@ -4,6 +4,39 @@ A toggle-able, ephemeral **jauntbox** dev server with idle self-teardown, on two
 EU clouds. One shared module holds all the provider-neutral logic; each provider
 is a thin root that wires it to real infrastructure.
 
+## Quick start (full test run)
+
+Only **Tailscale** needs environment variables; every other credential is a tofu
+variable set once in `terraform.tfvars`.
+
+```sh
+export TAILSCALE_API_KEY=tskey-api-...   # admin key with auth-key + ACL write scope
+export TAILSCALE_TAILNET=-               # your tailnet name, or "-" for the default
+
+# 1. Declare tags + isolation FIRST — a box whose tag isn't in the policy is
+#    rejected by Tailscale at join time.
+cd tofu/tailnet
+cp terraform.tfvars.example terraform.tfvars   # engineers = { you = "you@wa-systems.eu" }
+tofu init && tofu apply -var overwrite_existing_content=true
+
+# 2. Stand up a box. `user` MUST match a key in the `engineers` map above.
+cd ../hetzner                                  # or ../upcloud
+cp terraform.tfvars.example terraform.tfvars   # Hetzner: hcloud_token, user, ssh_public_key
+                                               # UpCloud: upcloud_username/password, user, ssh_public_key
+tofu init && tofu apply -var box_on=true       # ~2 min → ssh jauntbox-<you>
+
+# 3. Toggle off (deletes the server, keeps your volume).
+tofu apply -var box_on=false
+```
+
+Per-root credentials at a glance:
+
+| Root           | tofu variables (in `terraform.tfvars`)                    |
+| -------------- | --------------------------------------------------------- |
+| `tofu/tailnet` | `engineers` (map: `user → login`)                         |
+| `tofu/hetzner` | `hcloud_token`, `user`, `ssh_public_key`                  |
+| `tofu/upcloud` | `upcloud_username`, `upcloud_password`, `user`, `ssh_public_key` |
+
 ## Layout
 
 ```
