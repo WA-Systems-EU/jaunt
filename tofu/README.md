@@ -43,13 +43,21 @@ Both roots expose the same knobs (defaults shown):
 Hetzner also takes `hcloud_token`; UpCloud takes `upcloud_username` /
 `upcloud_password`.
 
-## Credentials (env)
+## Credentials
 
-| Provider  | Env                                              |
-| --------- | ------------------------------------------------ |
-| Hetzner   | `HCLOUD_TOKEN`                                    |
-| UpCloud   | `UPCLOUD_USERNAME`, `UPCLOUD_PASSWORD`           |
-| Tailscale | `TAILSCALE_API_KEY`, `TAILSCALE_TAILNET`         |
+**Tailscale** authenticates from the environment (all three roots):
+
+| Env                  | Value                                          |
+| -------------------- | ---------------------------------------------- |
+| `TAILSCALE_API_KEY`  | admin API key with **auth-key + ACL** write scope |
+| `TAILSCALE_TAILNET`  | your tailnet name, or `-` for the default      |
+
+**Cloud provider creds are tofu variables** (set once in `terraform.tfvars`):
+
+| Provider | Variables                                |
+| -------- | ---------------------------------------- |
+| Hetzner  | `hcloud_token`                           |
+| UpCloud  | `upcloud_username`, `upcloud_password` (also authenticate the provider; fall back to `UPCLOUD_USERNAME`/`UPCLOUD_PASSWORD` env) |
 
 Never commit `terraform.tfvars` — copy `terraform.tfvars.example` and fill it in
 locally (`.tfvars` is gitignored).

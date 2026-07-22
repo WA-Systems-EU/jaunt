@@ -1,5 +1,6 @@
 # Copy to terraform.tfvars and fill in. NEVER commit terraform.tfvars.
-# Credentials also readable from UPCLOUD_USERNAME / UPCLOUD_PASSWORD env.
+# These creds authenticate the provider AND the self-delete script — set once here.
+# (They fall back to UPCLOUD_USERNAME / UPCLOUD_PASSWORD env if left unset.)
 upcloud_username = "REDACTED"
 upcloud_password = "REDACTED"
 user             = "alice"
