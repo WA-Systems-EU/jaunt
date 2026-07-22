@@ -1,0 +1,43 @@
+#cloud-config
+write_files:
+  - path: /opt/jaunt/idle-watch.sh
+    permissions: '0755'
+    encoding: b64
+    content: ${idle_watch_b64}
+  - path: /opt/jaunt/self-delete.sh
+    permissions: '0700'
+    encoding: b64
+    content: ${self_delete_b64}
+  - path: /etc/jaunt/agent.env
+    permissions: '0600'
+    content: |
+      JAUNT_IDLE_DAY=${idle_day_secs}
+      JAUNT_IDLE_NIGHT=${idle_night_secs}
+      JAUNT_CPU_THRESHOLD=${cpu_threshold}
+      JAUNT_GRACE=120
+  - path: /etc/systemd/system/jaunt-idle.service
+    content: ${service_b64}
+    encoding: b64
+  - path: /etc/systemd/system/jaunt-idle.timer
+    content: ${timer_b64}
+    encoding: b64
+  - path: /opt/jaunt/setup.sh
+    permissions: '0755'
+    encoding: b64
+    content: ${setup_b64}
+runcmd:
+  - mkdir -p /var/lib/jaunt
+  # mount the persistent volume at /home (format only if it has no filesystem yet)
+  - if ! blkid ${volume_device}; then mkfs.ext4 -F ${volume_device}; fi
+  - mkdir -p /mnt/jaunt-home && mount ${volume_device} /mnt/jaunt-home
+  - if [ ! -d /mnt/jaunt-home/home-seeded ]; then cp -a /home/. /mnt/jaunt-home/ 2>/dev/null || true; mkdir -p /mnt/jaunt-home/home-seeded; fi
+  - umount /mnt/jaunt-home && mount ${volume_device} /home
+  - grep -q '${volume_device} /home' /etc/fstab || echo '${volume_device} /home ext4 defaults,nofail 0 2' >> /etc/fstab
+  # tailscale
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --auth-key=${tailscale_auth_key} --hostname=${hostname_prefix}-${user} --advertise-tags=${tailscale_tag} --ssh ${tailscale_extra_args}
+  # idempotent project setup
+  - /opt/jaunt/setup.sh || true
+  # arm idle-watch
+  - systemctl daemon-reload
+  - systemctl enable --now jaunt-idle.timer
