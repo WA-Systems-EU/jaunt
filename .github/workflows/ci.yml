@@ -10,7 +10,7 @@ jobs:
   tofu:
     runs-on: ubuntu-latest
     strategy:
-      matrix: { root: [hetzner, upcloud] }
+      matrix: { root: [hetzner, upcloud, tailnet] }
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1

@@ -12,6 +12,11 @@ Run it once per provider after a change that could affect provisioning
 
 Pick a root: `tofu/hetzner` or `tofu/upcloud`. Then:
 
+0. **Declare the box's tag first.** A box advertises `tag:jaunt-<user>` and Tailscale
+   rejects the join if that tag isn't in the tailnet policy. Apply `tofu/tailnet`
+   with your test `user` in the `engineers` map before step 1 (see
+   [Multi-engineer isolation](README.md#multi-engineer-isolation)).
+
 1. **Export credentials.**
    - Hetzner: `export HCLOUD_TOKEN=...`
    - UpCloud: `export UPCLOUD_USERNAME=... UPCLOUD_PASSWORD=...`

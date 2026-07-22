@@ -12,13 +12,15 @@ tofu/
 │   ├── agent/            #   idle-watch.sh (+ decide_test.sh), jaunt-idle.service/.timer
 │   ├── cloud-init/       #   user-data.tftpl → rendered cloud-config
 │   ├── variables.tf  main.tf  outputs.tf   # renders module output `user_data`
-├── hetzner/              # Hetzner root (hcloud_server/volume/firewall)
-└── upcloud/              # UpCloud root (upcloud_server/storage) — same surface, `zone` for `location`
+├── hetzner/              # Hetzner root (hcloud_server/volume/firewall)   — per engineer
+├── upcloud/              # UpCloud root (upcloud_server/storage)          — per engineer
+└── tailnet/              # admin-run root: the Tailscale ACL that isolates engineers
 ```
 
-The roots consume `module.jauntbox.user_data` and differ only in
+The provider roots consume `module.jauntbox.user_data` and differ only in
 provider-specific bits: server/volume resources, the self-delete API call, and
-`location` vs `zone`.
+`location` vs `zone`. The `tailnet` root is different — it's run once by an admin
+and manages the tailnet-wide access policy (see **Multi-engineer isolation**).
 
 ## Shared variable surface
 
@@ -74,8 +76,51 @@ the meter.** So `box_on=false` deletes the server outright, and the box's own
 idle-watch agent self-deletes it after `idle_day`/`idle_night` of genuine idle.
 Your work lives on the volume, not the server.
 
+## Multi-engineer isolation
+
+The model is **one box per engineer, reachable only by that engineer.** It rests
+on two independent layers:
+
+1. **Cloud firewall** (both providers): default-deny inbound, no port 22. Nothing
+   reaches a box over its public IP — full stop.
+2. **Tailscale ACL** (the `tailnet` root): each box advertises a per-engineer tag
+   `tag:jaunt-<user>`, and the tailnet policy grants each engineer SSH + network
+   access to **only their own tag**, default-deny for everyone else. Admins keep
+   full reach (toggle with `admin_full_access`).
+
+Without layer 2 a box is merely *not public* — anyone on the tailnet could still
+reach it. The `tailnet` root is what makes "only that engineer" true, so **apply
+it first**:
+
+```sh
+cd tofu/tailnet
+cp terraform.tfvars.example terraform.tfvars   # engineers = { alice = "alice@…", … }
+tofu init
+tofu plan            # review the rendered policy (output `policy_json`)
+tofu apply -var overwrite_existing_content=true   # ⚠ this root OWNS the tailnet ACL
+```
+
+> ⚠️ **`tofu/tailnet` manages the entire tailnet ACL.** `overwrite_existing_content`
+> defaults to `false` so a first apply won't silently clobber an existing policy;
+> set it `true` only when you intend this root to own the policy. On `destroy` it
+> resets the ACL to Tailscale's permissive default (`reset_acl_on_destroy`) so you
+> don't lock yourself out. Prefer not to let tofu own it? Run `tofu plan` and paste
+> the `policy_json` output into the admin console by hand.
+
+Each engineer's `user` (in the hetzner/upcloud root) must match a key in the
+`engineers` map — that's what ties `jauntbox-alice` to `tag:jaunt-alice` to
+`alice@…`. A box whose tag isn't declared in the policy will be **rejected** by
+Tailscale at join time, which is why the `tailnet` apply comes first.
+
 ## State
 
-These roots use **local state** for simplicity. For anything real — shared use,
-CI, or a machine you might lose — configure a remote backend (e.g. an S3-compatible
-bucket) so state isn't trapped on one laptop.
+Each engineer's box is a **separate tofu state** — a provider root describes one
+box, so N engineers means N states. Keep them apart one of two ways:
+
+- **Local / solo:** a workspace per engineer — `tofu workspace new alice` before
+  `apply`. State stays on the laptop.
+- **Team (recommended):** a remote backend with a per-engineer state key (e.g.
+  `key = "jaunt/alice/hetzner"` in an S3-compatible bucket), so state isn't trapped
+  on one machine and two engineers never share a state file.
+
+The admin-run `tailnet` root has its own single state (there's one tailnet policy).

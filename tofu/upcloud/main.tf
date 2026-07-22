@@ -8,13 +8,14 @@ resource "tailscale_tailnet_key" "ephemeral" {
   ephemeral     = true
   reusable      = true
   preauthorized = true
-  tags          = ["tag:jauntbox"]
+  tags          = ["tag:jaunt-${var.user}"] # per-user tag → Tailscale ACL isolates each engineer to their own box
 }
 
 module "jauntbox" {
   source             = "../modules/jauntbox"
   user               = var.user
   hostname_prefix    = var.hostname_prefix
+  tailscale_tag      = "tag:jaunt-${var.user}"
   tailscale_auth_key = tailscale_tailnet_key.ephemeral.key
   idle_day_secs      = var.idle_day
   idle_night_secs    = var.idle_night
