@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill in. NEVER commit terraform.tfvars.
+# Credentials also readable from UPCLOUD_USERNAME / UPCLOUD_PASSWORD env.
+upcloud_username = "REDACTED"
+upcloud_password = "REDACTED"
+user             = "alice"
+ssh_public_key   = "ssh-ed25519 AAAA... alice@laptop"
+# box_on           = true
+# plan             = "4xCPU-8GB"
+# zone             = "de-fra1"
