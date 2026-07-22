@@ -33,7 +33,7 @@ Both roots expose the same knobs (defaults shown):
 | `volume_size`     | `100`           | `100`                      | persistent volume size (GB)              |
 | `hostname_prefix` | `jauntbox`      | `jauntbox`                 | → MagicDNS name `jauntbox-<user>`        |
 | `location`/`zone` | `fsn1`          | `fi-hel2`                  | region                                   |
-| `public_ipv4`     | `false`         | `true`                     | attach a public IPv4                     |
+| `public_ipv4`     | `false`         | _(always on)_              | Hetzner: attach a public IPv4. UpCloud always gets one (firewalled) |
 | `idle_day`        | `7200`          | `7200`                     | idle seconds before teardown (day)       |
 | `idle_night`      | `3600`          | `3600`                     | idle seconds before teardown (night)     |
 | `setup_steps`     | `[]`            | `[]`                       | idempotent project setup, run on every up |

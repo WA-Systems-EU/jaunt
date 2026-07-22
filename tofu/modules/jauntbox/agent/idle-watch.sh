@@ -29,6 +29,7 @@ main() {
 
   keep_file=/var/lib/jaunt/keep-until
   keep=0; [ -f "$keep_file" ] && keep=$(cat "$keep_file")
+  case "$keep" in '' | *[!0-9]*) keep=0 ;; esac   # empty/garbage keep-until = no marker
 
   act_file=/var/lib/jaunt/last-active
   [ -f "$act_file" ] || echo "$now" > "$act_file"

@@ -20,10 +20,9 @@ variable "zone" {
   type    = string
   default = "fi-hel2"
 }
-variable "public_ipv4" {
-  type    = bool
-  default = true
-}
+# Note: UpCloud jauntboxes always get a public IP (needed for internet egress to
+# reach Tailscale); it is protected by the default-deny firewall in main.tf. There
+# is no public_ipv4 toggle here, unlike Hetzner where IPv6-only egress is viable.
 variable "idle_day" {
   type    = number
   default = 7200

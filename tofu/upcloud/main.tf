@@ -32,6 +32,7 @@ resource "upcloud_server" "jauntbox" {
   zone     = var.zone
   plan     = var.plan
   metadata = true
+  firewall = true # default-deny inbound; rules below. NEVER expose port 22.
   labels   = { jaunt = var.user }
 
   login {
@@ -49,4 +50,35 @@ resource "upcloud_server" "jauntbox" {
     type = "public"
   }
   user_data = module.jauntbox.user_data
+}
+
+# Firewall parity with Hetzner: default-deny inbound (NO port 22 — Tailscale SSH
+# only), allow all egress. UpCloud's firewall is stateful, so return traffic for
+# outbound-initiated connections (Tailscale/DERP, HTTPS, DNS) is permitted;
+# Tailscale reaches the box via NAT traversal / DERP with no inbound rule, exactly
+# as on Hetzner. Explicit accept/drop rules make the policy deterministic.
+resource "upcloud_firewall_rules" "jauntbox" {
+  count     = var.box_on ? 1 : 0
+  server_id = upcloud_server.jauntbox[0].id
+
+  firewall_rule {
+    action    = "accept"
+    direction = "out"
+    family    = "IPv4"
+  }
+  firewall_rule {
+    action    = "accept"
+    direction = "out"
+    family    = "IPv6"
+  }
+  firewall_rule {
+    action    = "drop"
+    direction = "in"
+    family    = "IPv4"
+  }
+  firewall_rule {
+    action    = "drop"
+    direction = "in"
+    family    = "IPv6"
+  }
 }

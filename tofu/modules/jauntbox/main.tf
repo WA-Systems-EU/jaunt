@@ -13,7 +13,7 @@ locals {
     idle_night_secs      = var.idle_night_secs
     cpu_threshold        = var.cpu_threshold
     volume_device        = var.volume_device
-    tailscale_auth_key   = var.tailscale_auth_key
+    tailscale_key_b64    = base64encode(var.tailscale_auth_key)
     tailscale_tag        = var.tailscale_tag
     tailscale_extra_args = var.tailscale_extra_args
     hostname_prefix      = var.hostname_prefix
