@@ -1,0 +1,11 @@
+plan: cax41                      # override server size for this project
+hostname_prefix: jauntbox          # → MagicDNS name jauntbox-<user>
+repos:
+  - git@github.com:acme/app.git
+setup:                           # idempotent; runs on every up, fast when the volume is warm
+  - mise install
+  - docker compose pull
+ports: [3000, 5432]              # surfaced for connect --open (later CLI milestone)
+idle:
+  day:   2h                      # teardown after this much genuine idle
+  night: 1h                      # tighter window overnight

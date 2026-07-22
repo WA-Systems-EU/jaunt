@@ -1,0 +1,20 @@
+# tofu
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+
+# secrets
+*.pem
+.env
+.env.*
+
+# node (site plan)
+node_modules/
+site/out/
+site/.next/

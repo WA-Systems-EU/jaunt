@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in. NEVER commit terraform.tfvars.
+# hcloud_token also readable from HCLOUD_TOKEN env; tailscale from TAILSCALE_API_KEY/TAILSCALE_TAILNET.
+hcloud_token   = "REDACTED-jauntboxes-project-token"
+user           = "alice"
+ssh_public_key = "ssh-ed25519 AAAA... alice@laptop"
+# box_on         = true   # flip to stand the box up
+# plan           = "ccx43"
+# public_ipv4    = true
