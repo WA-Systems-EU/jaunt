@@ -38,6 +38,7 @@ if ! grep -q 'jaunt toolchain' "$HOME/.bashrc" 2>/dev/null; then
   cat >>"$HOME/.bashrc" <<'RC'
 
 # jaunt toolchain
+export PATH="$HOME/.local/bin:$PATH"   # mise, claude, and other user-installed CLIs
 export TMPDIR="$HOME/.cache/jaunt-build-tmp"; mkdir -p "$TMPDIR"
 . "$HOME/.asdf/asdf.sh"
 [ -x "$HOME/.local/bin/mise" ] && eval "$("$HOME/.local/bin/mise" activate bash)"
@@ -73,3 +74,12 @@ asdf global ruby "$(printf '%s\n' "$rubies" | tail -1)"
 
 asdf reshim
 log "toolchain ready: go $go_v · rust $rust_v · node $node_v · ruby $(printf '%s' "$rubies" | tr '\n' ',')"
+
+# --- Claude Code (native CLI -> ~/.local/bin/claude; no Node runtime needed) ---
+# Install only. Auth is per-engineer and intentionally NOT baked in (no secrets in
+# cloud-init): on the box, set ANTHROPIC_API_KEY, or generate a token with
+# `claude setup-token` on a machine that has a browser and export CLAUDE_CODE_OAUTH_TOKEN.
+if [ ! -x "$HOME/.local/bin/claude" ]; then
+  log "installing Claude Code"
+  curl -fsSL https://claude.ai/install.sh | bash
+fi
