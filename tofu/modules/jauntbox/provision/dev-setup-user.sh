@@ -8,6 +8,12 @@ set -euo pipefail
 
 log() { echo "[jaunt-provision:user] $*"; }
 
+# Source builds (ruby-build compiling Ruby, some asdf plugins) scratch in $TMPDIR. The box's
+# /tmp is a small RAM-backed tmpfs (~50% of RAM, ~1G here) and overflows on a Ruby compile
+# ("No space left on device"). Point TMPDIR at the roomy persistent /home volume instead.
+export TMPDIR="$HOME/.cache/jaunt-build-tmp"
+mkdir -p "$TMPDIR"
+
 # --- mise (available alongside asdf) ---
 if [ ! -x "$HOME/.local/bin/mise" ]; then
   log "installing mise"
@@ -32,6 +38,7 @@ if ! grep -q 'jaunt toolchain' "$HOME/.bashrc" 2>/dev/null; then
   cat >>"$HOME/.bashrc" <<'RC'
 
 # jaunt toolchain
+export TMPDIR="$HOME/.cache/jaunt-build-tmp"; mkdir -p "$TMPDIR"
 . "$HOME/.asdf/asdf.sh"
 [ -x "$HOME/.local/bin/mise" ] && eval "$("$HOME/.local/bin/mise" activate bash)"
 RC
