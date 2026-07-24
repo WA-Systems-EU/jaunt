@@ -123,8 +123,10 @@ Thin Go client. Talks to the `jauntd` API over the tailnet.
 Small Go service on the tiny always-on box. Responsibilities:
 
 1. **jaunt API** — HTTP over the tailnet. Authenticate the caller via the Tailscale LocalAPI
-   `WhoIs`; map identity → `user`. Run the `box` root apply (via HashiCorp `terraform-exec`)
-   with `box_on` toggled. Stream/return status.
+   `WhoIs`; map identity → `user`. For `up`: if the box is already running, **skip the apply**
+   and return connect info (idempotent, never disturbs a running box); otherwise run the `box`
+   root apply (via HashiCorp `terraform-exec`) with `box_on=true`. For `down`: apply
+   `box_on=false`. Never pulls or writes config — it applies whatever the admin last promoted.
 2. **git remote + `post-receive` hook** — bare repo + hook that checks out the promoted ref
    and applies the `infra` root for declared engineers. (Served by Tailscale SSH `git` user;
    the hook is a script, not part of the Go binary.)
@@ -180,9 +182,16 @@ engineer can self-promote.
   `group:admins`) can change scale, add engineers, or add resource types.
 - **Defense in depth on push** — the `post-receive` hook additionally calls Tailscale WhoIs
   and rejects any pusher not in the admin set, so an ACL misconfig still fails safe.
-- **`jaunt up` honors the current declared config.** If an admin bumped the plan since last
-  time, the next `up` brings the box up at the new spec. This is a feature (up = "give me my
-  box as currently declared"), stated so it isn't surprising.
+- **Engineers consume config; they never produce it.** A `jaunt up/down` reads the currently
+  promoted config and toggles a server — it never writes jauntd's git checkout or triggers an
+  `infra` apply. Only the admin `post-receive` hook mutates the checkout. So an engineer call
+  cannot change config, only server existence.
+- **`jaunt up` is idempotent by box state — it never modifies a *running* box.** If the box is
+  already up, jauntd does **not** re-apply; it just reconnects. It runs `tofu apply` (box root,
+  `box_on=true`) only when the box is down/absent. Consequently an admin config change (e.g. a
+  plan bump) never disturbs a running session — it lands on the **next fresh start**, which,
+  because boxes idle-off at EOD, is naturally the next morning's `up`-from-down. No surprise
+  mid-day recreates.
 
 ## Risks / tradeoffs
 
