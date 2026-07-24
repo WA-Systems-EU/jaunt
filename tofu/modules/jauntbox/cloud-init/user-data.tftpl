@@ -31,6 +31,21 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${setup_b64}
+  - path: /opt/jaunt/dev-setup.sh
+    permissions: '0755'
+    encoding: b64
+    content: ${provision_b64}
+  - path: /opt/jaunt/dev-setup-user.sh
+    permissions: '0755'
+    encoding: b64
+    content: ${provision_user_b64}
+  - path: /etc/jaunt/provision.env
+    permissions: '0644'
+    content: |
+      JAUNT_USER=${user}
+      JAUNT_UID=2000
+      JAUNT_INSTALL_TOOLCHAIN=${install_toolchain}
+      JAUNT_DOCKER_DATA_ROOT=${docker_data_root}
 runcmd:
   - mkdir -p /var/lib/jaunt
   # wait for the data volume to appear (Hetzner attaches it asynchronously, so the
@@ -42,9 +57,26 @@ runcmd:
   - if [ ! -d /mnt/jaunt-home/home-seeded ]; then cp -a /home/. /mnt/jaunt-home/ 2>/dev/null || true; mkdir -p /mnt/jaunt-home/home-seeded; fi
   - umount /mnt/jaunt-home && mount ${volume_device} /home
   - grep -q '${volume_device} /home' /etc/fstab || echo '${volume_device} /home ext4 defaults,nofail 0 2' >> /etc/fstab
-  # tailscale
+  # tailscale — install, then make sure the daemon is up before `tailscale up`
+  # (running `up` before tailscaled's socket exists is a boot-time race that leaves
+  # the box installed-but-not-connected)
   - curl -fsSL https://tailscale.com/install.sh | sh
-  - tailscale up --auth-key="$(cat /etc/jaunt/ts.key)" --hostname=${hostname_prefix}-${user} --advertise-tags=${tailscale_tag} --ssh ${tailscale_extra_args}
+  # persist node identity on the data volume so a replaced box reclaims its node key and
+  # MagicDNS name (no `-1` dedup suffix). the install may auto-start tailscaled on the
+  # root-disk state dir, so stop it, swap the dir for a symlink onto /home, then start.
+  - systemctl stop tailscaled 2>/dev/null || true
+  - rm -rf /var/lib/tailscale
+  - mkdir -p /home/.jaunt/tailscale && chmod 700 /home/.jaunt /home/.jaunt/tailscale
+  - ln -sfn /home/.jaunt/tailscale /var/lib/tailscale
+  - systemctl enable --now tailscaled
+  - for i in $(seq 1 30); do [ -S /var/run/tailscale/tailscaled.sock ] && break; sleep 1; done
+  # shred the reusable auth key on a successful join — persisted identity means a running box
+  # no longer needs it, and a live box is where a compromise would read it. cloud-init re-writes
+  # it fresh next boot for the slow-replace (GC'd node) re-auth fallback.
+  - tailscale up --auth-key="$(cat /etc/jaunt/ts.key)" --hostname=${hostname_prefix}-${user} --advertise-tags=${tailscale_tag} --ssh ${tailscale_extra_args} && shred -u /etc/jaunt/ts.key
+  # provision the engineer user, Docker, and the dev toolchain (long on a cold volume;
+  # the box is already reachable over Tailscale by now)
+  - /opt/jaunt/dev-setup.sh
   # idempotent project setup
   - /opt/jaunt/setup.sh || true
   # arm idle-watch
