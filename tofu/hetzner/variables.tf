@@ -24,7 +24,19 @@ variable "location" {
   type    = string
   default = "fsn1"
 }
+# Give the box a public IPv4. REQUIRED for egress, not for inbound: github.com,
+# codeload.github.com and objects.githubusercontent.com have no IPv6 (no AAAA), so an
+# IPv6-only box cannot clone repos or pull release assets and provisioning fails. Inbound
+# stays default-deny at the firewall (no port 22 — Tailscale SSH only), so this only opens
+# outbound reachability. Costs ~€0.50/mo per box; boxes self-delete when idle.
 variable "public_ipv4" {
+  type    = bool
+  default = true
+}
+# TEMP/DEBUG ONLY. Opens inbound TCP 22 from anywhere on the box's public IP. The
+# intended posture is default-deny (no port 22 — Tailscale SSH only); set this true
+# only to debug a box you can't yet reach over Tailscale, then set it back to false.
+variable "allow_ssh" {
   type    = bool
   default = false
 }
@@ -38,7 +50,7 @@ variable "idle_night" {
 }
 variable "base_image" {
   type    = string
-  default = "ubuntu-24.04"
+  default = "ubuntu-26.04"
 }
 variable "setup_steps" {
   type    = list(string)
