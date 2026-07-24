@@ -36,33 +36,60 @@ volume-backed path is available when `tailscaled` first starts.
 
 ### Mechanism
 
-In `tofu/modules/jauntbox/cloud-init/user-data.tftpl`, change the Tailscale bring-up so
-`tailscaled`'s state directory is a symlink onto the volume, established **before** the daemon
-first starts:
+Relocate only the **state file**, via a systemd drop-in — **not** by symlinking
+`/var/lib/tailscale`.
+
+> **Why not a symlink.** The packaged `tailscaled.service` declares `StateDirectory=tailscale`.
+> systemd refuses to set up a `StateDirectory` that is a symlink and fails the unit with
+> `Failed to set up special execution directory in /var/lib: Too many levels of symbolic links`,
+> so `tailscaled` never starts and the box never joins. (Confirmed on a real box.)
+
+Instead, leave `/var/lib/tailscale` as the real directory systemd owns, and point
+`tailscaled`'s `--state` at a file on the volume. The packaged `ExecStart` ends with `$FLAGS`,
+and `tailscaled`'s flag parser takes the **last** `--state`, so appending
+`--state=/home/.jaunt/tailscaled.state` via `$FLAGS` overrides the packaged
+`--state=/var/lib/tailscale/tailscaled.state` without hardcoding (and thus without drifting
+from) the packaged command line.
+
+**1. `write_files` drop-in** (config stage → on disk before the package auto-starts the daemon):
+
+```
+- path: /etc/systemd/system/tailscaled.service.d/10-jaunt-state.conf
+  permissions: '0644'
+  content: |
+    [Unit]
+    RequiresMountsFor=/home
+    [Service]
+    Environment=FLAGS=--state=/home/.jaunt/tailscaled.state
+    ProtectHome=no
+```
+
+- `RequiresMountsFor=/home` — on a later reboot, order `tailscaled` after the volume mount.
+- `ProtectHome=no` — defensive; guarantees the service can write under `/home` even if a
+  future packaged unit hardens it (a no-op against today's unit).
+
+**2. `runcmd` bring-up:**
 
 ```
 - curl -fsSL https://tailscale.com/install.sh | sh
-# point tailscaled's state at the persistent volume so node identity survives replacement.
-# the package install may auto-start the daemon on the root-disk state dir — stop it,
-# swap the dir for a symlink onto /home, then (re)start.
-- systemctl stop tailscaled 2>/dev/null || true
-- rm -rf /var/lib/tailscale
-- mkdir -p /home/.jaunt/tailscale && chmod 700 /home/.jaunt /home/.jaunt/tailscale
-- ln -sfn /home/.jaunt/tailscale /var/lib/tailscale
-- systemctl enable --now tailscaled
+- mkdir -p /home/.jaunt && chmod 700 /home/.jaunt
+- systemctl daemon-reload
+- systemctl enable tailscaled
+- systemctl restart tailscaled   # restart so the drop-in applies even if install auto-started it
 - for i in $(seq 1 30); do [ -S /var/run/tailscale/tailscaled.sock ] && break; sleep 1; done
-# shred the reusable auth key the moment the join succeeds — persisted identity means the
-# running box no longer needs it, and a live box is where a compromise would read it.
 - tailscale up --auth-key="$(cat /etc/jaunt/ts.key)" --hostname=${hostname_prefix}-${user} --advertise-tags=${tailscale_tag} --ssh ${tailscale_extra_args} && shred -u /etc/jaunt/ts.key
 ```
 
 The shred is chained with `&&` so it runs **only on a successful join** — if `tailscale up`
 fails, the key is left in place for a manual retry. cloud-init re-writes `/etc/jaunt/ts.key`
-fresh on the next boot, so the slow-replace fallback (re-auth via the key when the old node was
-already GC'd) still works; the key is simply absent during the box's *running* life.
+fresh on the next *instance's* first boot, so the slow-replace fallback (re-auth via the key
+when the old node was already GC'd) still works; the key is simply absent during the box's
+*running* life.
 
-The symlink approach is preferred over a systemd `ExecStart` override: it doesn't hardcode the
-packaged unit's command line, so it won't drift when the Tailscale package updates.
+> **Reboot vs. replacement.** cloud-init `runcmd`/`write_files` run once per instance (first
+> boot), so the shred is safe across a plain **reboot**: the state file persists on the volume
+> and `tailscaled` re-reads it (no auth key needed). A **replacement** is a new instance, so
+> cloud-init re-runs fully and re-supplies the key.
 
 ### Why this covers both timing cases
 
@@ -121,13 +148,17 @@ This change is **credential-neutral, then net-positive**:
 
 Manual, against a real box (no unit test is meaningful for cloud-init identity):
 
-1. Apply with `box_on=true`; record MagicDNS name and `tailscale status --json | jq -r .Self.ID`.
+0. **Fresh box first:** apply with `box_on=true` on a clean slate and confirm the box actually
+   joins — `systemctl is-active tailscaled` is `active`, and `jauntbox-<user>` appears in
+   `tailscale status`. (This is the regression the symlink approach caused.)
+1. Record MagicDNS name and `tailscale status --json | jq -r .Self.ID`.
 2. Toggle `box_on=false` then `box_on=true` (and separately: force a recreate via a user-data
    change) and re-apply.
 3. Confirm the box rejoins as **`jauntbox-<user>`** with **no `-1`**, and that `.Self.ID` matches
    the value from step 1 (identity reclaimed) for the fast-replace case.
-4. Confirm `ls -la /var/lib/tailscale` is a symlink to `/home/.jaunt/tailscale` and the state
-   file is `root:root` with `0700` on its directory.
+4. Confirm `/var/lib/tailscale` is a real directory (not a symlink), the drop-in
+   `systemctl cat tailscaled` shows `Environment=FLAGS=--state=/home/.jaunt/tailscaled.state`,
+   and `/home/.jaunt/tailscaled.state` exists on the volume.
 5. Confirm the Tailscale admin console shows a **single** node for the user, not a stale pair.
 6. Confirm `/etc/jaunt/ts.key` is **absent** on a running box (shredded post-join), and present
    again only transiently at boot.

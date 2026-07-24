@@ -21,6 +21,25 @@ write_files:
     permissions: '0600'
     encoding: b64
     content: ${tailscale_key_b64}
+  # systemd drop-in: relocate tailscaled's state FILE onto the persistent volume so node
+  # identity (and thus the MagicDNS hostname) survives box replacement. We do NOT symlink
+  # /var/lib/tailscale — the packaged unit sets `StateDirectory=tailscale`, and systemd
+  # refuses to set up a StateDirectory that is a symlink ("too many levels of symbolic
+  # links"), which stops the service from starting. Instead we append `--state=<volume>`
+  # via $FLAGS; tailscaled's flag parser takes the LAST --state, overriding the packaged
+  # `--state=/var/lib/tailscale/...`. Written in write_files (config stage) so it is on
+  # disk before the package install auto-starts tailscaled.
+  #   RequiresMountsFor=/home — on a later reboot, wait for the volume mount before start.
+  #   ProtectHome=no          — defensive: guarantee the service can write under /home even
+  #                             if a future packaged unit hardens it (harmless no-op today).
+  - path: /etc/systemd/system/tailscaled.service.d/10-jaunt-state.conf
+    permissions: '0644'
+    content: |
+      [Unit]
+      RequiresMountsFor=/home
+      [Service]
+      Environment=FLAGS=--state=/home/.jaunt/tailscaled.state
+      ProtectHome=no
   - path: /etc/systemd/system/jaunt-idle.service
     content: ${service_b64}
     encoding: b64
@@ -61,18 +80,20 @@ runcmd:
   # (running `up` before tailscaled's socket exists is a boot-time race that leaves
   # the box installed-but-not-connected)
   - curl -fsSL https://tailscale.com/install.sh | sh
-  # persist node identity on the data volume so a replaced box reclaims its node key and
-  # MagicDNS name (no `-1` dedup suffix). the install may auto-start tailscaled on the
-  # root-disk state dir, so stop it, swap the dir for a symlink onto /home, then start.
-  - systemctl stop tailscaled 2>/dev/null || true
-  - rm -rf /var/lib/tailscale
-  - mkdir -p /home/.jaunt/tailscale && chmod 700 /home/.jaunt /home/.jaunt/tailscale
-  - ln -sfn /home/.jaunt/tailscale /var/lib/tailscale
-  - systemctl enable --now tailscaled
+  # create the volume-backed state dir BEFORE tailscaled starts (the drop-in in write_files
+  # points --state here). On a replacement box this dir already holds tailscaled.state, so
+  # the node reclaims its identity and keeps its hostname (no `-1`); on a fresh box it is
+  # empty and the auth-key join below creates it.
+  - mkdir -p /home/.jaunt && chmod 700 /home/.jaunt
+  - systemctl daemon-reload
+  - systemctl enable tailscaled
+  # restart (not just start) so the state drop-in is applied even if the package install
+  # already auto-started tailscaled.
+  - systemctl restart tailscaled
   - for i in $(seq 1 30); do [ -S /var/run/tailscale/tailscaled.sock ] && break; sleep 1; done
   # shred the reusable auth key on a successful join — persisted identity means a running box
   # no longer needs it, and a live box is where a compromise would read it. cloud-init re-writes
-  # it fresh next boot for the slow-replace (GC'd node) re-auth fallback.
+  # it fresh on the next instance's first boot for the slow-replace (GC'd node) re-auth fallback.
   - tailscale up --auth-key="$(cat /etc/jaunt/ts.key)" --hostname=${hostname_prefix}-${user} --advertise-tags=${tailscale_tag} --ssh ${tailscale_extra_args} && shred -u /etc/jaunt/ts.key
   # provision the engineer user, Docker, and the dev toolchain (long on a cold volume;
   # the box is already reachable over Tailscale by now)
