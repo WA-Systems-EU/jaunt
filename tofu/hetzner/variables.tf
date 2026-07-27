@@ -8,8 +8,10 @@ variable "box_on" {
 }
 variable "user" { type = string }
 variable "plan" {
-  type    = string
-  default = "cax41"
+  type = string
+  # x86 is required (df stack has amd64-pinned images; toolchain pins are x86). cpx42 =
+  # 8 vCPU / 16 GB, new gen (cpx41 retired). Do NOT default to an ARM (cax) type.
+  default = "cpx42"
 }
 variable "volume_size" {
   type    = number
