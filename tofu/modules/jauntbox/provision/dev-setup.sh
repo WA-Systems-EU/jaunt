@@ -37,14 +37,19 @@ fi
 # --- 2. Base packages -------------------------------------------------------------
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-# git + curl/gnupg (repos), jq (Node LTS lookup), ripgrep + fd-find (Neovim/telescope),
-# and the C toolchain + libs that ruby-build needs to compile Ruby from source.
+# git + curl/gnupg (repos), jq (Node LTS lookup), zsh (the engineer login shell), fzf +
+# ripgrep + fd-find + bat (fuzzy find / Neovim / previews), and the C toolchain + libs that
+# ruby-build needs to compile Ruby from source.
 apt-get install -y --no-install-recommends \
-  git curl ca-certificates gnupg jq unzip ripgrep fd-find \
+  git curl ca-certificates gnupg jq unzip zsh fzf ripgrep fd-find bat \
   build-essential autoconf bison \
   libssl-dev libyaml-dev libreadline-dev zlib1g-dev libncurses-dev libffi-dev libgdbm-dev
-# Debian/Ubuntu ship fd as `fdfind`; give it its conventional `fd` name for Neovim configs.
+# Debian/Ubuntu ship these under alternate names; give them their conventional names.
 [ -x /usr/bin/fdfind ] && ln -sf /usr/bin/fdfind /usr/local/bin/fd
+[ -x /usr/bin/batcat ] && ln -sf /usr/bin/batcat /usr/local/bin/bat
+# Make zsh the engineer's login shell (matches the reference devbox + local dev shell). Done
+# here, after zsh is installed, rather than at useradd time.
+chsh -s "$(command -v zsh)" "$JAUNT_USER"
 
 # GitHub CLI (official apt repo).
 if ! command -v gh >/dev/null 2>&1; then
@@ -72,6 +77,12 @@ if [ "$(nvim --version 2>/dev/null | head -1)" != "NVIM ${NVIM_VERSION}" ]; then
   mv "$nvim_tmp/nvim-linux-x86_64" /opt/nvim
   ln -sfn /opt/nvim/bin/nvim /usr/local/bin/nvim
   rm -rf "$nvim_tmp"
+fi
+
+# --- 2c. Starship prompt (fast, git-aware; matches the reference devbox) -----------
+if ! command -v starship >/dev/null 2>&1; then
+  log "installing starship"
+  curl -sS https://starship.rs/install.sh | sh -s -- --yes >/dev/null
 fi
 
 # --- 3. Docker, data-root on the persistent volume --------------------------------

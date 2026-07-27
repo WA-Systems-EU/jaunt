@@ -45,6 +45,34 @@ export TMPDIR="$HOME/.cache/jaunt-build-tmp"; mkdir -p "$TMPDIR"
 RC
 fi
 
+# zsh is the engineer's login shell (see dev-setup.sh). Provide a working default .zshrc —
+# toolchain + fzf Ctrl-T/Ctrl-R + starship — appended once. An engineer who brings their own
+# dotfiles onto the volume keeps them; this block just adds jaunt's tools (guarded, no dupes).
+if ! grep -q 'jaunt toolchain' "$HOME/.zshrc" 2>/dev/null; then
+  cat >>"$HOME/.zshrc" <<'RC'
+
+# jaunt toolchain
+export PATH="$HOME/.local/bin:$PATH"   # mise, claude, and other user-installed CLIs
+export TMPDIR="$HOME/.cache/jaunt-build-tmp"; mkdir -p "$TMPDIR"
+# sane zsh history so Ctrl-R has something to search on a bare shell
+export HISTFILE="$HOME/.zsh_history" HISTSIZE=100000 SAVEHIST=100000
+setopt SHARE_HISTORY HIST_IGNORE_DUPS
+. "$HOME/.asdf/asdf.sh"
+[ -x "$HOME/.local/bin/mise" ] && eval "$("$HOME/.local/bin/mise" activate zsh)"
+# fzf — Ctrl-T (files, fd + bat preview) and Ctrl-R (history), matching the local dev shell
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+export FZF_CTRL_T_OPTS="--preview 'bat --color=always {}' --preview-window=right:50%"
+export FZF_CTRL_R_OPTS="--sort --exact"
+if command -v fzf >/dev/null; then
+  if fzf --zsh >/dev/null 2>&1; then source <(fzf --zsh)
+  elif [ -f /usr/share/doc/fzf/examples/key-bindings.zsh ]; then
+    source /usr/share/doc/fzf/examples/key-bindings.zsh
+  fi
+fi
+command -v starship >/dev/null && eval "$(starship init zsh)"
+RC
+fi
+
 add_plugin() { asdf plugin list 2>/dev/null | grep -qx "$1" || asdf plugin add "$1"; }
 
 # --- Go (latest) ---
