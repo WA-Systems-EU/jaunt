@@ -125,7 +125,7 @@ Small Go service on the tiny always-on box. Responsibilities:
 1. **jaunt API** — HTTP over the tailnet. Authenticate the caller via the Tailscale LocalAPI
    `WhoIs`; map identity → `user`. For `up`: if the box is already running, **skip the apply**
    and return connect info (idempotent, never disturbs a running box); otherwise run the `box`
-   root apply (via HashiCorp `terraform-exec`) with `box_on=true`. For `down`: apply
+   root apply (via `opentofu/tofu-exec`) with `box_on=true`. For `down`: apply
    `box_on=false`. Never pulls or writes config — it applies whatever the admin last promoted.
 2. **git remote + `post-receive` hook** — bare repo + hook that checks out the promoted ref
    and applies the `infra` root for declared engineers. (Served by Tailscale SSH `git` user;
@@ -134,7 +134,10 @@ Small Go service on the tiny always-on box. Responsibilities:
    Never on any laptop.
 4. **Holds per-engineer local tofu state** (`infra/<user>.tfstate`, `box/<user>.tfstate`).
 
-Tech: Go (single binary, matches the CLI), `hashicorp/terraform-exec` to drive `tofu`,
+Tech: Go (single binary, matches the CLI), **`opentofu/tofu-exec`** to drive `tofu`
+(OpenTofu's own fork of terraform-exec — avoids the Terraform-version feature-gating
+mismatch you hit if you point HashiCorp's `terraform-exec` at the `tofu` binary; a thin
+`os/exec` wrapper over our small fixed command set is a dependency-free fallback), and
 Tailscale `LocalClient` for WhoIs.
 
 ## Tailscale ACL
