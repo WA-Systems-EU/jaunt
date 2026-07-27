@@ -216,7 +216,7 @@ engineer can self-promote.
 - **Packer image (future, complementary):** baking the toolchain into the base image makes a
   cold `jaunt up` ~a minute instead of a multi-minute compile. Not required for this control
   plane, but it's what makes the daily up *feel* instant. Tracked separately.
-- **Box sizing** is per-deployment config (default `cpx41` — sized for the df 11-service
+- **Box sizing** is per-deployment config (default `cpx42` — sized for the df 11-service
   stack), set in the `infra`/`box` config, not a control-plane concern.
 
 ## Build sequence

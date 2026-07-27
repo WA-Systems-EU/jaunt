@@ -73,7 +73,7 @@ variable "hostname_prefix" {
 }
 variable "plan" {
   type    = string
-  default = "cpx41" # 8 vCPU / 16 GB, x86 — sized for the df stack
+  default = "cpx42" # 8 vCPU / 16 GB, x86 (new gen; cpx41 retired) — sized for the df stack
 }
 variable "volume_size" {
   type    = number
@@ -333,7 +333,7 @@ acceptable; the volume (data) is preserved.
 - [ ] **Step 4: Adopt the volume into `infra` and apply**
 
 Provide the same values the box used (via `tofu/infra/terraform.tfvars` — copy from
-`tofu/hetzner/terraform.tfvars`: `hcloud_token`, `user`, `ssh_public_key`; keep `plan=cpx41`).
+`tofu/hetzner/terraform.tfvars`: `hcloud_token`, `user`, `ssh_public_key`; keep `plan=cpx42`).
 
 Run:
 ```bash
