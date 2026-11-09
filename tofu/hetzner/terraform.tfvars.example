@@ -3,6 +3,14 @@
 hcloud_token   = "REDACTED-jauntboxes-project-token"
 user           = "alice"
 ssh_public_key = "ssh-ed25519 AAAA... alice@laptop"
-# box_on         = true   # flip to stand the box up
-# plan           = "ccx43"
+# box_on         = true   # flip to stand the jauntbox up
+# plan           = "cpx42" # x86 required — do NOT use an ARM (cax) type
 # public_ipv4    = true
+
+# --- gbrain: the SHARED, always-on box, toggled independently of box_on ---------------
+# WARNING: no idle agent — nothing reaps it. `gbrain_on = false` is the only off switch.
+# WARNING: shared box in a per-engineer root — only ONE engineer should set this true.
+# gbrain_on          = true
+# gbrain_instance    = "00"    # bump to replace the box (also means a fresh volume)
+# gbrain_plan        = "cpx42"
+# gbrain_volume_size = 50

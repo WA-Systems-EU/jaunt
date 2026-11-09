@@ -9,6 +9,10 @@ locals {
     service_b64          = base64encode(file("${path.module}/agent/jaunt-idle.service"))
     timer_b64            = base64encode(file("${path.module}/agent/jaunt-idle.timer"))
     setup_b64            = base64encode(local.setup_script)
+    provision_b64        = base64encode(file("${path.module}/../provision/dev-setup.sh"))
+    provision_user_b64   = base64encode(file("${path.module}/../provision/dev-setup-user.sh"))
+    install_toolchain    = var.install_dev_toolchain
+    docker_data_root     = "/home/.docker"
     idle_day_secs        = var.idle_day_secs
     idle_night_secs      = var.idle_night_secs
     cpu_threshold        = var.cpu_threshold

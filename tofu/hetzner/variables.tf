@@ -58,3 +58,30 @@ variable "setup_steps" {
   type    = list(string)
   default = []
 }
+
+# --- gbrain: the shared, always-on box (Tan gbrain project) ---------------------------
+# Toggled independently of `box_on`. NOTE: no idle-watch agent — nothing reaps it, so
+# `gbrain_on = false` is the only off switch and it bills until you flip it.
+variable "gbrain_on" {
+  type    = bool
+  default = false
+}
+# Revision number, not an engineer name: the box is `gbrain-<instance>`. Bump to replace.
+variable "gbrain_instance" {
+  type    = string
+  default = "00"
+}
+variable "gbrain_plan" {
+  type = string
+  # x86 for the same reason as `plan` above (amd64-pinned images / toolchain pins).
+  # Do NOT set an ARM (cax) type.
+  default = "cpx42"
+}
+variable "gbrain_volume_size" {
+  type    = number
+  default = 50
+}
+variable "gbrain_setup_steps" {
+  type    = list(string)
+  default = []
+}

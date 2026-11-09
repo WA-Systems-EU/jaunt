@@ -1,4 +1,5 @@
 # tofu
+lenovo.txt
 .terraform/
 .terraform.lock.hcl
 *.tfstate

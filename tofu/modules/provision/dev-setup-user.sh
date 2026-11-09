@@ -81,6 +81,9 @@ go_v="$(asdf latest golang)"
 asdf install golang "$go_v"
 asdf global golang "$go_v"
 
+# --- git-appraise (distributed code review stored in git notes) ---
+go install github.com/google/git-appraise/git-appraise@latest
+
 # --- Rust (latest) ---
 add_plugin rust
 rust_v="$(asdf latest rust)"

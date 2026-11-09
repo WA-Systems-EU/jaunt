@@ -1,13 +1,14 @@
 # Map of engineer username => their Tailscale login (email, or a "group:..." ref).
-# The username becomes the box tag `tag:jaunt-<username>` and must match the `user`
-# each engineer passes to the hetzner/upcloud roots. Example:
+# The username becomes the box tag `tag:jaunt-<username>` and must match the `user` each
+# engineer passes to the hetzner/upcloud roots. (The shared gbrain box uses one flat
+# `tag:gbrain` instead — it is not per-engineer.) Example:
 #   engineers = { alice = "alice@wa-systems.eu", bob = "bob@wa-systems.eu" }
 variable "engineers" {
   type = map(string)
 }
 
-# Let tailnet admins reach every jauntbox (prevents self-lockout and allows
-# support/debug). Engineers are still restricted to their own box regardless.
+# Let tailnet admins reach every box (prevents self-lockout and allows support/debug).
+# Engineers are still restricted to their own jauntbox + the shared gbrain box regardless.
 variable "admin_full_access" {
   type    = bool
   default = true
