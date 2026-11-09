@@ -23,15 +23,17 @@ type named struct {
 }
 
 type fakeProv struct {
-	box          *provider.Box
-	calls        []string
-	spec         provider.CreateBoxSpec
-	key, fw, vol named
-	volCalls     int
-	failCreate   bool
-	racedBox     *provider.Box // appears after CreateBox fails
-	seq          *[]string     // optional shared call log across fakes
-	deleted      []int64
+	box                  *provider.Box
+	calls                []string
+	spec                 provider.CreateBoxSpec
+	key, fw, vol         named
+	volCalls             int
+	failCreate           bool
+	racedBox             *provider.Box // appears after CreateBox fails
+	seq                  *[]string     // optional shared call log across fakes
+	deleted              []int64
+	waitErr              error // WaitDeleted fails while set
+	clearWaitErrOnDelete bool
 }
 
 func (f *fakeProv) log(s string) {
@@ -89,11 +91,17 @@ func (f *fakeProv) DeleteBox(_ context.Context, id int64) error {
 	f.rec("delete")
 	f.log("delete")
 	f.deleted = append(f.deleted, id)
+	if f.clearWaitErrOnDelete {
+		f.waitErr = nil
+	}
 	return nil
 }
 func (f *fakeProv) WaitDeleted(context.Context, int64) error {
 	f.rec("waitdeleted")
 	f.log("waitdeleted")
+	if f.waitErr != nil {
+		return f.waitErr
+	}
 	f.box = nil
 	return nil
 }

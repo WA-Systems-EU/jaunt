@@ -29,7 +29,11 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
 
 5. **Self-deletion keeps the volume.** On the box set `max_uptime: 15m` by editing
    `/etc/jauntbox/box.json` (it is frozen there at `up`), disconnect, and wait.
-   The box deletes itself; in the Hetzner console the volume `jauntbox-<user>-home`
+   Timing: the supervisor keeps the box while a human was active within
+   `human_active_window` (30m by default), and checks that before the night or
+   deadline rules. So disconnect at least 30 minutes before the expected
+   deletion, or lower `human_active_window` in `box.json` too. The box deletes
+   itself; in the Hetzner console the volume `jauntbox-<user>-home`
    remains.
 
 6. **Volume survives.** `jauntbox up` again: same hostname, and the `/home`
@@ -38,6 +42,9 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
 7. **Night session.** `jauntbox night --until <HH:MM about 10 minutes from now>`,
    then on the box start a fake agent:
    `docker run -d --label jauntbox.agent=1 alpine sleep 3600`.
+   Run this step after `evening_cutoff` (19:00), or lower `evening_cutoff` in
+   `box.json`, and keep your sessions closed for `human_active_window` (or lower
+   it), otherwise the human-active rule masks what you are testing.
    The box survives past the evening cutoff / idle limit while the agent runs and
    deletes itself at the night deadline.
 
@@ -46,7 +53,7 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    old box deleted, new one created, `/home` intact.
 
 9. **Safety net.** `jauntbox up` without `--wait`, kill the background push helper
-   (`pkill -f internal-push`), and leave it. The box deletes itself roughly 45-55
+   (`pkill -f internal-push`) immediately after `up` returns, and leave it. The box deletes itself roughly 45-55
    minutes later. **Confirm the volume is still there afterwards** (a safety-net
    deletion must delete only the server).
 

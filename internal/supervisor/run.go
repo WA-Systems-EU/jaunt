@@ -128,6 +128,9 @@ func (s *Supervisor) touchHeartbeat(now time.Time) error {
 	return os.Chtimes(s.Paths.Heartbeat, now, now)
 }
 
+// ErrBusy means another supervisor pass holds the lock.
+var ErrBusy = errors.New("another supervisor run is in progress")
+
 func (s *Supervisor) lock() (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(s.Paths.Lock), 0o755); err != nil {
 		return nil, err
@@ -138,7 +141,7 @@ func (s *Supervisor) lock() (func(), error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, errors.New("another supervisor run is in progress")
+		return nil, ErrBusy
 	}
 	return func() { f.Close() }, nil
 }

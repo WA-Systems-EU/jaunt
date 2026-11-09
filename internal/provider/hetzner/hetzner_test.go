@@ -362,3 +362,13 @@ func TestEnsureFirewallRequiresUserLabel(t *testing.T) {
 		t.Fatalf("made %d requests", len(f.reqs))
 	}
 }
+
+func TestDeleteBoxNotFoundIsSuccess(t *testing.T) {
+	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) {
+		rw.WriteHeader(404)
+		w(rw, `{"error":{"code":"not_found","message":"server not found"}}`)
+	})
+	if err := h.DeleteBox(context.Background(), 9); err != nil {
+		t.Fatalf("err = %v, want nil for an already-gone server", err)
+	}
+}

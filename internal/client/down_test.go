@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -139,5 +141,52 @@ func TestStatusNoBoxAndOffline(t *testing.T) {
 	rep, err = Status(context.Background(), d)
 	if err != nil || rep.Online || len(r.cmds) != 0 || rep.Box == nil {
 		t.Fatalf("%+v %v", rep, err)
+	}
+}
+
+func exitErr(t *testing.T, code int) error {
+	t.Helper()
+	err := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("no exit error: %v", err)
+	}
+	return fmt.Errorf("ssh x: %w: out", ee)
+}
+
+func TestDownRemoteFailureNot255WaitsForSelfDelete(t *testing.T) {
+	d, p, _, r, _, _ := newDeps(t)
+	withBox(p)
+	r.err = exitErr(t, 1) // e.g. the box deleted itself under the open session
+	if err := Down(context.Background(), d, false); err != nil {
+		t.Fatal(err)
+	}
+	if p.count("delete") != 0 || p.count("waitdeleted") != 1 {
+		t.Fatalf("calls = %v", p.calls)
+	}
+}
+
+func TestDownSSHTransportFailureForcesDelete(t *testing.T) {
+	d, p, _, r, _, _ := newDeps(t)
+	withBox(p)
+	r.err = exitErr(t, 255)
+	if err := Down(context.Background(), d, false); err != nil {
+		t.Fatal(err)
+	}
+	if p.count("delete") != 1 {
+		t.Fatalf("calls = %v", p.calls)
+	}
+}
+
+func TestDownGracefulTimeoutForcesDelete(t *testing.T) {
+	d, p, _, _, _, _ := newDeps(t)
+	withBox(p)
+	p.waitErr = context.DeadlineExceeded
+	p.clearWaitErrOnDelete = true
+	if err := Down(context.Background(), d, false); err != nil {
+		t.Fatal(err)
+	}
+	if p.count("delete") != 1 || p.count("waitdeleted") != 2 {
+		t.Fatalf("calls = %v", p.calls)
 	}
 }

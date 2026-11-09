@@ -2,7 +2,9 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/WA-Systems-EU/jaunt/internal/events"
@@ -31,7 +33,11 @@ func Down(ctx context.Context, d Deps, force bool) error {
 		if err != nil {
 			return fmt.Errorf("load policy: %w", err)
 		}
-		if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntbox", "stop"); err == nil {
+		_, runErr := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntbox", "stop")
+		if unreachable(runErr) {
+			fmt.Printf("could not reach the box (%v); deleting it directly\n", runErr)
+		} else {
+			// The box got the request (or deleted itself under the ssh session): wait for it.
 			wctx, cancel := context.WithTimeout(ctx, time.Duration(pol.Limits.WrapUpGrace)+3*time.Minute)
 			defer cancel()
 			if err := d.Prov.WaitDeleted(wctx, box.ID); err == nil {
@@ -41,12 +47,24 @@ func Down(ctx context.Context, d Deps, force bool) error {
 				return ctx.Err()
 			}
 			fmt.Println("box did not delete itself in time; deleting it directly")
-		} else {
-			fmt.Printf("could not reach the box (%v); deleting it directly\n", err)
 		}
 	}
 	if err := d.Prov.DeleteBox(ctx, box.ID); err != nil {
 		return fmt.Errorf("delete box: %w", err)
 	}
 	return d.Prov.WaitDeleted(ctx, box.ID)
+}
+
+// unreachable reports whether err means ssh never reached the box: a failure to
+// run ssh at all, or ssh's own exit status 255. Any other exit status comes from
+// the remote command (or from the box going away mid-session).
+func unreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode() == 255
+	}
+	return true
 }

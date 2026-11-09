@@ -198,6 +198,9 @@ func (h *Hetzner) CreateBox(ctx context.Context, spec provider.CreateBoxSpec) (p
 
 func (h *Hetzner) DeleteBox(ctx context.Context, id int64) error {
 	if _, _, err := h.c.Server.DeleteWithResult(ctx, &hcloud.Server{ID: id}); err != nil {
+		if hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
+			return nil // already gone (e.g. it deleted itself)
+		}
 		return fmt.Errorf("delete server %d: %w", id, err)
 	}
 	return nil

@@ -323,3 +323,15 @@ func TestValidateNightUntil(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestRunOnceBusyReturnsErrBusy(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	unlock, err := e.s.lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if _, err := e.s.RunOnce(context.Background()); !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}

@@ -143,6 +143,10 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			v, err := s.RunOnce(cmd.Context())
+			if errors.Is(err, supervisor.ErrBusy) {
+				fmt.Fprintln(cmd.OutOrStdout(), "stop recorded; the running supervisor pass will act on it")
+				return nil
+			}
 			if err != nil {
 				return err
 			}
