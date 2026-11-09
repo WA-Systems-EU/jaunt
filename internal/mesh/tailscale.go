@@ -110,40 +110,53 @@ func (t *Tailscale) DeviceOnline(ctx context.Context, hostname string) (bool, er
 		return false, err
 	}
 	h := strings.ToLower(hostname)
+	// Recreated ephemeral boxes can leave stale offline nodes with the same
+	// hostname, so any matching online device counts.
 	for _, d := range resp.Devices {
 		if strings.ToLower(d.Hostname) != h && !strings.HasPrefix(strings.ToLower(d.Name), h+".") {
 			continue
 		}
 		if d.ConnectedToControl != nil {
-			return *d.ConnectedToControl, nil
+			if *d.ConnectedToControl {
+				return true, nil
+			}
+			continue
 		}
-		ls, err := time.Parse(time.RFC3339, d.LastSeen)
-		if err != nil {
-			return false, nil
+		if ls, err := time.Parse(time.RFC3339, d.LastSeen); err == nil && time.Since(ls) < 2*time.Minute {
+			return true, nil
 		}
-		return time.Since(ls) < 2*time.Minute, nil
 	}
 	return false, nil
 }
 
 // ACLSnippet returns a HuJSON fragment to merge into the tailnet policy file.
+// The owner identity is autogroup:admin (the owner of a personal tailnet).
 func ACLSnippet(user string) string {
 	return fmt.Sprintf(`{
   // Merge into your tailnet policy file.
   "tagOwners": {
     "tag:jauntbox-%[1]s": ["autogroup:admin"]
   },
+  // Tailscale SSH needs a network grant to port 22 as well as an ssh rule.
+  "grants": [
+    {
+      "src": ["autogroup:admin"],
+      "dst": ["tag:jauntbox-%[1]s"],
+      "ip":  ["tcp:22"]
+    }
+  ],
   "ssh": [
     {
-      // Let the owner SSH to their own box as their own user.
       "action": "accept",
-      "src":    ["autogroup:member"],
+      "src":    ["autogroup:admin"],
       "dst":    ["tag:jauntbox-%[1]s"],
       "users":  ["%[1]s"]
     }
   ]
-  // No grant or acl from tag:jauntbox-%[1]s to anything else exists,
-  // so the box cannot reach your servers (box -> servers is blocked).
+  // ISOLATION IS YOUR RESPONSIBILITY: the box can reach other devices if ANY
+  // rule grants tag:jauntbox-%[1]s (or "*") access to them. Tailscale's default
+  // policy has an allow-all rule (src ["*"]); remove or narrow it, otherwise
+  // this box can reach everything on your tailnet.
 }
 `, user)
 }

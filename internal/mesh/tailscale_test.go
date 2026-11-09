@@ -20,26 +20,19 @@ func TestCreateAuthKeySendsEphemeralSingleUse(t *testing.T) {
 			t.Errorf("auth = %q", r.Header.Get("Authorization"))
 		}
 		b, _ := io.ReadAll(r.Body)
-		var body struct {
-			Capabilities struct {
-				Devices struct {
-					Create struct {
-						Reusable, Ephemeral, Preauthorized bool
-						Tags                               []string
-					}
-				}
-			}
-			ExpirySeconds int
-		}
+		var body map[string]any
 		if err := json.Unmarshal(b, &body); err != nil {
 			t.Fatal(err)
 		}
-		c := body.Capabilities.Devices.Create
-		if c.Reusable || !c.Ephemeral || !c.Preauthorized || len(c.Tags) != 1 || c.Tags[0] != "tag:jauntbox-alice" {
+		caps, _ := body["capabilities"].(map[string]any)
+		devs, _ := caps["devices"].(map[string]any)
+		c, _ := devs["create"].(map[string]any)
+		tags, _ := c["tags"].([]any)
+		if c["reusable"] != false || c["ephemeral"] != true || c["preauthorized"] != true || len(tags) != 1 || tags[0] != "tag:jauntbox-alice" {
 			t.Errorf("create caps = %+v", c)
 		}
-		if body.ExpirySeconds != 3600 {
-			t.Errorf("expirySeconds = %d", body.ExpirySeconds)
+		if body["expirySeconds"] != float64(3600) {
+			t.Errorf("expirySeconds = %v", body["expirySeconds"])
 		}
 		w.Write([]byte(`{"key":"tskey-auth-x"}`))
 	}))
@@ -97,11 +90,36 @@ func TestDeviceOnlineFallbackLastSeen(t *testing.T) {
 	}
 }
 
+func TestDeviceOnlineAnyMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"devices":[
+		 {"hostname":"jauntbox-alice","name":"jauntbox-alice.t.ts.net","connectedToControl":false},
+		 {"hostname":"jauntbox-alice","name":"jauntbox-alice-1.t.ts.net","connectedToControl":true}]}`))
+	}))
+	defer srv.Close()
+	if on, err := NewTailscale("k", srv.URL, nil).DeviceOnline(context.Background(), "jauntbox-alice"); err != nil || !on {
+		t.Fatalf("on=%v err=%v", on, err)
+	}
+}
+
 func TestACLSnippetMentionsTag(t *testing.T) {
 	s := ACLSnippet("alice")
-	for _, w := range []string{"tag:jauntbox-alice", "autogroup:admin", `"alice"`, "accept"} {
+	for _, w := range []string{"tag:jauntbox-alice", "autogroup:admin", `"alice"`, "accept", "tcp:22", "default"} {
 		if !strings.Contains(s, w) {
 			t.Errorf("missing %q in\n%s", w, s)
 		}
+	}
+	if strings.Contains(s, "autogroup:member") {
+		t.Error("snippet must not allow autogroup:member")
+	}
+	var kept []string
+	for _, l := range strings.Split(s, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(l), "//") {
+			kept = append(kept, l)
+		}
+	}
+	var v map[string]any
+	if err := json.Unmarshal([]byte(strings.Join(kept, "\n")), &v); err != nil {
+		t.Errorf("not valid JSON once comments stripped: %v", err)
 	}
 }
