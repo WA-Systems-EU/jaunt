@@ -178,3 +178,28 @@ func TestRenderSuperviseServiceHasStartTimeout(t *testing.T) {
 		t.Fatalf("supervise.service lacks TimeoutStartSec=90:\n%s", unit)
 	}
 }
+
+func TestRenderPinsTailscaledStateViaDefaultsFile(t *testing.T) {
+	_, d := render(t)
+	idx := func(sub string) int {
+		for i, c := range d.Runcmd {
+			if strings.Contains(c, sub) {
+				return i
+			}
+		}
+		return -1
+	}
+	install, flags, restart := idx("tailscale.com/install.sh"), idx("/etc/default/tailscaled"), idx("systemctl restart tailscaled")
+	if install < 0 || flags < 0 || restart < 0 || !(install < flags && flags < restart) {
+		t.Fatalf("want install(%d) < FLAGS write(%d) < restart(%d)", install, flags, restart)
+	}
+	for _, s := range []string{`FLAGS="--state=/home/.jaunt/tailscaled.state"`, "s|^FLAGS=.*|"} {
+		if !strings.Contains(d.Runcmd[flags], s) {
+			t.Errorf("FLAGS command lacks %q: %s", s, d.Runcmd[flags])
+		}
+	}
+	_, dropin := content(t, d, "/etc/systemd/system/tailscaled.service.d/10-jaunt-state.conf")
+	if strings.Contains(dropin, "Environment=FLAGS") {
+		t.Errorf("redundant Environment=FLAGS still in drop-in:\n%s", dropin)
+	}
+}

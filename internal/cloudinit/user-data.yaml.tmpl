@@ -6,16 +6,16 @@ write_files:
     encoding: b64
     content: {{.B64}}
 {{- end}}
-  # systemd drop-in: relocate tailscaled's state FILE onto the persistent volume so node
-  # identity (and the MagicDNS hostname) survives box replacement. Not a symlink: the
-  # packaged unit's StateDirectory= refuses symlinks. tailscaled takes the LAST --state.
+  # systemd drop-in: the state FILE itself is relocated onto the persistent volume through
+  # FLAGS in /etc/default/tailscaled (see runcmd), because the packaged unit's
+  # EnvironmentFile wins over a drop-in Environment=. Not a symlink: the packaged unit's
+  # StateDirectory= refuses symlinks. This drop-in only orders the mount and unprotects /home.
   - path: /etc/systemd/system/tailscaled.service.d/10-jaunt-state.conf
     permissions: '0644'
     content: |
       [Unit]
       RequiresMountsFor=/home
       [Service]
-      Environment=FLAGS=--state=/home/.jaunt/tailscaled.state
       ProtectHome=no
   - path: /etc/jaunt/provision.env
     permissions: '0644'
@@ -41,6 +41,8 @@ runcmd:
   # tailscale: install, make sure the daemon is up before `tailscale up`
   - curl -fsSL https://tailscale.com/install.sh | sh
   - mkdir -p /home/.jaunt && chmod 700 /home/.jaunt
+  # keep node identity on the volume: the packaged unit reads FLAGS from this file
+  - if grep -q '^FLAGS=' /etc/default/tailscaled 2>/dev/null; then sed -i 's|^FLAGS=.*|FLAGS="--state=/home/.jaunt/tailscaled.state"|' /etc/default/tailscaled; else echo 'FLAGS="--state=/home/.jaunt/tailscaled.state"' >> /etc/default/tailscaled; fi
   - systemctl daemon-reload
   - systemctl enable tailscaled
   - systemctl restart tailscaled

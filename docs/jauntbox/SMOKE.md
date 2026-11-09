@@ -24,6 +24,9 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    - `systemctl list-timers` on the box shows `jauntbox-supervise` and
      `jauntbox-safety`.
 
+   - `ps -o args -C tailscaled` on the box shows `--state=/home/.jaunt/tailscaled.state`
+     (the volume path, not `/var/lib/tailscale`).
+
 4. **Status.** `jauntbox status` shows the box, `on tailnet: true`, and the
    deadline and verdict from the supervisor.
 
@@ -46,11 +49,14 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    `box.json`, and keep your sessions closed for `human_active_window` (or lower
    it), otherwise the human-active rule masks what you are testing.
    The box survives past the evening cutoff / idle limit while the agent runs and
-   deletes itself at the night deadline.
+   deletes itself at the night deadline. In plan 01 nothing launches agents for you,
+   so `night` without a running agent means "delete as soon as I leave" (the
+   `agents-done` verdict).
 
 8. **Down.** `jauntbox down`: the box is gone within the grace period
    (`wrapup_grace` + 3 min). Also try `jauntbox resize big` once on a live box:
-   old box deleted, new one created, `/home` intact.
+   old box deleted, new one created, `/home` intact, and the box's MagicDNS name
+   is still `jauntbox-<user>` (no `-1` suffix: node identity survived).
 
 9. **Safety net.** `jauntbox up` without `--wait`, kill the background push helper
    (`pkill -f internal-push`) immediately after `up` returns, and leave it. The box deletes itself roughly 45-55
