@@ -14,7 +14,8 @@ func TestHerdrAttachCommand(t *testing.T) {
 		t.Errorf("local: got %v want %v", got, want)
 	}
 	got = h.AttachCommand("jauntbox-alice", "alice", "jauntbox", false)
-	want = []string{"ssh", "-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "alice@jauntbox-alice", "--", "/home/alice/.local/bin/herdr", "--session", "jauntbox"}
+	want = []string{"ssh", "-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+		"-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "alice@jauntbox-alice", "--", "/home/alice/.local/bin/herdr", "--session", "jauntbox"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ssh: got %v want %v", got, want)
 	}

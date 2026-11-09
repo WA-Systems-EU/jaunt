@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -84,7 +85,7 @@ func initCmd(cfgPath *string) *cobra.Command {
 				return err
 			}
 			p := termPrompter{in: bufio.NewReader(os.Stdin)}
-			_, err := client.Init(cmd.Context(), p, det, lister, meshCheck, *cfgPath, client.WithOutput(cmd.OutOrStdout()))
+			_, err := client.Init(cmd.Context(), p, det, lister, meshCheck, *cfgPath, client.WithOutput(cmd.OutOrStdout()), client.WithSSHConfig(filepath.Join(home, ".ssh", "config")))
 			return err
 		},
 	}

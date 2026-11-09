@@ -116,7 +116,14 @@ func PickProfiles(types []provider.ServerType, location string) (map[string]conf
 
 // InitOption tunes Init.
 type InitOption func(*initOpts)
-type initOpts struct{ out io.Writer }
+type initOpts struct {
+	out       io.Writer
+	sshConfig string
+}
+
+// WithSSHConfig makes Init offer to append the host-key block to this ssh
+// config file (default: no offer).
+func WithSSHConfig(path string) InitOption { return func(o *initOpts) { o.sshConfig = path } }
 
 // WithOutput sets where Init prints instructions (default os.Stdout).
 func WithOutput(w io.Writer) InitOption { return func(o *initOpts) { o.out = w } }
@@ -229,6 +236,25 @@ func Init(ctx context.Context, p Prompter, det Detected, lister func(token strin
 		fmt.Fprintf(o.out, "Saved. jauntbox reads it automatically; to use the tokens in your shell too: source %s\n", envPath)
 	} else {
 		fmt.Fprintf(o.out, "Add these to your shell profile (they were not written anywhere):\n  %s\n  %s\n", hzLine, tsLine)
+	}
+	if o.sshConfig != "" {
+		ok, err := p.Confirm(fmt.Sprintf("Add a jauntbox-%s block to %s (lets `herdr --remote` skip host-key prompts; the box is authenticated by Tailscale)?", cfg.User, o.sshConfig), true)
+		if err != nil {
+			return cfg, err
+		}
+		if ok {
+			added, err := EnsureSSHConfig(o.sshConfig, cfg.User)
+			if err != nil {
+				return cfg, err
+			}
+			if added {
+				fmt.Fprintf(o.out, "Added the jauntbox-%s block to %s.\n", cfg.User, o.sshConfig)
+			} else {
+				fmt.Fprintf(o.out, "%s already has a Host jauntbox-%s entry; left unchanged.\n", o.sshConfig, cfg.User)
+			}
+		} else {
+			fmt.Fprintf(o.out, "Add this to %s yourself:\n\n%s\n", o.sshConfig, SSHConfigBlock(cfg.User))
+		}
 	}
 	fmt.Fprintf(o.out, "\nOne more step, once: in the Tailscale admin console go to Access controls and merge this\ninto the policy. Also REMOVE or narrow the default allow-all rule, or the box can reach\neverything on your tailnet.\n\n%s\n\n", mesh.ACLSnippet(cfg.User))
 	fmt.Fprintln(o.out, "Then:\n  jauntbox up small\n  jauntbox ssh")

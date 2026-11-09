@@ -14,6 +14,7 @@ import (
 
 	"github.com/WA-Systems-EU/jaunt/internal/client"
 	"github.com/WA-Systems-EU/jaunt/internal/config"
+	"github.com/WA-Systems-EU/jaunt/internal/remote"
 )
 
 // clientOpsCmds returns the laptop-side commands that act on an existing box.
@@ -116,7 +117,9 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			if err != nil {
 				return errors.New("ssh not found in PATH; install an OpenSSH client")
 			}
-			argv := append([]string{"ssh", cfg.User + "@jauntbox-" + cfg.User}, args...)
+			argv := append([]string{"ssh"}, remote.HostKeyOpts...)
+			argv = append(argv, cfg.User+"@jauntbox-"+cfg.User)
+			argv = append(argv, args...)
 			return syscall.Exec(bin, argv, os.Environ())
 		},
 	}

@@ -3,6 +3,8 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/WA-Systems-EU/jaunt/internal/remote"
 )
 
 // Herdr is the herdr (https://herdr.dev) session adapter. The workspace
@@ -19,8 +21,9 @@ func (Herdr) AttachCommand(host, user, name string, localHerdr bool) []string {
 	if localHerdr {
 		return []string{"herdr", "--remote", target, "--session", name}
 	}
-	return []string{"ssh", "-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
-		target, "--", remoteHerdr(user), "--session", name}
+	argv := []string{"ssh", "-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"}
+	argv = append(argv, remote.HostKeyOpts...)
+	return append(argv, target, "--", remoteHerdr(user), "--session", name)
 }
 
 func (Herdr) StartCommand(user, name string) []string {

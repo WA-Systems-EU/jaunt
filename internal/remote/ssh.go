@@ -20,7 +20,11 @@ type sshRunner struct{ user string }
 // NewSSH returns a Runner that shells out to ssh/scp as the given remote user.
 func NewSSH(user string) Runner { return sshRunner{user: user} }
 
-var baseOpts = []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
+// HostKeyOpts disables host-key checking: the peer is authenticated by
+// Tailscale (WireGuard + ACL tag), and every recreated box has new host keys.
+var HostKeyOpts = []string{"-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"}
+
+var baseOpts = append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, HostKeyOpts...)
 
 func (s sshRunner) target(host string) string { return s.user + "@" + host }
 
