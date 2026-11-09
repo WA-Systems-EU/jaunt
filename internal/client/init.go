@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -27,6 +29,7 @@ type Prompter interface {
 // Detected holds the values init proposes to the user.
 type Detected struct{ User, SSHPublicKey, Timezone string }
 
+var safeToken = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 var nonDNS = regexp.MustCompile(`[^a-z0-9-]`)
 var dashes = regexp.MustCompile(`-+`)
 
@@ -69,8 +72,9 @@ func LocalZone() string {
 }
 
 // PickProfiles chooses small/big/huge: the smallest non-deprecated amd64 type
-// available in location with at least 16/32/64 GB of memory (fewest GB, then
-// fewest cores, as a price proxy).
+// available in location with at least 16/32/64 GB of memory, cheapest monthly
+// price in that location first (then fewest GB, then name). Types without a
+// price for the location are skipped.
 func PickProfiles(types []provider.ServerType, location string) (map[string]config.Profile, error) {
 	out := map[string]config.Profile{}
 	for _, size := range []struct {
@@ -80,6 +84,9 @@ func PickProfiles(types []provider.ServerType, location string) (map[string]conf
 		var cands []provider.ServerType
 		for _, t := range types {
 			if t.Deprecated || t.Arch != "amd64" || t.MemoryGB < size.gb {
+				continue
+			}
+			if _, ok := t.PriceMonthly[location]; !ok {
 				continue
 			}
 			for _, l := range t.Locations {
@@ -94,11 +101,11 @@ func PickProfiles(types []provider.ServerType, location string) (map[string]conf
 		}
 		sort.Slice(cands, func(i, j int) bool {
 			a, b := cands[i], cands[j]
+			if pa, pb := a.PriceMonthly[location], b.PriceMonthly[location]; pa != pb {
+				return pa < pb
+			}
 			if a.MemoryGB != b.MemoryGB {
 				return a.MemoryGB < b.MemoryGB
-			}
-			if a.Cores != b.Cores {
-				return a.Cores < b.Cores
 			}
 			return a.Name < b.Name
 		})
@@ -124,8 +131,13 @@ func askSecret(p Prompter, question string, check func(string) error, what strin
 		if err != nil {
 			return "", err
 		}
-		if last = check(strings.TrimSpace(s)); last == nil {
-			return strings.TrimSpace(s), nil
+		s = strings.TrimSpace(s)
+		if !safeToken.MatchString(s) {
+			last = errors.New("it must be non-empty and contain only letters, digits, '_' and '-' (copy just the token)")
+			continue
+		}
+		if last = check(s); last == nil {
+			return s, nil
 		}
 	}
 	return "", fmt.Errorf("%s rejected: %w", what, last)
@@ -148,17 +160,34 @@ func Init(ctx context.Context, p Prompter, det Detected, lister func(token strin
 	}
 	cfg := config.Default()
 	var err error
-	if cfg.User, err = p.Ask("User name (names every resource; lowercase letters, digits, dashes)", det.User); err != nil {
+	if cfg.User, err = askValid(p, o.out, "User name (names every resource; lowercase letters, digits, dashes)", det.User, func(v string) error {
+		if v == "" || cleanUser(v) != v {
+			return fmt.Errorf("user must be lowercase letters, digits and dashes, up to 40 characters (got %q)", v)
+		}
+		return nil
+	}); err != nil {
 		return cfg, err
 	}
-	if cfg.SSHPublicKey, err = p.Ask("SSH public key (paste the line from ~/.ssh/*.pub)", det.SSHPublicKey); err != nil {
+	keyQ := "SSH public key (paste the line from ~/.ssh/*.pub)"
+	if det.SSHPublicKey == "" {
+		keyQ = "SSH public key: none found; in another terminal run `ssh-keygen -t ed25519`, then paste the contents of ~/.ssh/id_ed25519.pub"
+	}
+	if cfg.SSHPublicKey, err = askValid(p, o.out, keyQ, det.SSHPublicKey, validSSHKey); err != nil {
 		return cfg, err
 	}
-	if cfg.Timezone, err = p.Ask("Timezone (IANA name such as Europe/Paris; all limit times use it)", det.Timezone); err != nil {
+	if cfg.Timezone, err = askValid(p, o.out, "Timezone (IANA name such as Europe/Paris; all limit times use it)", det.Timezone, func(v string) error {
+		if v == "" {
+			return errors.New("a timezone is required")
+		}
+		if _, e := time.LoadLocation(v); e != nil {
+			return fmt.Errorf("unknown timezone %q (use an IANA name such as Europe/Paris)", v)
+		}
+		return nil
+	}); err != nil {
 		return cfg, err
 	}
 	var types []provider.ServerType
-	hz, err := askSecret(p, "Hetzner Cloud API token (from a dedicated project; input hidden)", func(tok string) error {
+	hz, err := askSecret(p, "Hetzner Cloud API token (from a dedicated project, with Read & Write permission; input hidden)", func(tok string) error {
 		var e error
 		types, e = lister(tok).ServerTypes(ctx)
 		return e
@@ -193,10 +222,6 @@ func Init(ctx context.Context, p Prompter, det Detected, lister func(token strin
 	}
 	hzLine := fmt.Sprintf("export %s='%s'", cfg.HetznerTokenEnv, hz)
 	tsLine := fmt.Sprintf("export %s='%s'", cfg.TailscaleAPIKeyEnv, ts)
-	if save && strings.ContainsAny(hz+ts, "'\n") {
-		fmt.Fprintln(o.out, "A token contains a quote or newline, so it cannot be saved safely.")
-		save = false
-	}
 	if save {
 		if err := writeFile0600(envPath, []byte(hzLine+"\n"+tsLine+"\n")); err != nil {
 			return cfg, err
@@ -236,4 +261,27 @@ func ReadEnvFile(path string) (map[string]string, error) {
 		out[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `'"`)
 	}
 	return out, nil
+}
+
+// askValid asks until check accepts the answer.
+func askValid(p Prompter, out io.Writer, q, def string, check func(string) error) (string, error) {
+	for {
+		v, err := p.Ask(q, def)
+		if err != nil {
+			return "", err
+		}
+		v = strings.TrimSpace(v)
+		if err := check(v); err != nil {
+			fmt.Fprintln(out, "  invalid:", err)
+			continue
+		}
+		return v, nil
+	}
+}
+
+func validSSHKey(v string) error {
+	if strings.ContainsAny(v, "\r\n") || !(strings.HasPrefix(v, "ssh-") || strings.HasPrefix(v, "ecdsa-")) {
+		return errors.New("expected a single line starting with ssh- or ecdsa- (the contents of a ~/.ssh/*.pub file)")
+	}
+	return nil
 }

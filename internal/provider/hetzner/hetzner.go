@@ -247,6 +247,17 @@ func (h *Hetzner) ServerTypes(ctx context.Context) ([]provider.ServerType, error
 				st.Locations = append(st.Locations, l.Location.Name)
 			}
 		}
+		for _, pr := range t.Pricings {
+			if pr.Location == nil {
+				continue
+			}
+			if v, err := strconv.ParseFloat(pr.Monthly.Gross, 64); err == nil {
+				if st.PriceMonthly == nil {
+					st.PriceMonthly = map[string]float64{}
+				}
+				st.PriceMonthly[pr.Location.Name] = v
+			}
+		}
 		out = append(out, st)
 	}
 	return out, nil

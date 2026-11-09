@@ -316,7 +316,7 @@ func TestWaitDeletedContextBound(t *testing.T) {
 func TestServerTypes(t *testing.T) {
 	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) {
 		w(rw, `{"server_types":[
-{"id":1,"name":"cpx31","cores":4,"memory":8,"architecture":"x86","locations":[{"id":1,"name":"fsn1","available":true},{"id":2,"name":"nbg1","available":false,"deprecation":{"announced":"2026-01-01T00:00:00Z","unavailable_after":"2026-12-01T00:00:00Z"}}]},
+{"id":1,"name":"cpx31","cores":4,"memory":8,"architecture":"x86","prices":[{"location":"fsn1","price_hourly":{"net":"0.01","gross":"0.012"},"price_monthly":{"net":"10.00","gross":"11.90"}},{"location":"nbg1","price_hourly":{"net":"0.01","gross":"0.012"},"price_monthly":{"net":"12.00","gross":"14.28"}}],"locations":[{"id":1,"name":"fsn1","available":true},{"id":2,"name":"nbg1","available":false,"deprecation":{"announced":"2026-01-01T00:00:00Z","unavailable_after":"2026-12-01T00:00:00Z"}}]},
 {"id":2,"name":"cax21","cores":4,"memory":8,"architecture":"arm","locations":[{"id":1,"name":"fsn1","available":true}],"deprecation":{"announced":"2026-01-01T00:00:00Z","unavailable_after":"2026-12-01T00:00:00Z"}}
 ],"meta":{"pagination":{"page":1,"per_page":50,"last_page":1,"total_entries":2}}}`)
 	})
@@ -324,7 +324,7 @@ func TestServerTypes(t *testing.T) {
 	if err != nil || len(ts) != 2 {
 		t.Fatalf("ts=%v err=%v", ts, err)
 	}
-	if a := ts[0]; a.Name != "cpx31" || a.Cores != 4 || a.MemoryGB != 8 || a.Arch != "amd64" || a.Deprecated || len(a.Locations) != 1 || a.Locations[0] != "fsn1" {
+	if a := ts[0]; a.Name != "cpx31" || a.Cores != 4 || a.MemoryGB != 8 || a.Arch != "amd64" || a.Deprecated || len(a.Locations) != 1 || a.Locations[0] != "fsn1" || a.PriceMonthly["fsn1"] != 11.90 || a.PriceMonthly["nbg1"] != 14.28 {
 		t.Errorf("a = %+v", a)
 	}
 	if c := ts[1]; c.Arch != "arm64" || !c.Deprecated {

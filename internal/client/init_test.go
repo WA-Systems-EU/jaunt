@@ -15,13 +15,16 @@ import (
 
 func fixtureTypes() []provider.ServerType {
 	loc := []string{"fsn1", "nbg1"}
+	pr := func(p float64) map[string]float64 { return map[string]float64{"fsn1": p, "nbg1": p} }
 	return []provider.ServerType{
-		{Name: "cx22", Cores: 2, MemoryGB: 4, Arch: "amd64", Locations: loc},
-		{Name: "cpx42", Cores: 8, MemoryGB: 16, Arch: "amd64", Locations: loc},
-		{Name: "ccx33", Cores: 8, MemoryGB: 32, Arch: "amd64", Locations: loc},
-		{Name: "ccx43", Cores: 16, MemoryGB: 64, Arch: "amd64", Locations: loc},
-		{Name: "old32", Cores: 4, MemoryGB: 32, Arch: "amd64", Locations: loc, Deprecated: true},
-		{Name: "cax41", Cores: 16, MemoryGB: 32, Arch: "arm64", Locations: loc},
+		{Name: "cx22", Cores: 2, MemoryGB: 4, Arch: "amd64", Locations: loc, PriceMonthly: pr(4)},
+		{Name: "ccx23", Cores: 4, MemoryGB: 16, Arch: "amd64", Locations: loc, PriceMonthly: pr(40)}, // dedicated, pricier
+		{Name: "cpx42", Cores: 8, MemoryGB: 16, Arch: "amd64", Locations: loc, PriceMonthly: pr(25)},
+		{Name: "ccx33", Cores: 8, MemoryGB: 32, Arch: "amd64", Locations: loc, PriceMonthly: pr(60)},
+		{Name: "ccx43", Cores: 16, MemoryGB: 64, Arch: "amd64", Locations: loc, PriceMonthly: pr(120)},
+		{Name: "nopr64", Cores: 16, MemoryGB: 64, Arch: "amd64", Locations: loc}, // no price: skipped
+		{Name: "old32", Cores: 4, MemoryGB: 32, Arch: "amd64", Locations: loc, Deprecated: true, PriceMonthly: pr(10)},
+		{Name: "cax41", Cores: 16, MemoryGB: 32, Arch: "arm64", Locations: loc, PriceMonthly: pr(5)},
 	}
 }
 
@@ -36,7 +39,7 @@ func TestPickProfiles(t *testing.T) {
 			t.Errorf("%s = %+v, want %s amd64", k, got[k], v)
 		}
 	}
-	_, err = PickProfiles(fixtureTypes()[:3], "fsn1")
+	_, err = PickProfiles(fixtureTypes()[:4], "fsn1")
 	if err == nil || err.Error() != "no amd64 server type with >= 64 GB in fsn1" {
 		t.Fatalf("err = %v", err)
 	}
@@ -77,11 +80,21 @@ func must(t *testing.T, err error) {
 
 type scripted struct {
 	secrets map[string][]string // substring of question -> queued answers
+	asks    map[string][]string // substring of question -> queued answers (else default)
 	asked   []string
 	confirm map[string]bool // substring -> answer; absent = default
 }
 
-func (s *scripted) Ask(q, def string) (string, error) { s.asked = append(s.asked, q); return def, nil }
+func (s *scripted) Ask(q, def string) (string, error) {
+	s.asked = append(s.asked, q)
+	for k, v := range s.asks {
+		if strings.Contains(q, k) && len(v) > 0 {
+			s.asks[k] = v[1:]
+			return v[0], nil
+		}
+	}
+	return def, nil
+}
 func (s *scripted) Secret(q string) (string, error) {
 	for k, v := range s.secrets {
 		if strings.Contains(q, k) && len(v) > 0 {
@@ -212,5 +225,44 @@ func TestInitExistingConfigNeedsConfirm(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(path); string(b) != "user: keep\n" {
 		t.Error("existing config modified")
+	}
+}
+
+func TestInitReasksInvalidAnswersAndHintsKeygen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	det := Detected{User: "thomas", Timezone: ""}
+	p := &scripted{
+		secrets: map[string][]string{"Hetzner": {"h"}, "Tailscale": {"t"}},
+		asks: map[string][]string{
+			"SSH public key": {"", "not a key", "ssh-ed25519 AAAA me@x"},
+			"Timezone":       {"Mars/Base", "Europe/Paris"},
+			"User name":      {"Bad User", "thomas"},
+		},
+	}
+	var out bytes.Buffer
+	cfg, err := Init(context.Background(), p, det, okLister, func(string) error { return nil }, path, WithOutput(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Timezone != "Europe/Paris" || cfg.User != "thomas" || cfg.SSHPublicKey != "ssh-ed25519 AAAA me@x" {
+		t.Fatalf("cfg %+v", cfg)
+	}
+	hinted := false
+	for _, q := range p.asked {
+		if strings.Contains(q, "ssh-keygen -t ed25519") {
+			hinted = true
+		}
+	}
+	if !hinted {
+		t.Errorf("no keygen hint in prompts: %v", p.asked)
+	}
+}
+
+func TestInitRejectsTokenWithUnsafeChars(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	p := &scripted{secrets: map[string][]string{"Hetzner": {"a'b", "x\ny"}}}
+	_, err := Init(context.Background(), p, testDet, okLister, func(string) error { return nil }, path, WithOutput(&bytes.Buffer{}))
+	if err == nil || !strings.Contains(err.Error(), "Hetzner token rejected") {
+		t.Fatalf("err = %v", err)
 	}
 }

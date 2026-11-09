@@ -37,6 +37,8 @@ type ServerType struct {
 	Arch       string // "amd64" or "arm64"
 	Locations  []string
 	Deprecated bool
+	// PriceMonthly is the monthly gross price in EUR per location name.
+	PriceMonthly map[string]float64
 }
 
 // Provider manages the cloud resources of one jauntbox user.
