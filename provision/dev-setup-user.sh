@@ -141,8 +141,8 @@ install_herdr() {
   if [ "$(sha256sum "$tmp" | cut -d' ' -f1)" != "$want" ]; then
     rm -f "$tmp"; log "WARNING: herdr checksum mismatch; not installing"; return 1
   fi
-  mkdir -p "$HOME/.local/bin"
-  install -m 0755 "$tmp" "$HOME/.local/bin/herdr"
+  mkdir -p "$HOME/.local/bin" || return 1
+  install -m 0755 "$tmp" "$HOME/.local/bin/herdr" || { rm -f "$tmp"; return 1; }
   rm -f "$tmp"
 }
 install_herdr || log "herdr not installed; bare 'jauntbox' will not work until it is (the box is usable over ssh)"

@@ -106,4 +106,9 @@ if [ "${JAUNT_INSTALL_TOOLCHAIN:-true}" != "true" ]; then
 fi
 log "installing language toolchain as $JAUNT_USER (slow on a cold volume)"
 su - "$JAUNT_USER" -c "bash /opt/jaunt/dev-setup-user.sh"
+# herdr lives in the user's ~/.local/bin; link it where a non-interactive ssh
+# command (herdr --remote) finds it on PATH.
+if [ -x "/home/$JAUNT_USER/.local/bin/herdr" ]; then
+  ln -sf "/home/$JAUNT_USER/.local/bin/herdr" /usr/local/bin/herdr
+fi
 log "provisioning complete"
