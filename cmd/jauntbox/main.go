@@ -282,7 +282,10 @@ func newRootCmd() *cobra.Command {
 			}
 			if !res.Created {
 				fmt.Fprintf(cmd.OutOrStdout(), "box %s already exists (%s)\n", res.Box.Name, res.Box.Status)
-				return nil
+				if wait {
+					fmt.Fprintln(cmd.OutOrStdout(), "making sure the supervisor is installed...")
+				}
+				return client.InstallSupervisor(ctx, d, wait)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "created %s (%s)\n", res.Box.Name, profile)
 			if err != nil { // the box exists; report the follow-up problem as a warning

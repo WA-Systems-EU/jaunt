@@ -17,12 +17,18 @@ type scriptRemote struct {
 	src              string // output for the ls call
 	list             string // output for the workspace list call
 	tests, testFails int    // `test -x herdr` calls; first testFails fail
+	noSupervisor     bool   // the supervisor check fails
 }
 
 func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
 	line := strings.Join(args, " ")
 	r.cmds = append(r.cmds, line)
 	switch {
+	case strings.Contains(line, "is-enabled"):
+		if r.noSupervisor {
+			return nil, errors.New("exit 1")
+		}
+		return nil, nil
 	case args[0] == "test":
 		r.tests++
 		if r.tests <= r.testFails {
@@ -106,6 +112,61 @@ func TestAttachExistingBoxSkipsPush(t *testing.T) {
 	}
 	if p.count("create") != 0 {
 		t.Fatal("created a second box")
+	}
+}
+
+func TestAttachExistingBoxEnsuresSupervisorBeforeAttach(t *testing.T) {
+	d, p, r := attachFixture(t)
+	withBox(p)
+	r.noSupervisor = true
+	attached := false
+	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) {
+		attached = true
+		joined := strings.Join(r.cmds, "\n")
+		if !strings.Contains(joined, "copy:/tmp/jauntbox") || !strings.Contains(joined, "systemctl enable --now jauntbox-supervise.timer") {
+			t.Errorf("supervisor not installed before attach:\n%s", joined)
+		}
+		return 0, nil
+	}, func(string) (string, error) { return "", errors.New("none") })
+	if err != nil || !attached {
+		t.Fatalf("err=%v attached=%v", err, attached)
+	}
+}
+
+func TestEnsureSupervisorSkipsPushWhenInstalled(t *testing.T) {
+	d, _, r := attachFixture(t)
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r.cmds {
+		if strings.HasPrefix(c, "copy:") {
+			t.Fatalf("pushed although installed: %v", r.cmds)
+		}
+	}
+	if len(r.cmds) != 1 || r.cmds[0] != supervisorCheck {
+		t.Fatalf("cmds = %v", r.cmds)
+	}
+}
+
+func TestInstallSupervisorOnExistingBox(t *testing.T) {
+	d, _, r := attachFixture(t)
+	r.noSupervisor = true
+	spawned := 0
+	d.Spawn = func(args ...string) error {
+		if len(args) != 1 || args[0] != "internal-push" {
+			t.Errorf("spawn args %v", args)
+		}
+		spawned++
+		return nil
+	}
+	if err := InstallSupervisor(context.Background(), d, false); err != nil || spawned != 1 || len(r.cmds) != 0 {
+		t.Fatalf("background: err=%v spawned=%d cmds=%v", err, spawned, r.cmds)
+	}
+	if err := InstallSupervisor(context.Background(), d, true); err != nil || spawned != 1 {
+		t.Fatalf("foreground: err=%v spawned=%d", err, spawned)
+	}
+	if !strings.Contains(strings.Join(r.cmds, "\n"), "copy:/tmp/jauntbox") {
+		t.Errorf("foreground did not push: %v", r.cmds)
 	}
 }
 

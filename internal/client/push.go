@@ -16,6 +16,32 @@ const DefaultPushWait = 15 * time.Minute
 
 const installCmd = "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer"
 
+const supervisorCheck = "test -x /usr/local/bin/jauntbox && systemctl is-enabled --quiet jauntbox-supervise.timer"
+
+// EnsureSupervisor makes sure an existing box runs the supervisor: if the
+// binary or the enabled timer is missing (an interrupted first attach, or the
+// box was created from another machine) it pushes the binary in the foreground.
+// Without it the safety net would delete the box under a working human.
+func EnsureSupervisor(ctx context.Context, d Deps) error {
+	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck); err == nil {
+		return nil
+	}
+	return PushBinary(ctx, d, DefaultPushWait)
+}
+
+// InstallSupervisor is the existing-box counterpart of what Up does on create:
+// in the foreground (wait) it ensures the supervisor, else it spawns the
+// background push.
+func InstallSupervisor(ctx context.Context, d Deps, wait bool) error {
+	if wait {
+		return EnsureSupervisor(ctx, d)
+	}
+	if err := d.Spawn("internal-push"); err != nil {
+		return fmt.Errorf("starting the supervisor install failed (run `jauntbox internal-push`): %w", err)
+	}
+	return nil
+}
+
 // PushBinary waits for the box to appear on the tailnet, copies the jauntbox
 // binary to it and enables the supervisor.
 func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {

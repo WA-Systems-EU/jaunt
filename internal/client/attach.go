@@ -65,6 +65,11 @@ func Attach(ctx context.Context, d Deps, sess session.Session,
 	if err := waitProvisioned(ctx, d, host); err != nil {
 		return err
 	}
+	if !res.Created {
+		if err := EnsureSupervisor(ctx, d); err != nil {
+			return err
+		}
+	}
 	prepareWorkspaces(ctx, d, sess, host)
 
 	_, lerr := lookPath("herdr")
