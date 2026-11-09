@@ -63,6 +63,13 @@ A day goes like this **(Thomas)**:
   open PRs — but **merging and deploying are human-only**, enforced on the forge.
 - Pluggable **forge** (GitHub first, Gitea/Forgejo second) and **agent** (Claude Code
   first) adapters, and a pluggable **cloud provider** (Hetzner first).
+- **One-coffee onboarding (v1 north star):** from installing jauntbox to a shell on
+  the first box in about one coffee (~15 min including boot), with no file editing.
+  **(Thomas)** `jauntbox init` detects the user, SSH key and timezone, validates the
+  Hetzner and Tailscale tokens, picks size profiles from the live server catalogue, and
+  prints the ACL snippet and the next command. Every error names its fix. Installing
+  should be a single binary download (release pipeline + install script are in v1's
+  scope, in a later plan). The goal is for remote work to become a reflex.
 - Open-source quality: someone other than the owner can set it up from the README.
 
 ### Non-goals (v1)
@@ -284,7 +291,8 @@ with context.
 | `jauntbox status` | box up?, size, uptime, limits remaining, running agents, night session |
 | `jauntbox night --until 07:00 [--runs …]` | authorise a robot night session (§7.3) |
 | `jauntbox resize <profile>` | down + up with another size (volume reattaches) |
-| `jauntbox setup` | one-time: cloud project/token, Tailscale, forge App + rulesets, ACL snippet, config file |
+| `jauntbox init` | one-time, one coffee: detect user/SSH key/timezone, validate tokens, auto-pick profiles, write config, print ACL snippet |
+| `jauntbox setup github` | one-time: forge App + rulesets (plan 02) |
 | `jauntbox ssh` / `connect` | convenience SSH into the box |
 
 `jauntbox agent …` runs **on the box** (same binary, box-side subcommands).

@@ -10,9 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md`. Plans 02 (secrets + GitHub forge) and 03 (agents + wrap-up) follow this one. Anything they own is out of scope here.
 
-## Prerequisite (Thomas, before Task 1)
+## Starting point
 
-The working tree has uncommitted, partly staged tofu work: the gbrain module, the `provision/` rename, and the `tailnet`/`hetzner` edits. Task 4 moves `tofu/modules/provision/`. **Commit or stash that work first** so this plan never mixes with it. Implementers must stop and ask if `git status` shows changes they didn't make.
+The branch starts from a clean slate (commit `chore: clean slate for jauntbox v1`). The tofu implementation was removed from the branch and lives on `trunk`. Read old files with `git show trunk:<path>`, for example `git show trunk:tofu/modules/jauntbox/cloud-init/user-data.tftpl`. The shared provisioning scripts are already at `provision/`. A local, git-ignored `tofu/` folder with live state may exist on disk: **never touch it**. Implementers must stop and ask if `git status` shows changes they didn't make.
+
+**v1 north star:** going from install to a shell on the first box takes about one coffee, with no file editing. `jauntbox init` (Task 11) is how; every error message names the fix.
 
 ## Global Constraints
 
@@ -69,7 +71,8 @@ internal/client/up.go, down.go, status.go, night.go, resize.go, push.go
 internal/supervisor/activity.go      # HumanIdle, AgentCounter
 internal/supervisor/run.go           # RunOnce
 internal/supervisor/state.go         # persisted State, night file, stop request
-provision/                           # moved from tofu/modules/provision (+ embed.go)
+provision/                           # shared scripts (already here) + embed.go
+internal/client/init.go              # jauntbox init wizard
 examples/jauntbox.yaml
 docs/jauntbox/SMOKE.md
 ```
@@ -80,7 +83,7 @@ docs/jauntbox/SMOKE.md
 
 **Files:**
 - Create: `go.mod`, `cmd/jauntbox/main.go`, `internal/config/config.go`, `internal/config/duration.go`, `internal/config/config_test.go`, `examples/jauntbox.yaml`
-- Modify: `.github/workflows/ci.yml` (add a `go` job: `go vet ./... && go test ./...`)
+- Create: `.github/workflows/ci.yml` (one `go` job: `actions/setup-go` with `go-version-file: go.mod`, then `go vet ./... && go test ./...`)
 - Delete: `cmd/.gitkeep`, `internal/.gitkeep`
 
 **Interfaces:**
@@ -197,20 +200,17 @@ docs/jauntbox/SMOKE.md
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5:** Commit `feat(jauntbox): pure lifecycle Decide with limit table tests`.
 
-### Task 4: Move shared provisioning to `provision/` and embed it
+### Task 4: Embed the shared provisioning scripts
 
 **Files:**
-- Move: `tofu/modules/provision/` → `provision/` (`git mv`)
 - Create: `provision/embed.go` (`package provision`; `//go:embed dev-setup.sh dev-setup-user.sh jaunt-repos.sh`; `var FS embed.FS`)
-- Modify: `tofu/modules/jauntbox/main.tf` and `tofu/modules/gbrain/main.tf`. Path references `${path.module}/../provision/` become `${path.module}/../../../provision/`.
-- Modify: `tofu/README.md` (layout tree)
 - Test: `provision/embed_test.go`
 
 - [ ] **Step 1: Failing test** `TestEmbedsScripts`: `FS.ReadFile("dev-setup.sh")` is non-empty and starts with `#!/usr/bin/env bash`. Same for the other two.
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3:** Do the move and edits.
-- [ ] **Step 4:** `go test ./provision/` → PASS. For each of `hetzner upcloud tailnet`: `tofu -chdir=tofu/<root> init -backend=false && tofu -chdir=tofu/<root> validate` → `Success!`. Then `sh tofu/modules/jauntbox/agent/decide_test.sh` still passes.
-- [ ] **Step 5:** Commit `refactor(provision): move shared scripts to top-level provision/ for go:embed + tofu`.
+- [ ] **Step 3:** Implement `embed.go`.
+- [ ] **Step 4:** `go test ./provision/` → PASS.
+- [ ] **Step 5:** Commit `feat(provision): embed shared provisioning scripts`.
 
 ### Task 5: cloud-init renderer, units, safety net
 
@@ -225,7 +225,7 @@ docs/jauntbox/SMOKE.md
   - `type Params struct { Box boxinfo.BoxInfo; TailscaleAuthKey, HetznerToken, VolumeDevice, Tag string }`
   - `func Render(p Params) (string, error)`
 
-Template content: port `tofu/modules/jauntbox/cloud-init/user-data.tftpl` with these changes.
+Template content: port `git show trunk:tofu/modules/jauntbox/cloud-init/user-data.tftpl` with these changes.
 - **Keep:** the volume wait/mount at `/home`, the tailscaled `--state` drop-in, `tailscale up --auth-key="$(cat …)" --hostname=<Hostname> --advertise-tags=<Tag> --ssh && shred -u` key file, the provision scripts at `/opt/jaunt/*` with `/etc/jaunt/provision.env` (`JAUNT_USER`, `JAUNT_UID=2000`, `JAUNT_INSTALL_TOOLCHAIN=true`, `JAUNT_DOCKER_DATA_ROOT=/home/.docker`), and running `/opt/jaunt/dev-setup.sh`.
 - **Drop:** the idle-watch files and timer, and `setup.sh`.
 - **Add:**
@@ -240,7 +240,7 @@ Units:
 - The service runs `/usr/local/bin/jauntbox supervise`.
 - `jauntbox-safety.timer`: `OnBootSec=10min`, `OnUnitActiveSec=10min`.
 
-`safety-net.sh` has a pure `decide_safety UPTIME_SECS HEARTBEAT_AGE_SECS` (heartbeat age is `-1` when the file is missing). It prints `DELETE` when uptime > 2700 and (age == -1 or age > 900); otherwise `KEEP`. Its `main` reads `/proc/uptime` and the mtime of `/var/lib/jauntbox/heartbeat`. On `DELETE` it reads `/etc/jauntbox/hcloud.token` and the instance id from `http://169.254.169.254/hetzner/v1/metadata/instance-id`, then `curl -X DELETE`s itself. Same pattern as today's `self-delete.sh.tftpl`, and skipped when `JAUNTBOX_TEST=1`.
+`safety-net.sh` has a pure `decide_safety UPTIME_SECS HEARTBEAT_AGE_SECS` (heartbeat age is `-1` when the file is missing). It prints `DELETE` when uptime > 2700 and (age == -1 or age > 900); otherwise `KEEP`. Its `main` reads `/proc/uptime` and the mtime of `/var/lib/jauntbox/heartbeat`. On `DELETE` it reads `/etc/jauntbox/hcloud.token` and the instance id from `http://169.254.169.254/hetzner/v1/metadata/instance-id`, then `curl -X DELETE`s itself. Same pattern as `git show trunk:tofu/hetzner/self-delete.sh.tftpl`, and skipped when `JAUNTBOX_TEST=1`.
 
 - [ ] **Step 1: Failing tests.**
   - `safety-net_test.sh`, cases `(uptime, age) → verdict`: `(600,-1)→KEEP`, `(2701,-1)→DELETE`, `(2701,100)→KEEP`, `(2701,901)→DELETE`, `(99999,30)→KEEP`.
@@ -251,7 +251,7 @@ Units:
     - `TestRenderUsesTagAndHostname`: runcmd contains `--hostname=jauntbox-alice` and `--advertise-tags=tag:jauntbox-alice`.
     - `TestRenderEnablesOnlySafetyTimer`: runcmd contains `systemctl enable --now jauntbox-safety.timer` and does **not** enable `jauntbox-supervise.timer`.
 - [ ] **Step 2:** Run both → FAIL.
-- [ ] **Step 3:** Implement with `text/template` and `//go:embed`. Base64-encode file contents (`encoding: b64`), as the tofu template does.
+- [ ] **Step 3:** Implement with `text/template` and `//go:embed`. Base64-encode file contents (`encoding: b64`), as the trunk tofu template does.
 - [ ] **Step 4:** `go test ./internal/cloudinit/ ./internal/boxinfo/ && sh internal/cloudinit/units/safety-net_test.sh` → PASS.
 - [ ] **Step 5:** Commit `feat(jauntbox): cloud-init renderer with heartbeat safety net`.
 
@@ -413,7 +413,7 @@ Units:
 
 ### Task 10: Client `down`, `status`, `night`, `resize`, `ssh`; docs; live smoke test
 
-**Files:** Create `internal/client/down.go`, `status.go`, `night.go`, `resize.go`, matching tests, `docs/jauntbox/SMOKE.md`. Modify `README.md` (a jauntbox quick start beside the tofu one), `examples/jauntbox.yaml`, `cmd/jauntbox/main.go`.
+**Files:** Create `internal/client/down.go`, `status.go`, `night.go`, `resize.go`, matching tests, `docs/jauntbox/SMOKE.md`. Modify `README.md` (replace the "Status" section's "nothing here runs yet" with a real quick start), `examples/jauntbox.yaml`, `cmd/jauntbox/main.go`.
 
 **Interfaces:**
 - Consumes: `client.Deps`, `remote.Runner`, `provider.Provider`
@@ -437,7 +437,7 @@ Units:
 - [ ] **Step 2:** Run → FAIL.
 - [ ] **Step 3:** Implement and wire the CLI.
 - [ ] **Step 4:** `go vet ./... && go test ./...` → PASS.
-- [ ] **Step 5:** Write `docs/jauntbox/SMOKE.md`, a manual live procedure in the style of `tofu/SMOKE.md`:
+- [ ] **Step 5:** Write `docs/jauntbox/SMOKE.md`, a manual live procedure in the style of `git show trunk:tofu/SMOKE.md`:
   1. Make a dedicated Hetzner project and token. Run `hcloud server-type list` and **replace the placeholder profile types** in `config.Default()` and `examples/jauntbox.yaml` with real x86 types for ~16/32/64 GB in `fsn1`. Commit that change.
   2. Paste the `acl-snippet` output into the tailnet policy.
   3. `jauntbox up small --wait` → `ssh` works; `systemctl list-timers` shows `jauntbox-supervise` and `jauntbox-safety`.
@@ -449,3 +449,38 @@ Units:
   9. Safety net: `up` without `--wait`, kill the push helper → the box deletes itself ~45–55 min later.
 - [ ] **Step 6:** Commit `feat(jauntbox): down/status/night/resize + smoke procedure`.
 - [ ] **Step 7:** Thomas runs SMOKE.md on a real box. Fix anything found (each fix as its own commit, with its test) before plan 02 starts.
+
+### Task 11: `jauntbox init`, the one-coffee setup
+
+**Files:** Create `internal/client/init.go`, `internal/client/init_test.go`. Modify `cmd/jauntbox/main.go`, `README.md`, `docs/jauntbox/SMOKE.md` (step 1 becomes `jauntbox init`).
+
+**Interfaces:**
+- Consumes: `config.Config`, `config.Default`, `mesh.ACLSnippet`
+- Produces:
+  ```go
+  type Prompter interface { Ask(question, def string) (string, error); Secret(question string) (string, error); Confirm(question string, def bool) (bool, error) }
+  type Detected struct { User, SSHPublicKey, Timezone string }
+  func Detect(home string, env func(string) string, localZone func() string) Detected // user from $USER lower-cased and DNS-cleaned; first of ~/.ssh/id_ed25519.pub, id_ecdsa.pub, id_rsa.pub; timezone from localZone (reads /etc/localtime link or TZ)
+  type ServerType struct { Name string; Cores int; MemoryGB float64; Arch string; Locations []string; Deprecated bool }
+  type TypeLister interface { ServerTypes(ctx context.Context) ([]ServerType, error) } // Hetzner adapter implements it (add to provider/hetzner)
+  func PickProfiles(types []ServerType, location string) (map[string]config.Profile, error) // small/big/huge = cheapest non-deprecated x86 type in location with MemoryGB >= 16 / 32 / 64
+  func Init(ctx context.Context, p Prompter, det Detected, lister func(token string) TypeLister, meshCheck func(apiKey string) error, path string) (config.Config, error)
+  ```
+- `Init` flow:
+  1. Show the detected user, SSH key and timezone, each confirmable or editable.
+  2. Ask for the Hetzner token; validate it by listing server types. Ask for the Tailscale API key; validate it with one devices call. Each secret is read with `Secret` (no echo).
+  3. Pick profiles automatically.
+  4. Write the config with mode 0600. Tokens are **not** written: print the two `export` lines to add to the shell profile, or offer `~/.config/jauntbox/env` with mode 0600.
+  5. Print the ACL snippet and the next command, `jauntbox up small`.
+  6. If the config already exists, ask before overwriting.
+
+- [ ] **Step 1: Failing tests:**
+  - `TestPickProfiles`: from a fixture list (cx22 4 GB, cpx42 16 GB, ccx33 32 GB, ccx43 64 GB, a cheaper but deprecated 32 GB type, an arm64 cax41 32 GB) → small=cpx42, big=ccx33, huge=ccx43; arm and deprecated types are never picked. A missing size → error `no amd64 server type with >= 64 GB in fsn1`.
+  - `TestDetect`: a fake home with `id_ed25519.pub`, `USER=Thomas.S`, zone `Europe/Paris` → `thomas-s`, key contents, `Europe/Paris`.
+  - `TestInitWritesConfigWithoutSecrets`: a scripted Prompter accepting the defaults → the written file loads with `config.Load`, has mode 0600, and contains neither token string.
+  - `TestInitRejectsBadToken`: the lister errors → re-prompts once, then fails with `Hetzner token rejected: <reason>`.
+- [ ] **Step 2:** Run → FAIL.
+- [ ] **Step 3:** Implement. The terminal Prompter uses `golang.org/x/term` for secrets.
+- [ ] **Step 4:** `go test ./...` → PASS.
+- [ ] **Step 5:** Commit `feat(jauntbox): init wizard — detect, validate tokens, auto-pick profiles`.
+- [ ] **Step 6:** Thomas, on a clean user account: time `jauntbox init` → `jauntbox up small --wait` → `jauntbox ssh`. Record the time in SMOKE.md. Target: one coffee, about 15 min including box boot.
