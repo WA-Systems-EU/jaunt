@@ -23,8 +23,9 @@ main() {
   fi
   [ "$(decide_safety "$uptime_secs" "$age")" = DELETE ] || exit 0
   token=$(cat "$TOKEN_FILE")
-  id=$(curl -fsSL http://169.254.169.254/hetzner/v1/metadata/instance-id)
-  curl -fsSL -X DELETE -H "Authorization: Bearer $token" \
+  id=$(curl -fsSL --max-time 30 --retry 3 http://169.254.169.254/hetzner/v1/metadata/instance-id)
+  # The token goes in through stdin (-H @-) so it never shows up in ps.
+  printf 'Authorization: Bearer %s\n' "$token" | curl -fsSL --max-time 30 --retry 3 -X DELETE -H @- \
     "https://api.hetzner.cloud/v1/servers/$id"
 }
 

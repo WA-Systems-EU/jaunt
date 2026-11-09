@@ -3,4 +3,5 @@ Description=jauntbox heartbeat safety net
 
 [Service]
 Type=oneshot
+TimeoutStartSec=2min
 ExecStart=/opt/jauntbox/safety-net.sh
