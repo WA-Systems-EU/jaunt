@@ -1,0 +1,50 @@
+#cloud-config
+write_files:
+{{- range .Files}}
+  - path: {{.Path}}
+    permissions: '{{.Perm}}'
+    encoding: b64
+    content: {{.B64}}
+{{- end}}
+  # systemd drop-in: relocate tailscaled's state FILE onto the persistent volume so node
+  # identity (and the MagicDNS hostname) survives box replacement. Not a symlink: the
+  # packaged unit's StateDirectory= refuses symlinks. tailscaled takes the LAST --state.
+  - path: /etc/systemd/system/tailscaled.service.d/10-jaunt-state.conf
+    permissions: '0644'
+    content: |
+      [Unit]
+      RequiresMountsFor=/home
+      [Service]
+      Environment=FLAGS=--state=/home/.jaunt/tailscaled.state
+      ProtectHome=no
+  - path: /etc/jaunt/provision.env
+    permissions: '0644'
+    content: |
+      JAUNT_USER={{.Box.User}}
+      JAUNT_UID=2000
+      JAUNT_INSTALL_TOOLCHAIN=true
+      JAUNT_DOCKER_DATA_ROOT=/home/.docker
+runcmd:
+  - mkdir -p /var/lib/jauntbox
+  # wait for the data volume (Hetzner attaches it asynchronously)
+  - for i in $(seq 1 60); do [ -b {{.VolumeDevice}} ] && break; sleep 2; done
+  # mount the persistent volume at /home (format only if it has no filesystem yet)
+  - if ! blkid {{.VolumeDevice}}; then mkfs.ext4 -F {{.VolumeDevice}}; fi
+  - mkdir -p /mnt/jaunt-home && mount {{.VolumeDevice}} /mnt/jaunt-home
+  - if [ ! -d /mnt/jaunt-home/home-seeded ]; then cp -a /home/. /mnt/jaunt-home/ 2>/dev/null || true; mkdir -p /mnt/jaunt-home/home-seeded; fi
+  - umount /mnt/jaunt-home && mount {{.VolumeDevice}} /home
+  - grep -q '{{.VolumeDevice}} /home' /etc/fstab || echo '{{.VolumeDevice}} /home ext4 defaults,nofail 0 2' >> /etc/fstab
+  # tailscale: install, make sure the daemon is up before `tailscale up`
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - mkdir -p /home/.jaunt && chmod 700 /home/.jaunt
+  - systemctl daemon-reload
+  - systemctl enable tailscaled
+  - systemctl restart tailscaled
+  - for i in $(seq 1 30); do [ -S /var/run/tailscale/tailscaled.sock ] && break; sleep 1; done
+  # the single-use auth key is shredded after a successful join
+  - tailscale up --auth-key="$(cat /etc/jauntbox/ts.key)" --hostname={{.Box.Hostname}} --advertise-tags={{.Tag}} --ssh && shred -u /etc/jauntbox/ts.key
+  # provision the engineer user, Docker, and the dev toolchain
+  - /opt/jaunt/dev-setup.sh
+  # arm the heartbeat safety net (the supervise timer is enabled later by `jauntbox`)
+  - systemctl daemon-reload
+  - systemctl enable --now jauntbox-safety.timer

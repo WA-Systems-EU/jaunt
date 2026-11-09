@@ -1,0 +1,9 @@
+[Unit]
+Description=jauntbox heartbeat safety net schedule
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

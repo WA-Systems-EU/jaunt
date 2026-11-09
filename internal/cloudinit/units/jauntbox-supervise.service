@@ -1,0 +1,6 @@
+[Unit]
+Description=jauntbox supervisor tick
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/jauntbox supervise

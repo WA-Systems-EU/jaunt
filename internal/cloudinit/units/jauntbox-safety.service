@@ -1,0 +1,6 @@
+[Unit]
+Description=jauntbox heartbeat safety net
+
+[Service]
+Type=oneshot
+ExecStart=/opt/jauntbox/safety-net.sh
