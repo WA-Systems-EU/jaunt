@@ -48,8 +48,13 @@ func Decide(in Inputs) Verdict {
 		}
 		return stop(in, "night-deadline")
 	}
-	if dl, reason := Deadline(in.UpAt, l, in.Loc); !in.Now.Before(dl) {
-		return stop(in, reason)
+	// Startup grace: for one active window after boot the deadline rule is
+	// skipped, so a box brought up after the cutoff survives until the human
+	// has had time to open a session (then human-active keeps it).
+	if in.Now.Sub(in.UpAt) >= time.Duration(l.HumanActiveWindow) {
+		if dl, reason := Deadline(in.UpAt, l, in.Loc); !in.Now.Before(dl) {
+			return stop(in, reason)
+		}
 	}
 	window := time.Duration(l.IdleDay)
 	if InNightHours(in.Now, l.NightHours, in.Loc) {

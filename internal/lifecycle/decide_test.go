@@ -75,6 +75,9 @@ func TestDecide(t *testing.T) {
 		{"13 up after cutoff", mk(func(in *Inputs) {
 			in.UpAt, in.Now, in.HumanIdle, in.LastActive = at(1, 20, 0), at(1, 20, 45), 31*time.Minute, at(1, 20, 44)
 		}), Verdict{Delete, "evening-cutoff"}},
+		{"13b startup grace after cutoff", mk(func(in *Inputs) {
+			in.UpAt, in.Now, in.LastActive = at(1, 20, 0), at(1, 20, 5), at(1, 20, 0)
+		}), Verdict{Keep, "ok"}},
 		{"14 stop requested", mk(func(in *Inputs) {
 			// up this morning, last active recent: only StopRequested matters.
 			in.UpAt, in.Now, in.HumanIdle, in.AgentsRunning, in.LastActive, in.StopRequested = at(1, 8, 0), at(1, 12, 0), time.Minute, 1, at(1, 11, 59), true
