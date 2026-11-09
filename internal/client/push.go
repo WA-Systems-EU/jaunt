@@ -28,16 +28,19 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 	}
 	host := hostname(d.Cfg.User)
 	deadline := time.Now().Add(wait)
+	var lastErr error
 	for {
 		online, err := d.Mesh.DeviceOnline(ctx, host)
-		if err != nil {
-			return fmt.Errorf("check tailnet for %s: %w", host, err)
-		}
-		if online {
+		if err == nil && online {
 			break
 		}
+		lastErr = err // transient API errors are retried until the deadline
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%s did not join the tailnet within %s (check the box console; it will delete itself via the safety timer)", host, wait)
+			msg := fmt.Sprintf("%s did not join the tailnet within %s (check the box console; it will delete itself via the safety timer)", host, wait)
+			if lastErr != nil {
+				return fmt.Errorf("%s; last error: %w", msg, lastErr)
+			}
+			return fmt.Errorf("%s", msg)
 		}
 		select {
 		case <-ctx.Done():

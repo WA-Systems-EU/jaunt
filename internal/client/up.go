@@ -66,9 +66,16 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 	if err != nil {
 		return UpResult{}, fmt.Errorf("firewall: %w", err)
 	}
-	vol, err := d.Prov.EnsureVolume(ctx, name+"-home", d.Cfg.VolumeSizeGB, d.Cfg.Location, labels(user, "home"))
+	ensureVol := func() (provider.Volume, error) {
+		return d.Prov.EnsureVolume(ctx, name+"-home", d.Cfg.VolumeSizeGB, d.Cfg.Location, labels(user, "home"))
+	}
+	vol, err := ensureVol()
 	if err != nil {
-		return UpResult{}, fmt.Errorf("volume: %w", err)
+		// A concurrent `jauntbox up` may have created it first; look it up once more.
+		var err2 error
+		if vol, err2 = ensureVol(); err2 != nil {
+			return UpResult{}, fmt.Errorf("volume: %w (re-run `jauntbox up`)", err)
+		}
 	}
 	existing, err := d.Prov.FindBox(ctx, labels(user, "box"))
 	if err != nil {
@@ -102,15 +109,23 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 		VolumeID: vol.ID, SSHKeyID: keyID, FirewallID: fwID,
 	})
 	if err != nil {
-		return UpResult{}, fmt.Errorf("create box: %w", err)
+		if again, ferr := d.Prov.FindBox(ctx, labels(user, "box")); ferr == nil && again != nil {
+			// Lost a race: another `jauntbox up` already created it.
+			return UpResult{Box: *again}, nil
+		}
+		return UpResult{}, fmt.Errorf("create box: %w (if another `jauntbox up` is running, re-run `jauntbox up`)", err)
 	}
-	_ = d.Events.Emit(events.Event{Time: d.Now(), Kind: events.BoxCreated, Fields: map[string]string{
+	emitErr := d.Events.Emit(events.Event{Time: d.Now(), Kind: events.BoxCreated, Fields: map[string]string{
 		"user": user, "profile": profile, "server_type": prof.ServerType, "id": fmt.Sprint(box.ID),
 	}})
+	res := UpResult{Box: box, Created: true}
 	if err := d.Spawn("internal-push"); err != nil {
-		return UpResult{Box: box, Created: true}, fmt.Errorf("box created but starting the binary push failed (run `jauntbox internal-push`): %w", err)
+		return res, fmt.Errorf("box created but starting the binary push failed (run `jauntbox internal-push`): %w", err)
 	}
-	return UpResult{Box: box, Created: true}, nil
+	if emitErr != nil {
+		return res, fmt.Errorf("box created, but recording the box.created event failed: %w", emitErr)
+	}
+	return res, nil
 }
 
 // BoxBinaryPath returns the linux/amd64 jauntbox binary to install on the box.

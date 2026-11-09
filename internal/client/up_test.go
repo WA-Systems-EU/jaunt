@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"encoding/base64"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/policy"
+	"github.com/WA-Systems-EU/jaunt/internal/provider"
 )
 
 type recSink struct{ kinds []string }
@@ -63,6 +66,80 @@ func TestUpCreatesOnce(t *testing.T) {
 	}
 	if p.count("vol") != 2 {
 		t.Fatalf("EnsureVolume should run each time (idempotent)")
+	}
+}
+
+func TestUpNamesLabelsAndIDs(t *testing.T) {
+	d, p, m, _, _, _ := newDeps(t)
+	if _, err := Up(context.Background(), d, "small"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		got        named
+		name, role string
+	}{{p.key, "jauntbox-alice", "key"}, {p.fw, "jauntbox-alice", "fw"}, {p.vol, "jauntbox-alice-home", "home"}} {
+		if c.got.name != c.name || !reflect.DeepEqual(c.got.labels, map[string]string{"jauntbox": "alice", "role": c.role}) {
+			t.Errorf("%s: %+v", c.role, c.got)
+		}
+	}
+	s := p.spec
+	if s.VolumeID != volID || s.SSHKeyID != keyID || s.FirewallID != fwID || s.Name != "jauntbox-alice" {
+		t.Errorf("spec ids = %+v", s)
+	}
+	if !reflect.DeepEqual(m.tags, []string{"tag:jauntbox-alice"}) || m.ttl != time.Hour {
+		t.Errorf("auth key tags=%v ttl=%v", m.tags, m.ttl)
+	}
+	if !strings.Contains(s.UserData, volDevice) || !strings.Contains(s.UserData, "tag:jauntbox-alice") {
+		t.Error("user-data lacks volume device or tag")
+	}
+}
+
+func TestUpConcurrentLoserReturnsExisting(t *testing.T) {
+	d, p, _, _, s, spawns := newDeps(t)
+	p.failCreate = true
+	p.racedBox = &provider.Box{ID: 5, Name: "jauntbox-alice"}
+	res, err := Up(context.Background(), d, "small")
+	if err != nil || res.Created || res.Box.ID != 5 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if *spawns != 0 || len(s.kinds) != 0 {
+		t.Fatalf("spawns=%d events=%v", *spawns, s.kinds)
+	}
+}
+
+func TestUpCreateFailureHintsRerun(t *testing.T) {
+	d, p, _, _, _, _ := newDeps(t)
+	p.failCreate = true
+	_, err := Up(context.Background(), d, "small")
+	if err == nil || !strings.Contains(err.Error(), "re-run `jauntbox up`") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestUpEmitFailureSurfacedNotFatal(t *testing.T) {
+	d, _, _, _, _, spawns := newDeps(t)
+	d.Events = failSink{}
+	res, err := Up(context.Background(), d, "small")
+	if !res.Created || err == nil || !strings.Contains(err.Error(), "box.created") || *spawns != 1 {
+		t.Fatalf("res=%+v err=%v spawns=%d", res, err, *spawns)
+	}
+}
+
+type failSink struct{}
+
+func (failSink) Emit(events.Event) error { return errors.New("disk full") }
+
+func TestPushBinaryRetriesTransientErrors(t *testing.T) {
+	old := pollInterval
+	pollInterval = time.Millisecond
+	defer func() { pollInterval = old }()
+	d, _, m, r, _, _ := newDeps(t)
+	m.errs = 2
+	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.order) != 2 {
+		t.Fatalf("order = %v", r.order)
 	}
 }
 
