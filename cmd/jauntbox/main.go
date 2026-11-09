@@ -242,7 +242,7 @@ func newRootCmd() *cobra.Command {
 				d = client.WithoutSpawn(d)
 			}
 			res, err := client.Up(ctx, d, profile)
-			if err != nil {
+			if err != nil && !res.Created {
 				return err
 			}
 			if !res.Created {
@@ -250,6 +250,12 @@ func newRootCmd() *cobra.Command {
 				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "created %s (%s)\n", res.Box.Name, profile)
+			if err != nil { // the box exists; report the follow-up problem as a warning
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", err)
+				if !wait {
+					return nil
+				}
+			}
 			if wait {
 				fmt.Fprintln(cmd.OutOrStdout(), "waiting for the box to join the tailnet...")
 				return client.PushBinary(ctx, d, client.DefaultPushWait)
@@ -288,6 +294,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	root.AddCommand(up, push, acl, supervise, stop, nightSet, boxStatus)
+	root.AddCommand(clientOpsCmds(&cfgPath, loadDeps)...)
 	return root
 }
 

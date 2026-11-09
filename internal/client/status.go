@@ -1,0 +1,51 @@
+package client
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/WA-Systems-EU/jaunt/internal/provider"
+)
+
+// StatusReport is what `jauntbox status` shows.
+type StatusReport struct {
+	Box    *provider.Box // nil when no box exists
+	Online bool          // on the tailnet
+	// BoxStatus is the raw `box-status --json` output, set when reachable.
+	BoxStatus json.RawMessage
+	// Err describes why BoxStatus is missing although the box is online.
+	Err string
+}
+
+// Status reports the provider's view of the box, tailnet presence and, when
+// reachable, the supervisor's own view.
+func Status(ctx context.Context, d Deps) (StatusReport, error) {
+	b, err := d.Prov.FindBox(ctx, labels(d.Cfg.User, "box"))
+	if err != nil {
+		return StatusReport{}, err
+	}
+	if b == nil {
+		return StatusReport{}, nil
+	}
+	rep := StatusReport{Box: b}
+	online, err := d.Mesh.DeviceOnline(ctx, hostname(d.Cfg.User))
+	if err != nil {
+		rep.Err = "tailnet check failed: " + err.Error()
+		return rep, nil
+	}
+	rep.Online = online
+	if !online {
+		return rep, nil
+	}
+	out, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntbox", "box-status", "--json")
+	if err != nil {
+		rep.Err = "box-status failed (supervisor not installed yet?): " + err.Error()
+		return rep, nil
+	}
+	if json.Valid(out) {
+		rep.BoxStatus = out
+	} else {
+		rep.Err = "box-status returned invalid JSON: " + string(out)
+	}
+	return rep, nil
+}

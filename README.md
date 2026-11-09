@@ -30,9 +30,27 @@ jauntbox up small        # returns at once; the box is ready a few minutes later
 jauntbox ssh             # you're in
 ```
 
+## Quick start
+
+Needs a Hetzner Cloud project token (`HCLOUD_TOKEN`) and a Tailscale API key
+(`TAILSCALE_API_KEY`); `jauntbox init` (planned) will write the config for you. Until then
+copy `examples/jauntbox.yaml` to `~/.config/jauntbox/config.yaml` and edit it.
+
+```sh
+jauntbox acl-snippet                # paste the output into your tailnet policy, once
+jauntbox up small                   # returns at once; the box is ready a few minutes later
+jauntbox status                     # box, tailnet presence, deadline and verdict
+jauntbox ssh                        # you're in
+jauntbox night --until 07:00        # let agents keep the box overnight
+jauntbox resize big                 # swap to another profile; /home persists
+jauntbox down                       # wrap up and delete the box (the volume stays)
+```
+
+Not yet live-tested end to end: see [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).
+
 ## Status
 
-**Under construction** on the `feat/remote-workspace` branch — nothing here runs yet.
+**Under construction** on the `feat/remote-workspace` branch.
 
 - Design: [`docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md)
 - Plan 01 (walking skeleton): [`docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md`](docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md)

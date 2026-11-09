@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
@@ -29,6 +30,14 @@ type fakeProv struct {
 	volCalls     int
 	failCreate   bool
 	racedBox     *provider.Box // appears after CreateBox fails
+	seq          *[]string     // optional shared call log across fakes
+	deleted      []int64
+}
+
+func (f *fakeProv) log(s string) {
+	if f.seq != nil {
+		*f.seq = append(*f.seq, s)
+	}
 }
 
 func (f *fakeProv) rec(s string) { f.calls = append(f.calls, s) }
@@ -66,6 +75,7 @@ func (f *fakeProv) FindBox(_ context.Context, l map[string]string) (*provider.Bo
 }
 func (f *fakeProv) CreateBox(_ context.Context, s provider.CreateBoxSpec) (provider.Box, error) {
 	f.rec("create")
+	f.log("create:" + s.ServerType)
 	f.spec = s
 	if f.failCreate {
 		f.box = f.racedBox
@@ -75,8 +85,18 @@ func (f *fakeProv) CreateBox(_ context.Context, s provider.CreateBoxSpec) (provi
 	f.box = &b
 	return b, nil
 }
-func (f *fakeProv) DeleteBox(context.Context, int64) error   { return nil }
-func (f *fakeProv) WaitDeleted(context.Context, int64) error { return nil }
+func (f *fakeProv) DeleteBox(_ context.Context, id int64) error {
+	f.rec("delete")
+	f.log("delete")
+	f.deleted = append(f.deleted, id)
+	return nil
+}
+func (f *fakeProv) WaitDeleted(context.Context, int64) error {
+	f.rec("waitdeleted")
+	f.log("waitdeleted")
+	f.box = nil
+	return nil
+}
 
 type fakeMesh struct {
 	keys   int
@@ -106,12 +126,18 @@ func (m *fakeMesh) DeviceOnline(context.Context, string) (bool, error) {
 type fakeRemote struct {
 	order []string
 	cmds  []string
+	err   error     // returned by Run
+	out   []byte    // returned by Run
+	seq   *[]string // optional shared call log
 }
 
 func (r *fakeRemote) Run(_ context.Context, host string, args ...string) ([]byte, error) {
 	r.order = append(r.order, "run")
 	r.cmds = append(r.cmds, fmt.Sprint(args))
-	return nil, nil
+	if r.seq != nil {
+		*r.seq = append(*r.seq, "run:"+strings.Join(args, " "))
+	}
+	return r.out, r.err
 }
 func (r *fakeRemote) Copy(_ context.Context, host, local, remote string) error {
 	r.order = append(r.order, "copy:"+remote)
