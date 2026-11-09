@@ -60,6 +60,20 @@ func (f *fake) posts(path string) []rec {
 
 func w(rw http.ResponseWriter, s string) { _, _ = io.WriteString(rw, s) }
 
+const actionsDone = `{"actions":[{"id":1,"status":"success","progress":100}],"meta":{"pagination":{"page":1,"per_page":50,"last_page":1,"total_entries":1}}}`
+
+func (f *fake) gets(path string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, r := range f.reqs {
+		if r.method == "GET" && r.path == path {
+			n++
+		}
+	}
+	return n
+}
+
 const volJSON = `{"id":42,"name":"jauntbox-alice-home","size":50,"location":{"name":"%s"},"labels":{}}`
 
 func TestEnsureVolumeIsIdempotent(t *testing.T) {
@@ -74,7 +88,9 @@ func TestEnsureVolumeIsIdempotent(t *testing.T) {
 			}
 		case r.method == "POST" && r.path == "/volumes":
 			exists = true
-			w(rw, `{"volume":`+strings.Replace(volJSON, "%s", "fsn1", 1)+`,"action":null,"next_actions":[]}`)
+			w(rw, `{"volume":`+strings.Replace(volJSON, "%s", "fsn1", 1)+`,"action":{"id":1,"status":"running"},"next_actions":[]}`)
+		case r.method == "GET" && r.path == "/actions":
+			w(rw, actionsDone)
 		default:
 			rw.WriteHeader(404)
 		}
@@ -104,6 +120,9 @@ func TestEnsureVolumeIsIdempotent(t *testing.T) {
 	}
 	if n := len(f.posts("/volumes")); n != 1 {
 		t.Fatalf("second call posted; total posts = %d", n)
+	}
+	if f.gets("/actions") == 0 {
+		t.Fatal("EnsureVolume did not wait for the create action")
 	}
 }
 
@@ -145,7 +164,7 @@ func TestFindBoxBySelector(t *testing.T) {
 
 func TestFindBoxNone(t *testing.T) {
 	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) { w(rw, `{"servers":[]}`) })
-	b, err := h.FindBox(context.Background(), map[string]string{"jauntbox": "alice"})
+	b, err := h.FindBox(context.Background(), map[string]string{"jauntbox": "alice", "role": "box"})
 	if b != nil || err != nil {
 		t.Fatalf("b=%v err=%v", b, err)
 	}
@@ -196,15 +215,22 @@ func TestCreateBoxBody(t *testing.T) {
 
 func TestEnsureFirewallDeniesInbound(t *testing.T) {
 	h, f := newFake(t, func(r rec, rw http.ResponseWriter) {
+		if r.path == "/actions" {
+			w(rw, actionsDone)
+			return
+		}
 		if r.method == "GET" {
 			w(rw, `{"firewalls":[]}`)
 			return
 		}
-		w(rw, `{"firewall":{"id":6,"name":"jauntbox-alice"},"actions":[]}`)
+		w(rw, `{"firewall":{"id":6,"name":"jauntbox-alice"},"actions":[{"id":1,"status":"running"}]}`)
 	})
 	id, err := h.EnsureFirewall(context.Background(), "jauntbox-alice", map[string]string{"jauntbox": "alice", "role": "fw"})
 	if err != nil || id != 6 {
 		t.Fatalf("id=%d err=%v", id, err)
+	}
+	if f.gets("/actions") == 0 {
+		t.Fatal("EnsureFirewall did not wait for the create actions")
 	}
 	b := f.posts("/firewalls")[0].body
 	if rules, ok := b["rules"]; ok && len(rules.([]any)) != 0 {
@@ -312,5 +338,27 @@ func TestSelfID(t *testing.T) {
 	id, err := SelfID(context.Background(), srv.URL)
 	if err != nil || id != 123456 {
 		t.Fatalf("id=%d err=%v", id, err)
+	}
+}
+
+func TestFindBoxRejectsUnsafeLabels(t *testing.T) {
+	h, f := newFake(t, func(r rec, rw http.ResponseWriter) { w(rw, `{"servers":[]}`) })
+	for _, l := range []map[string]string{nil, {"jauntbox": "alice"}, {"role": "box"}, {"jauntbox": "alice", "role": "fw"}} {
+		if _, err := h.FindBox(context.Background(), l); err == nil {
+			t.Errorf("labels %v: expected error", l)
+		}
+	}
+	if len(f.reqs) != 0 {
+		t.Fatalf("made %d requests", len(f.reqs))
+	}
+}
+
+func TestEnsureFirewallRequiresUserLabel(t *testing.T) {
+	h, f := newFake(t, func(r rec, rw http.ResponseWriter) { w(rw, `{"firewalls":[]}`) })
+	if _, err := h.EnsureFirewall(context.Background(), "jauntbox-alice", map[string]string{"role": "fw"}); err == nil {
+		t.Fatal("expected error")
+	}
+	if len(f.reqs) != 0 {
+		t.Fatalf("made %d requests", len(f.reqs))
 	}
 }

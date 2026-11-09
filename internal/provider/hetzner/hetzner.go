@@ -67,6 +67,9 @@ func (h *Hetzner) EnsureSSHKey(ctx context.Context, name, publicKey string, labe
 // selector built from labels with role replaced by "box" (caller passes
 // jauntbox=<user>, role=fw, giving jauntbox=<user>,role=box).
 func (h *Hetzner) EnsureFirewall(ctx context.Context, name string, labels map[string]string) (int64, error) {
+	if labels["jauntbox"] == "" {
+		return 0, fmt.Errorf("firewall %q: labels must include jauntbox=<user>, otherwise the selector would match every user's box", name)
+	}
 	fws, err := h.c.Firewall.AllWithOpts(ctx, hcloud.FirewallListOpts{Name: name})
 	if err != nil {
 		return 0, fmt.Errorf("list firewalls: %w", err)
@@ -90,7 +93,28 @@ func (h *Hetzner) EnsureFirewall(ctx context.Context, name string, labels map[st
 	if err != nil {
 		return 0, fmt.Errorf("create firewall %q: %w", name, err)
 	}
+	if err := h.await(ctx, res.Actions...); err != nil {
+		return 0, fmt.Errorf("firewall %q: %w", name, err)
+	}
 	return res.Firewall.ID, nil
+}
+
+// await waits for the given create actions so later calls (e.g. attaching the
+// volume in CreateBox) do not hit a locked resource.
+func (h *Hetzner) await(ctx context.Context, actions ...*hcloud.Action) error {
+	var as []*hcloud.Action
+	for _, a := range actions {
+		if a != nil {
+			as = append(as, a)
+		}
+	}
+	if len(as) == 0 {
+		return nil
+	}
+	if err := h.c.Action.WaitFor(ctx, as...); err != nil {
+		return fmt.Errorf("wait for create action: %w", err)
+	}
+	return nil
 }
 
 func volumeOf(v *hcloud.Volume) provider.Volume {
@@ -118,6 +142,9 @@ func (h *Hetzner) EnsureVolume(ctx context.Context, name string, sizeGB int, loc
 	if err != nil {
 		return provider.Volume{}, fmt.Errorf("create volume %q: %w", name, err)
 	}
+	if err := h.await(ctx, append([]*hcloud.Action{res.Action}, res.NextActions...)...); err != nil {
+		return provider.Volume{}, fmt.Errorf("volume %q: %w", name, err)
+	}
 	return volumeOf(res.Volume), nil
 }
 
@@ -130,6 +157,9 @@ func boxOf(s *hcloud.Server) provider.Box {
 }
 
 func (h *Hetzner) FindBox(ctx context.Context, labels map[string]string) (*provider.Box, error) {
+	if labels["jauntbox"] == "" || labels["role"] != "box" {
+		return nil, fmt.Errorf("FindBox needs labels jauntbox=<user> and role=box, got %q; refusing to list every server in the project", selector(labels))
+	}
 	servers, err := h.c.Server.AllWithOpts(ctx, hcloud.ServerListOpts{ListOpts: hcloud.ListOpts{LabelSelector: selector(labels)}})
 	if err != nil {
 		return nil, fmt.Errorf("list servers: %w", err)
