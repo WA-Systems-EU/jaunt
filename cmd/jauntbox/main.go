@@ -35,9 +35,16 @@ func stateDir() string {
 	return filepath.Join(home, ".local", "state", "jauntbox")
 }
 
-func requireEnv(name, what string) (string, error) {
+// requireEnv returns the variable from the environment, else from the env file
+// written by `jauntbox init` (envFile may be "").
+func requireEnv(name, what, envFile string) (string, error) {
 	if v := os.Getenv(name); v != "" {
 		return v, nil
+	}
+	if envFile != "" {
+		if vals, err := client.ReadEnvFile(envFile); err == nil && vals[name] != "" {
+			return vals[name], nil
+		}
 	}
 	return "", fmt.Errorf("%s is not set — export your %s (see jauntbox init)", name, what)
 }
@@ -74,11 +81,11 @@ func loadDeps(cfgPath string) (client.Deps, error) {
 	if err != nil {
 		return client.Deps{}, err
 	}
-	hz, err := requireEnv(cfg.HetznerTokenEnv, "Hetzner API token")
+	hz, err := requireEnv(cfg.HetznerTokenEnv, "Hetzner API token", client.EnvFilePath(cfgPath))
 	if err != nil {
 		return client.Deps{}, err
 	}
-	ts, err := requireEnv(cfg.TailscaleAPIKeyEnv, "Tailscale API key")
+	ts, err := requireEnv(cfg.TailscaleAPIKeyEnv, "Tailscale API key", client.EnvFilePath(cfgPath))
 	if err != nil {
 		return client.Deps{}, err
 	}
@@ -293,7 +300,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(up, push, acl, supervise, stop, nightSet, boxStatus)
+	root.AddCommand(initCmd(&cfgPath), up, push, acl, supervise, stop, nightSet, boxStatus)
 	root.AddCommand(clientOpsCmds(&cfgPath, loadDeps)...)
 	return root
 }

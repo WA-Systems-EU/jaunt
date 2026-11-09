@@ -7,15 +7,17 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
 
 ## Procedure
 
-1. **Dedicated project and real server types.** Create a new Hetzner project and
-   an API token for it; export `HCLOUD_TOKEN=...` and `TAILSCALE_API_KEY=...`.
-   Run `hcloud server-type list` and **replace the placeholder profile types** in
-   `config.Default()` and `examples/jauntbox.yaml` with real x86 (amd64) types for
-   about 16/32/64 GB in `fsn1`. Commit that change. Create your config from
-   `examples/jauntbox.yaml`.
+1. **Dedicated project and `jauntbox init`.** Create a new Hetzner project and an
+   API token for it, and a Tailscale API key. Run `jauntbox init` (time it: target is
+   one coffee, about 15 minutes including box boot) and accept the detected values.
+   Then check that init picked sensible types: compare `jauntbox`'s config profiles
+   against `hcloud server-type list` (x86/amd64, not deprecated, about 16/32/64 GB,
+   available in `fsn1`). If they look wrong, fix `PickProfiles` and add a test.
+   Record the init time here: _not yet timed_.
 
-2. **Tailnet policy.** Paste the output of `jauntbox acl-snippet` into the
-   tailnet policy file and save it.
+2. **Tailnet policy.** Paste the snippet that `jauntbox init` printed (or
+   `jauntbox acl-snippet`) into Access controls in the Tailscale admin console, remove or
+   narrow the default allow-all rule, and save.
 
 3. **Bring the box up.** `jauntbox up small --wait`. Then:
    - `jauntbox ssh` works.

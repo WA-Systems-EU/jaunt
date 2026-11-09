@@ -33,11 +33,16 @@ jauntbox ssh             # you're in
 ## Quick start
 
 Needs a Hetzner Cloud project token (`HCLOUD_TOKEN`) and a Tailscale API key
-(`TAILSCALE_API_KEY`); `jauntbox init` (planned) will write the config for you. Until then
-copy `examples/jauntbox.yaml` to `~/.config/jauntbox/config.yaml` and edit it.
+(`TAILSCALE_API_KEY`). `jauntbox init` detects your settings, checks both tokens, picks
+server types, writes `~/.config/jauntbox/config.yaml` (never the tokens) and prints the
+Tailscale policy snippet. It can save the tokens to `~/.config/jauntbox/env` (mode 0600),
+which jauntbox reads automatically when the variables are unset; or it prints the two
+`export` lines for your shell profile. Prefer editing by hand? Copy
+`examples/jauntbox.yaml` to `~/.config/jauntbox/config.yaml`.
 
 ```sh
-jauntbox acl-snippet                # paste the output into your tailnet policy, once
+jauntbox init                       # once: config, token checks, prints the ACL snippet
+jauntbox acl-snippet                # reprint the snippet for your tailnet policy
 jauntbox up small                   # returns at once; the box is ready a few minutes later
 jauntbox status                     # box, tailnet presence, deadline and verdict
 jauntbox ssh                        # you're in
