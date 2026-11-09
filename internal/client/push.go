@@ -42,6 +42,23 @@ func InstallSupervisor(ctx context.Context, d Deps, wait bool) error {
 	return nil
 }
 
+// neverJoined deletes a box that provably never appeared on the tailnet: it is
+// unreachable, so nothing can use it, and leaving it would only bill.
+func neverJoined(ctx context.Context, d Deps, host string, wait time.Duration) error {
+	hint := "check cloud-init in the Hetzner console (/var/log/cloud-init-output.log) and the Tailscale ACL tag"
+	box, err := d.Prov.FindBox(ctx, labels(d.Cfg.User, "box"))
+	if err != nil {
+		return fmt.Errorf("%s never joined the tailnet within %s and looking it up to delete it failed: %w (delete it by hand; %s)", host, wait, err, hint)
+	}
+	if box == nil {
+		return fmt.Errorf("%s never joined the tailnet within %s (and no such server exists any more; %s)", host, wait, hint)
+	}
+	if err := d.Prov.DeleteBox(ctx, box.ID); err != nil {
+		return fmt.Errorf("%s never joined the tailnet within %s and deleting it failed: %w (delete it by hand; %s)", host, wait, err, hint)
+	}
+	return fmt.Errorf("%s never joined the tailnet within %s; deleted it (%s)", host, wait, hint)
+}
+
 // PushBinary waits for the box to appear on the tailnet, copies the jauntbox
 // binary to it and enables the supervisor.
 func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
@@ -62,11 +79,11 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 		}
 		lastErr = err // transient API errors are retried until the deadline
 		if time.Now().After(deadline) {
-			msg := fmt.Sprintf("%s did not join the tailnet within %s (check the box console; it will delete itself via the safety timer)", host, wait)
 			if lastErr != nil {
-				return fmt.Errorf("%s; last error: %w", msg, lastErr)
+				// The mesh API itself is failing, so we cannot tell whether the box joined.
+				return fmt.Errorf("could not confirm that %s joined the tailnet within %s (Tailscale API error: %w); the box was NOT deleted: check `jauntbox status` and the Tailscale admin console, then re-run `jauntbox internal-push`", host, wait, lastErr)
 			}
-			return fmt.Errorf("%s", msg)
+			return neverJoined(ctx, d, host, wait)
 		}
 		select {
 		case <-ctx.Done():

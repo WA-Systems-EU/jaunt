@@ -227,11 +227,46 @@ func TestPushBinaryTimesOut(t *testing.T) {
 	d, _, m, r, _, _ := newDeps(t)
 	m.falses = -1
 	err := PushBinary(context.Background(), d, 20*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "did not join the tailnet") {
+	if err == nil || !strings.Contains(err.Error(), "never joined the tailnet") {
 		t.Fatalf("err = %v", err)
 	}
 	if len(r.order) != 0 {
 		t.Fatalf("remote used: %v", r.order)
+	}
+}
+
+func TestPushBinaryNeverJoinedDeletesBox(t *testing.T) {
+	old := pollInterval
+	pollInterval = time.Millisecond
+	defer func() { pollInterval = old }()
+	d, p, m, _, _, _ := newDeps(t)
+	withBox(p)
+	m.falses = -1
+	err := PushBinary(context.Background(), d, 20*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "never joined the tailnet") || !strings.Contains(err.Error(), "deleted it") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(p.deleted) != 1 || p.deleted[0] != 9 {
+		t.Fatalf("deleted = %v", p.deleted)
+	}
+}
+
+func TestPushBinaryMeshErrorDoesNotDelete(t *testing.T) {
+	old := pollInterval
+	pollInterval = time.Millisecond
+	defer func() { pollInterval = old }()
+	d, p, m, _, _, _ := newDeps(t)
+	withBox(p)
+	m.errs = 1 << 30
+	err := PushBinary(context.Background(), d, 20*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "NOT deleted") || !strings.Contains(err.Error(), "transient") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(err.Error(), "safety timer") {
+		t.Errorf("false safety-timer claim remains: %v", err)
+	}
+	if len(p.deleted) != 0 {
+		t.Fatalf("deleted despite API error: %v", p.deleted)
 	}
 }
 
