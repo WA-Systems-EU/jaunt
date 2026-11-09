@@ -1,0 +1,30 @@
+# jauntbox config. Default location: ~/.config/jauntbox/config.yaml
+# (or $XDG_CONFIG_HOME/jauntbox/config.yaml). Values shown are the defaults;
+# user, ssh_public_key and timezone have no default and are required.
+
+user: thomas                       # lowercase letters, digits, dashes; names every resource
+ssh_public_key: "ssh-ed25519 AAAA... you@laptop"
+timezone: Europe/Paris             # IANA name; all limit times are evaluated here
+
+location: fsn1
+image: ubuntu-26.04
+volume_size_gb: 100                # persistent /home volume
+box_binary: ""                     # path to the on-box supervisor binary
+
+default_profile: small
+profiles:                          # server types are placeholders until verified
+  small: { server_type: cpx42, arch: amd64 }
+  big:   { server_type: ccx33, arch: amd64 }
+  huge:  { server_type: ccx43, arch: amd64 }
+
+limits:
+  max_uptime: 10h
+  evening_cutoff: "19:00"
+  idle_day: 2h
+  idle_night: 1h
+  night_hours: "22:00-07:00"
+  human_active_window: 30m
+  wrapup_grace: 5m
+
+hetzner_token_env: HCLOUD_TOKEN
+tailscale_api_key_env: TAILSCALE_API_KEY
