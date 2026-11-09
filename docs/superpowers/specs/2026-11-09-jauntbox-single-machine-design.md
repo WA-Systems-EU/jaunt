@@ -286,6 +286,7 @@ with context.
 
 | Command | Does |
 |---|---|
+| `jauntbox` (bare) | **the daily front door:** up if needed (idempotent), wait, then attach to the persistent session on the box (§7 Session layer). Close the laptop, type `jauntbox` anywhere, carry on |
 | `jauntbox up [small\|big\|huge]` | create server (size profile) + attach volume + Tailscale join; returns immediately (`--wait` to block). A detached client-side helper waits for the box to join the tailnet, then pushes secrets (§7.1) |
 | `jauntbox down` | wrap-up agents, revoke tokens, delete server (volume kept) |
 | `jauntbox status` | box up?, size, uptime, limits remaining, running agents, night session |
@@ -297,6 +298,26 @@ with context.
 
 `jauntbox agent …` runs **on the box** (same binary, box-side subcommands).
 **(builder's call: one binary, two roles)**
+
+### Session layer **(Thomas)**
+
+The box runs a **persistent terminal session** that outlives any connection; the client
+attaches to it. jauntbox drives an existing multiplexer through a **session adapter** (a
+fifth seam) rather than building one:
+
+- **v1: herdr** (Apache-2.0), installed on the box by provisioning. The client hands off to
+  `herdr --remote <user>@jauntbox-<user> --session jauntbox` when herdr is installed
+  locally, else to `ssh -t <user>@jauntbox-<user> herdr --session jauntbox`.
+- **After v1: tmux** as fallback adapter.
+- On first attach of the day jauntbox creates **one herdr workspace per project** in
+  `~/src` (via herdr's socket API on the box); plan 03 adds **one tab per agent container**,
+  already attached inside it, and shows `CONTINUATION.md` when such a tab opens.
+- **Reconnect:** if the connection drops (not a user detach), the client retries with
+  backoff and reattaches; the session on the box is untouched.
+- Human-activity detection (§7) must see typing inside herdr panes as activity; verified
+  in the smoke test.
+- A future "meta agent" that sees all tabs/agents belongs to the separate own-agent
+  project and would plug in here.
 
 ### Secret delivery and the locked state **(builder's call)**
 
@@ -395,7 +416,7 @@ owner may prefer an ephemeral node removed each night.**)**
   agent adapter · containers + accessory services · lifecycle rules, night sessions,
   wrap-up/CONTINUATION · setup command · ported provisioning. Provider/forge/agent
   interfaces in place.
-- **Phase 2:** Gitea/Forgejo adapter (after the Actions-secrets question is answered) ·
+- **Phase 2:** tmux session adapter · Gitea/Forgejo adapter (after the Actions-secrets question is answered) ·
   attended mode · nested Docker (sysbox) opt-in · more agent adapters · Headscale and
   NetBird mesh adapters · arm64 / other flavours.
 - **Later / separate projects:** fleet (tofu + jauntd), local models/GPU/own agent,
@@ -420,7 +441,7 @@ add-ons rather than forks):
 - **Policy hook:** limits, allowed size profiles, allowed repos and night-session rules
   come from a policy source interface. v1 implements it with the local config file; a
   central service can implement it later.
-- **Adapters (provider, forge, agent, mesh) as stable Go interfaces** in their own packages.
+- **Adapters (provider, forge, agent, mesh, session) as stable Go interfaces** in their own packages.
 
 ## 11. Left to the builder
 

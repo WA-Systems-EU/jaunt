@@ -73,6 +73,8 @@ internal/supervisor/run.go           # RunOnce
 internal/supervisor/state.go         # persisted State, night file, stop request
 provision/                           # shared scripts (already here) + embed.go
 internal/client/init.go              # jauntbox init wizard
+internal/session/session.go, herdr.go # session adapter (herdr in v1)
+internal/client/attach.go            # bare `jauntbox`: up + wait + attach + reconnect
 examples/jauntbox.yaml
 docs/jauntbox/SMOKE.md
 ```
@@ -484,3 +486,49 @@ Units:
 - [ ] **Step 4:** `go test ./...` → PASS.
 - [ ] **Step 5:** Commit `feat(jauntbox): init wizard — detect, validate tokens, auto-pick profiles`.
 - [ ] **Step 6:** Thomas, on a clean user account: time `jauntbox init` → `jauntbox up small --wait` → `jauntbox ssh`. Record the time in SMOKE.md. Target: one coffee, about 15 min including box boot.
+
+### Task 12: Bare `jauntbox`, attach to the persistent herdr session
+
+**Files:** Create `internal/session/session.go`, `internal/session/herdr.go`, `internal/session/herdr_test.go`, `internal/client/attach.go`, `internal/client/attach_test.go`. Modify `provision/dev-setup-user.sh` (install herdr), `cmd/jauntbox/main.go` (root command with no args = attach), `README.md`, `docs/jauntbox/SMOKE.md`.
+
+**Interfaces:**
+- Consumes: `client.Up`, `client.PushBinary`, `remote.Runner`, `mesh.Mesh`
+- Produces:
+  ```go
+  type Session interface {
+      // Command the client execs to attach; localHerdr reports whether herdr is on the client's PATH.
+      AttachCommand(host, user, name string, localHerdr bool) []string
+      // Remote command lines (run via remote.Runner) that ensure one workspace per project dir.
+      EnsureWorkspaces(projects []string) [][]string
+  }
+  type Herdr struct{}
+  func Attach(ctx context.Context, d Deps, sess session.Session, exec func(argv []string) (exitCode int, err error), lookPath func(string) (string, error)) error
+  ```
+- `Herdr.AttachCommand`:
+  - local herdr → `herdr --remote <user>@<host> --session <name>`;
+  - otherwise → `ssh -t <user>@<host> -- herdr --session <name>`.
+  - Session name is `jauntbox`.
+- `EnsureWorkspaces`: one `herdr workspace create --cwd /home/<user>/src/<p> --label <p> --no-focus` per project that `herdr workspace list` doesn't already show (match on label). Before writing the parser, check `herdr workspace list --help` for a machine-readable output flag.
+- `Attach`:
+  1. `Up(default_profile)`, idempotent.
+  2. If just created → `PushBinary` in the foreground, printing `waiting for jauntbox-<user> to join the tailnet…`. Otherwise `DeviceOnline` with a short wait.
+  3. List `~/src/*` dirs remotely, then run `EnsureWorkspaces`.
+  4. Exec the attach command. **Reconnect rule:** exit code `255` (ssh transport failure) or a herdr connection-lost exit → retry after 2 s, 4 s, 8 s… (cap 30 s, give up after 10 min). Any other exit, including a user detach, returns.
+- Provisioning: in `dev-setup-user.sh`, install herdr into `~/.local/bin` when absent. Pin a version (`JAUNT_HERDR_VERSION`, default `0.7.5`, which Thomas uses). Use herdr's official install method from https://herdr.dev; check the exact command there and don't invent one.
+
+- [ ] **Step 1: Failing tests:**
+  - `TestHerdrAttachCommand`: both branches produce the exact argv above.
+  - `TestEnsureWorkspacesSkipsExisting`: projects `a,b` with `a` already listed → one create, for `b`.
+  - `TestAttachUpThenExec`: no box → Up creates it, PushBinary runs, then exec gets the herdr argv.
+  - `TestAttachReconnectsOnTransportFailure`: exec returns 255, 255, then 0 → three calls, nil error.
+  - `TestAttachStopsOnUserExit`: exec returns 0 once → one call.
+  - `TestAttachExistingBoxSkipsPush`: box exists → no PushBinary.
+- [ ] **Step 2:** Run → FAIL.
+- [ ] **Step 3:** Implement. Real `exec` = `os/exec` with stdio inherited; `lookPath` = `exec.LookPath`. Backoff durations go through an unexported variable so tests run instantly.
+- [ ] **Step 4:** `go vet ./... && go test ./...` → PASS.
+- [ ] **Step 5:** Commit `feat(jauntbox): bare jauntbox attaches to a persistent herdr session with reconnect`.
+- [ ] **Step 6:** Extend SMOKE.md and run it:
+  1. `jauntbox` from the laptop → herdr opens with one workspace per repo in `~/src`.
+  2. Kill the Wi-Fi for 20 s → it reattaches by itself.
+  3. Detach, then run `jauntbox` from the Lenovo → same session, same panes.
+  4. Type in a pane, then go idle → `jauntbox status` shows human activity, then none after 30 min. **If typing in herdr panes does not register through `/dev/pts` atime, stop and report:** Task 9's `HumanIdle` needs a herdr-aware signal (for example herdr's API reporting attached clients and last input).
