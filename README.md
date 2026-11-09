@@ -26,8 +26,7 @@ long as a cup of coffee — no files to edit, no infrastructure to learn.
 
 ```sh
 jauntbox init            # detects your user, SSH key and timezone; asks for two API tokens
-jauntbox up small        # returns at once; the box is ready a few minutes later
-jauntbox ssh             # you're in
+jauntbox                 # brings the box up if needed and attaches your persistent session
 ```
 
 ## Quick start
@@ -45,7 +44,8 @@ jauntbox init                       # once: config, token checks, prints the ACL
 jauntbox acl-snippet                # reprint the snippet for your tailnet policy
 jauntbox up small                   # returns at once; the box is ready a few minutes later
 jauntbox status                     # box, tailnet presence, deadline and verdict
-jauntbox ssh                        # you're in
+jauntbox                            # up + wait + attach (reconnects after network drops)
+jauntbox ssh                        # a plain shell on the box
 jauntbox night --until 07:00        # let agents keep the box overnight
 jauntbox resize big                 # swap to another profile; /home persists
 jauntbox down                       # wrap up and delete the box (the volume stays)

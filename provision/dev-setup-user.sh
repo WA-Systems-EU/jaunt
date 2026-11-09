@@ -114,3 +114,24 @@ if [ ! -x "$HOME/.local/bin/claude" ]; then
   log "installing Claude Code"
   curl -fsSL https://claude.ai/install.sh | bash
 fi
+
+# --- herdr (persistent terminal session for `jauntbox`; ~/.local/bin/herdr) ---
+# Pinned: the laptop's `herdr --remote` needs a matching version. herdr.dev's install.sh only
+# installs the latest release, so for a pin we take the same per-version binary from the same
+# manifest (https://herdr.dev/latest.json) and verify its sha256 when the manifest has one.
+herdr_v="${JAUNT_HERDR_VERSION:-0.7.5}"
+if [ "$("$HOME/.local/bin/herdr" --version 2>/dev/null | awk '{print $2}')" != "$herdr_v" ]; then
+  log "installing herdr $herdr_v"
+  herdr_manifest="$(curl -fsSL https://herdr.dev/latest.json)"
+  herdr_url="$(printf '%s' "$herdr_manifest" | jq -r --arg v "$herdr_v" '.releases[$v].assets["linux-x86_64"] // empty')"
+  herdr_sha="$(printf '%s' "$herdr_manifest" | jq -r --arg v "$herdr_v" '.releases[$v].sha256["linux-x86_64"] // empty')"
+  [ -n "$herdr_url" ] || { log "herdr $herdr_v is not in the herdr.dev manifest"; exit 1; }
+  herdr_tmp="$(mktemp)"
+  curl -fsSL "$herdr_url" -o "$herdr_tmp"
+  if [ -n "$herdr_sha" ] && [ "$(sha256sum "$herdr_tmp" | cut -d' ' -f1)" != "$herdr_sha" ]; then
+    rm -f "$herdr_tmp"; log "herdr checksum mismatch"; exit 1
+  fi
+  mkdir -p "$HOME/.local/bin"
+  install -m 0755 "$herdr_tmp" "$HOME/.local/bin/herdr"
+  rm -f "$herdr_tmp"
+fi

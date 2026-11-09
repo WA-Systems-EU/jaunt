@@ -24,6 +24,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/policy"
 	"github.com/WA-Systems-EU/jaunt/internal/provider/hetzner"
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
+	"github.com/WA-Systems-EU/jaunt/internal/session"
 	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
 )
 
@@ -100,6 +101,18 @@ func loadDeps(cfgPath string) (client.Deps, error) {
 		Spawn:        spawner(cfgPath),
 		HetznerToken: hz,
 	}, nil
+}
+
+// runInherited runs argv with this process's stdio and returns its exit code.
+func runInherited(argv []string) (int, error) {
+	c := exec.Command(argv[0], argv[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err := c.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode(), nil
+	}
+	return 0, err
 }
 
 func newRootCmd() *cobra.Command {
@@ -230,6 +243,17 @@ func newRootCmd() *cobra.Command {
 		Short:         "On-demand remote workspace on Hetzner",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		// Bare `jauntbox`: bring the box up, wait for it and attach to the persistent session.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			d, err := loadDeps(cfgPath)
+			if err != nil {
+				return err
+			}
+			return client.Attach(ctx, d, session.Herdr{}, runInherited, exec.LookPath)
+		},
 	}
 	root.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to the jauntbox config file")
 

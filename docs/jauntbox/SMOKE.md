@@ -57,6 +57,24 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    minutes later. **Confirm the volume is still there afterwards** (a safety-net
    deletion must delete only the server).
 
+## Bare `jauntbox`: persistent herdr session
+
+Run on a fresh box (no box existing) and on a second client. The same box must
+have `herdr` installed by provisioning (`herdr --version` on the box).
+
+1. `jauntbox` from the laptop: herdr opens with one workspace per repo in `~/src`.
+2. Kill the Wi-Fi for 20 s: it reattaches by itself (you see "connection lost;
+   reconnecting in 2s…").
+3. Detach, then run `jauntbox` from the Lenovo: same session, same panes.
+4. Type in a pane, then go idle: `jauntbox status` shows human activity, then
+   none after 30 min. **If typing in herdr panes does not register through
+   `/dev/pts` atime, stop and report:** `HumanIdle` needs a herdr-aware signal
+   (for example herdr's API reporting attached clients and last input).
+5. Unverified herdr facts to confirm on the box: `HERDR_SESSION=jauntbox herdr
+   server` starts a headless server for the named session (the start command in
+   `internal/session/herdr.go`); `herdr --remote` exits with a status other than
+   255 when the connection drops (if so, add it to the reconnect rule).
+
 ## Unverified API facts: check explicitly
 
 These two were written from documentation and have never been run live. Record
