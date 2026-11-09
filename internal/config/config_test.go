@@ -144,3 +144,17 @@ func TestDurationYAML(t *testing.T) {
 		t.Error("expected error")
 	}
 }
+
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	_, err := Load(writeCfg(t, minimal+"\nmax_upimte: 5h\n"))
+	if err == nil || !strings.Contains(err.Error(), "max_upimte") {
+		t.Fatalf("err = %v, want it to name max_upimte", err)
+	}
+}
+
+func TestLoadEmptyFileIsNotAParseError(t *testing.T) {
+	_, err := Load(writeCfg(t, ""))
+	if err != nil && strings.Contains(err.Error(), "EOF") {
+		t.Fatalf("empty file reported as EOF: %v", err)
+	}
+}

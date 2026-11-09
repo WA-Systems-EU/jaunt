@@ -34,6 +34,9 @@ func Down(ctx context.Context, d Deps, force bool) error {
 			return fmt.Errorf("load policy: %w", err)
 		}
 		_, runErr := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntbox", "stop")
+		if ctx.Err() != nil { // Ctrl-C must never fall through to the force path
+			return ctx.Err()
+		}
 		if unreachable(runErr) {
 			fmt.Printf("could not reach the box (%v); deleting it directly\n", runErr)
 		} else {

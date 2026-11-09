@@ -44,6 +44,20 @@ func TestDownFallsBackToForce(t *testing.T) {
 	}
 }
 
+func TestDownCancelledNeverForces(t *testing.T) {
+	d, p, _, r, _, _ := newDeps(t)
+	withBox(p)
+	r.err = errors.New("signal: interrupt")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := Down(ctx, d, false); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	if p.count("delete") != 0 {
+		t.Fatalf("force path taken: %v", p.calls)
+	}
+}
+
 func TestDownForceSkipsSSH(t *testing.T) {
 	d, p, _, r, _, _ := newDeps(t)
 	withBox(p)

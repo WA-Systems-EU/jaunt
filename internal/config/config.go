@@ -2,7 +2,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -79,7 +82,9 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("read config %s: %w", path, err)
 	}
 	c := Default()
-	if err := yaml.Unmarshal(b, &c); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)                                             // a typo'd key must fail, naming the key
+	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) { // io.EOF = empty file
 		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	for name, p := range c.Profiles {

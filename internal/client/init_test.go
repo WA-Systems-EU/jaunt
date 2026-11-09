@@ -266,3 +266,19 @@ func TestInitRejectsTokenWithUnsafeChars(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestValidSSHKeyAcceptsSecurityKeys(t *testing.T) {
+	for _, k := range []string{
+		"sk-ssh-ed25519@openssh.com AAAA me@x", "sk-ecdsa-sha2-nistp256@openssh.com AAAA me@x",
+		"ssh-ed25519 AAAA", "ecdsa-sha2-nistp256 AAAA",
+	} {
+		if err := validSSHKey(k); err != nil {
+			t.Errorf("%q rejected: %v", k, err)
+		}
+	}
+	for _, k := range []string{"", "not a key", "ssh-ed25519 A\nB"} {
+		if validSSHKey(k) == nil {
+			t.Errorf("%q accepted", k)
+		}
+	}
+}

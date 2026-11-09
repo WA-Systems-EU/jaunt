@@ -306,8 +306,8 @@ func askValid(p Prompter, out io.Writer, q, def string, check func(string) error
 }
 
 func validSSHKey(v string) error {
-	if strings.ContainsAny(v, "\r\n") || !(strings.HasPrefix(v, "ssh-") || strings.HasPrefix(v, "ecdsa-")) {
-		return errors.New("expected a single line starting with ssh- or ecdsa- (the contents of a ~/.ssh/*.pub file)")
+	if strings.ContainsAny(v, "\r\n") || !(strings.HasPrefix(v, "ssh-") || strings.HasPrefix(v, "ecdsa-") || strings.HasPrefix(v, "sk-")) {
+		return errors.New("expected a single line starting with ssh-, ecdsa- or sk- (the contents of a ~/.ssh/*.pub file)")
 	}
 	return nil
 }
