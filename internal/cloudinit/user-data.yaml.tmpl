@@ -25,6 +25,10 @@ write_files:
       JAUNT_INSTALL_TOOLCHAIN=true
       JAUNT_DOCKER_DATA_ROOT=/home/.docker
 runcmd:
+  # arm the heartbeat safety net FIRST, so a hung boot cannot leak the box
+  # (the supervise timer is enabled later by `jauntbox`)
+  - systemctl daemon-reload
+  - systemctl enable --now jauntbox-safety.timer
   - mkdir -p /var/lib/jauntbox
   # wait for the data volume (Hetzner attaches it asynchronously)
   - for i in $(seq 1 60); do [ -b {{.VolumeDevice}} ] && break; sleep 2; done
@@ -45,6 +49,3 @@ runcmd:
   - tailscale up --auth-key="$(cat /etc/jauntbox/ts.key)" --hostname={{.Box.Hostname}} --advertise-tags={{.Tag}} --ssh && shred -u /etc/jauntbox/ts.key
   # provision the engineer user, Docker, and the dev toolchain
   - /opt/jaunt/dev-setup.sh
-  # arm the heartbeat safety net (the supervise timer is enabled later by `jauntbox`)
-  - systemctl daemon-reload
-  - systemctl enable --now jauntbox-safety.timer

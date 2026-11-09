@@ -145,6 +145,9 @@ func TestRenderEnablesOnlySafetyTimer(t *testing.T) {
 	if !strings.Contains(all, "systemctl enable --now jauntbox-safety.timer") {
 		t.Fatal("safety timer not enabled")
 	}
+	if len(d.Runcmd) < 2 || d.Runcmd[0] != "systemctl daemon-reload" || d.Runcmd[1] != "systemctl enable --now jauntbox-safety.timer" {
+		t.Fatalf("safety timer must be armed by runcmd[0..1], got %q", d.Runcmd[:2])
+	}
 	if strings.Contains(all, "jauntbox-supervise.timer") {
 		t.Fatal("supervise timer must not be enabled")
 	}
