@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // a box without tzdata must not fail every pass
 
 	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
@@ -89,7 +90,13 @@ func (s *Supervisor) evaluate(ctx context.Context, st State) (_ State, _ lifecyc
 		}
 		agents, warn = 0, fmt.Errorf("count agents: %w", err)
 	}
-	if idle <= time.Duration(s.Info.Limits.HumanActiveWindow) || agents > 0 {
+	if idle <= time.Duration(s.Info.Limits.HumanActiveWindow) {
+		// Measure idleness from the real last input, not from this pass.
+		if last := now.Add(-idle); last.After(st.LastActive) {
+			st.LastActive = last
+		}
+	}
+	if agents > 0 {
 		st.LastActive = now
 	}
 	_, statErr := os.Stat(s.Paths.StopRequest)

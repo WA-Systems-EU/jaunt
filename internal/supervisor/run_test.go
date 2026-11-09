@@ -375,3 +375,24 @@ func TestDockerPsTimesOut(t *testing.T) {
 		t.Fatalf("took %v", time.Since(start))
 	}
 }
+
+func TestLastActiveIsRealLastInputNotPassTime(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	e.pts("0", 20*time.Minute)
+	e.run(t)
+	st, err := LoadState(e.s.Paths.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := at(11, 40); !st.LastActive.Equal(want) {
+		t.Fatalf("LastActive = %v, want %v", st.LastActive, want)
+	}
+	// With agents running, activity is "now".
+	e.agents.n = 1
+	e.now = at(12, 5)
+	e.run(t)
+	st, _ = LoadState(e.s.Paths.State)
+	if !st.LastActive.Equal(at(12, 5)) {
+		t.Fatalf("LastActive with agents = %v", st.LastActive)
+	}
+}
