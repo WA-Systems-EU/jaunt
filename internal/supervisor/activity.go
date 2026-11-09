@@ -57,9 +57,15 @@ type AgentCounter interface {
 // DockerAgents counts containers labelled jauntbox.agent=1.
 type DockerAgents struct{}
 
+// dockerTimeout bounds `docker ps` so a hung daemon cannot wedge a pass.
+var dockerTimeout = 20 * time.Second
+
 // Count runs `docker ps`. A box without docker has no agents.
 func (DockerAgents) Count(ctx context.Context) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, dockerTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "ps", "-q", "--filter", "label=jauntbox.agent=1")
+	cmd.WaitDelay = time.Second
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {

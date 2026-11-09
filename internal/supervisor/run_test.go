@@ -335,3 +335,43 @@ func TestRunOnceBusyReturnsErrBusy(t *testing.T) {
 		t.Fatalf("err = %v, want ErrBusy", err)
 	}
 }
+
+func TestDockerFailureWithActiveHumanKeepsAndBeats(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	e.s.Agents = failAgents{}
+	e.pts("0", 2*time.Minute)
+	v, err := e.s.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Action != lifecycle.Keep || v.Reason != "human-active" {
+		t.Fatalf("got %+v", v)
+	}
+	if !exists(e.s.Paths.Heartbeat) {
+		t.Error("heartbeat not touched")
+	}
+	if e.sink.count("supervisor.warning") != 1 {
+		t.Errorf("events %v", e.sink.kinds)
+	}
+	st, _ := LoadState(e.s.Paths.State)
+	if st.LastVerdict != "human-active" {
+		t.Errorf("state not saved: %+v", st)
+	}
+}
+
+func TestDockerPsTimesOut(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\nexec sleep 5\n"), 0o755)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	old := dockerTimeout
+	dockerTimeout = 100 * time.Millisecond
+	defer func() { dockerTimeout = old }()
+	start := time.Now()
+	_, err := DockerAgents{}.Count(context.Background())
+	if err == nil {
+		t.Fatal("want a timeout error")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("took %v", time.Since(start))
+	}
+}

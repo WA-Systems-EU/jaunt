@@ -63,11 +63,12 @@ func (s *Supervisor) emit(kind string, fields map[string]string) {
 }
 
 // evaluate gathers the inputs and decides, without side effects.
-// st.LastActive is refreshed in the returned copy.
-func (s *Supervisor) evaluate(ctx context.Context, st State) (State, lifecycle.Verdict, error) {
+// st.LastActive is refreshed in the returned copy. warn is non-nil when the
+// agent count failed but the human is active, so the pass can go on without it.
+func (s *Supervisor) evaluate(ctx context.Context, st State) (_ State, _ lifecycle.Verdict, warn error, err error) {
 	loc, err := time.LoadLocation(s.Info.Timezone)
 	if err != nil {
-		return st, lifecycle.Verdict{}, fmt.Errorf("load timezone %q from box info: %w", s.Info.Timezone, err)
+		return st, lifecycle.Verdict{}, nil, fmt.Errorf("load timezone %q from box info: %w", s.Info.Timezone, err)
 	}
 	now := s.Now()
 	if st.LastActive.IsZero() {
@@ -75,13 +76,19 @@ func (s *Supervisor) evaluate(ctx context.Context, st State) (State, lifecycle.V
 	}
 	night, err := LoadNight(s.Paths.Night)
 	if err != nil {
-		return st, lifecycle.Verdict{}, err
-	}
-	agents, err := s.Agents.Count(ctx)
-	if err != nil {
-		return st, lifecycle.Verdict{}, fmt.Errorf("count agents: %w", err)
+		return st, lifecycle.Verdict{}, nil, err
 	}
 	idle := HumanIdle(s.PtsDir, now)
+	agents, err := s.Agents.Count(ctx)
+	if err != nil {
+		// An active human keeps the box regardless of agents, so a broken or
+		// hung docker must not starve the heartbeat and trip the safety net
+		// under a working human. Otherwise fail the pass (no heartbeat).
+		if idle > time.Duration(s.Info.Limits.HumanActiveWindow) {
+			return st, lifecycle.Verdict{}, nil, fmt.Errorf("count agents: %w", err)
+		}
+		agents, warn = 0, fmt.Errorf("count agents: %w", err)
+	}
 	if idle <= time.Duration(s.Info.Limits.HumanActiveWindow) || agents > 0 {
 		st.LastActive = now
 	}
@@ -93,7 +100,7 @@ func (s *Supervisor) evaluate(ctx context.Context, st State) (State, lifecycle.V
 		WrapUpStartedAt: st.WrapUpStartedAt,
 		Limits:          s.Info.Limits, Loc: loc,
 	})
-	return st, v, nil
+	return st, v, warn, nil
 }
 
 // loadState reads the state; a corrupt file falls back to the zero state
@@ -115,7 +122,8 @@ func (s *Supervisor) Preview(ctx context.Context) (State, lifecycle.Verdict, err
 	if err != nil {
 		return st, lifecycle.Verdict{}, err
 	}
-	return s.evaluate(ctx, st)
+	st, v, _, err := s.evaluate(ctx, st)
+	return st, v, err
 }
 
 func (s *Supervisor) touchHeartbeat(now time.Time) error {
@@ -160,9 +168,12 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 	if err != nil {
 		return lifecycle.Verdict{}, err
 	}
-	st, v, err := s.evaluate(ctx, st)
+	st, v, warn, err := s.evaluate(ctx, st)
 	if err != nil {
 		return v, err
+	}
+	if warn != nil {
+		s.emit("supervisor.warning", map[string]string{"error": warn.Error()})
 	}
 	fields := map[string]string{"reason": v.Reason}
 	writeFlag := func() error {

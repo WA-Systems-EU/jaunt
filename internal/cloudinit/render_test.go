@@ -170,3 +170,11 @@ func TestRenderWritesUnitsAndScripts(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderSuperviseServiceHasStartTimeout(t *testing.T) {
+	_, d := render(t)
+	_, unit := content(t, d, "/etc/systemd/system/jauntbox-supervise.service")
+	if !strings.Contains(unit, "TimeoutStartSec=90") {
+		t.Fatalf("supervise.service lacks TimeoutStartSec=90:\n%s", unit)
+	}
+}
