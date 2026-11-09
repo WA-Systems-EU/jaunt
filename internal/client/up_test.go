@@ -252,3 +252,46 @@ func TestBoxBinaryPathNonLinuxRequiresConfig(t *testing.T) {
 		t.Fatalf("p=%q err=%v", p, err)
 	}
 }
+
+type flakyCopyRemote struct {
+	fakeRemote
+	copyFails int
+	copies    int
+}
+
+func (r *flakyCopyRemote) Copy(ctx context.Context, host, local, remote string) error {
+	r.copies++
+	if r.copies <= r.copyFails {
+		return errors.New("user not created yet")
+	}
+	return r.fakeRemote.Copy(ctx, host, local, remote)
+}
+
+func TestPushBinaryRetriesCopyUntilUserExists(t *testing.T) {
+	old := pollInterval
+	pollInterval = time.Millisecond
+	defer func() { pollInterval = old }()
+	d, _, _, _, _, _ := newDeps(t)
+	r := &flakyCopyRemote{copyFails: 2}
+	d.Remote = r
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if r.copies != 3 {
+		t.Fatalf("copies = %d", r.copies)
+	}
+}
+
+func TestPushBinaryCopyTimeoutReportsLastError(t *testing.T) {
+	old := pollInterval
+	pollInterval = time.Millisecond
+	defer func() { pollInterval = old }()
+	d, _, _, _, _, _ := newDeps(t)
+	d.Remote = &flakyCopyRemote{copyFails: 1 << 30}
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	err := PushBinary(context.Background(), d, 20*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "user not created yet") {
+		t.Fatalf("err = %v", err)
+	}
+}

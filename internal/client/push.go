@@ -48,11 +48,24 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 		case <-time.After(pollInterval):
 		}
 	}
-	if err := d.Remote.Copy(ctx, host, bin, "/tmp/jauntbox"); err != nil {
-		return fmt.Errorf("copy binary: %w", err)
+	// Right after the tailnet join the engineer user may not exist yet (dev-setup.sh
+	// creates it), so ssh/scp fail until then: retry to the same deadline.
+	for {
+		err := d.Remote.Copy(ctx, host, bin, "/tmp/jauntbox")
+		if err != nil {
+			err = fmt.Errorf("copy binary: %w", err)
+		} else if _, rerr := d.Remote.Run(ctx, host, installCmd); rerr != nil {
+			err = fmt.Errorf("install binary: %w", rerr)
+		} else {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s joined the tailnet but is not accepting ssh within %s: %w", host, wait, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
 	}
-	if _, err := d.Remote.Run(ctx, host, installCmd); err != nil {
-		return fmt.Errorf("install binary: %w", err)
-	}
-	return nil
 }

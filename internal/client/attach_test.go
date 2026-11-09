@@ -13,15 +13,22 @@ import (
 )
 
 type scriptRemote struct {
-	cmds []string
-	src  string // output for the ls call
-	list string // output for the workspace list call
+	cmds             []string
+	src              string // output for the ls call
+	list             string // output for the workspace list call
+	tests, testFails int    // `test -x herdr` calls; first testFails fail
 }
 
 func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
 	line := strings.Join(args, " ")
 	r.cmds = append(r.cmds, line)
 	switch {
+	case args[0] == "test":
+		r.tests++
+		if r.tests <= r.testFails {
+			return nil, errors.New("exit 1")
+		}
+		return nil, nil
 	case args[0] == "ls":
 		if r.src == "" {
 			return []byte("ls: cannot access"), errors.New("exit 2")
@@ -44,6 +51,9 @@ func attachFixture(t *testing.T) (Deps, *fakeProv, *scriptRemote) {
 	r := &scriptRemote{}
 	d.Remote = r
 	oldExe, oldOut, oldSleep := osExecutable, attachOut, sleepFn
+	oldProv := provisionPoll
+	provisionPoll = time.Millisecond
+	t.Cleanup(func() { provisionPoll = oldProv })
 	osExecutable = func() (string, error) { return "/bin/true", nil }
 	attachOut = io.Discard
 	sleepFn = func(context.Context, time.Duration) error { return nil }
@@ -195,5 +205,68 @@ func TestAttachWaitsForOnlineThenFails(t *testing.T) {
 		func(string) (string, error) { return "x", nil })
 	if err == nil || !strings.Contains(err.Error(), "not on the tailnet") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAttachWaitsForProvisioning(t *testing.T) {
+	d, p, r := attachFixture(t)
+	withBox(p)
+	r.testFails = 3
+	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { return 0, nil },
+		func(string) (string, error) { return "x", nil })
+	if err != nil || r.tests != 4 {
+		t.Fatalf("tests=%d err=%v", r.tests, err)
+	}
+	if !strings.Contains(strings.Join(r.cmds, "\n"), "test -x /home/alice/.local/bin/herdr") {
+		t.Fatalf("cmds: %v", r.cmds)
+	}
+}
+
+func TestAttachProvisioningTimeout(t *testing.T) {
+	d, p, r := attachFixture(t)
+	withBox(p)
+	r.testFails = 1 << 30
+	clock := time.Now()
+	nowFn = func() time.Time { return clock }
+	t.Cleanup(func() { nowFn = time.Now })
+	sleepFn = func(_ context.Context, d time.Duration) error { clock = clock.Add(d); return nil }
+	provisionPoll = 10 * time.Second
+	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { t.Fatal("exec"); return 0, nil },
+		func(string) (string, error) { return "x", nil })
+	if err == nil || !strings.Contains(err.Error(), "jauntbox ssh") || !strings.Contains(err.Error(), "cloud-init status --long") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAttachReconnectResetsAfterHealthySession(t *testing.T) {
+	d, p, _ := attachFixture(t)
+	withBox(p)
+	clock := time.Now()
+	nowFn = func() time.Time { return clock }
+	t.Cleanup(func() { nowFn = time.Now })
+	var slept []time.Duration
+	sleepFn = func(_ context.Context, d time.Duration) error {
+		slept = append(slept, d)
+		clock = clock.Add(d)
+		return nil
+	}
+	// drop, drop, 2h healthy session then drop, then user exit
+	runs := []struct {
+		dur  time.Duration
+		code int
+	}{{0, 255}, {0, 255}, {2 * time.Hour, 255}, {0, 0}}
+	i := 0
+	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) {
+		r := runs[i]
+		i++
+		clock = clock.Add(r.dur)
+		return r.code, nil
+	}, func(string) (string, error) { return "x", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []time.Duration{2 * time.Second, 4 * time.Second, 2 * time.Second}
+	if !reflect.DeepEqual(slept, want) {
+		t.Fatalf("backoff = %v want %v", slept, want)
 	}
 }

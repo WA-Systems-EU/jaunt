@@ -73,7 +73,13 @@ have `herdr` installed by provisioning (`herdr --version` on the box).
 5. Unverified herdr facts to confirm on the box: `HERDR_SESSION=jauntbox herdr
    server` starts a headless server for the named session (the start command in
    `internal/session/herdr.go`); `herdr --remote` exits with a status other than
-   255 when the connection drops (if so, add it to the reconnect rule).
+   255 when the connection drops (if so, add it to the reconnect rule). Note
+   the exit status you actually see when the link drops (record it here).
+6. Run bare `jauntbox` from inside a local herdr pane (so `HERDR_SESSION`,
+   `HERDR_SOCKET_PATH` and `HERDR_ENV` are inherited): confirm it attaches to
+   the box's `jauntbox` session and not to the local one.
+7. Fresh box: bare `jauntbox` waits through first-boot provisioning ("provisioning
+   jauntbox-<user>…") and then attaches without manual steps.
 
 ## Unverified API facts: check explicitly
 

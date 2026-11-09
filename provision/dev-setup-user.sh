@@ -118,20 +118,31 @@ fi
 # --- herdr (persistent terminal session for `jauntbox`; ~/.local/bin/herdr) ---
 # Pinned: the laptop's `herdr --remote` needs a matching version. herdr.dev's install.sh only
 # installs the latest release, so for a pin we take the same per-version binary from the same
-# manifest (https://herdr.dev/latest.json) and verify its sha256 when the manifest has one.
-herdr_v="${JAUNT_HERDR_VERSION:-0.7.5}"
-if [ "$("$HOME/.local/bin/herdr" --version 2>/dev/null | awk '{print $2}')" != "$herdr_v" ]; then
-  log "installing herdr $herdr_v"
-  herdr_manifest="$(curl -fsSL https://herdr.dev/latest.json)"
-  herdr_url="$(printf '%s' "$herdr_manifest" | jq -r --arg v "$herdr_v" '.releases[$v].assets["linux-x86_64"] // empty')"
-  herdr_sha="$(printf '%s' "$herdr_manifest" | jq -r --arg v "$herdr_v" '.releases[$v].sha256["linux-x86_64"] // empty')"
-  [ -n "$herdr_url" ] || { log "herdr $herdr_v is not in the herdr.dev manifest"; exit 1; }
-  herdr_tmp="$(mktemp)"
-  curl -fsSL "$herdr_url" -o "$herdr_tmp"
-  if [ -n "$herdr_sha" ] && [ "$(sha256sum "$herdr_tmp" | cut -d' ' -f1)" != "$herdr_sha" ]; then
-    rm -f "$herdr_tmp"; log "herdr checksum mismatch"; exit 1
+# manifest (https://herdr.dev/latest.json), fail-closed on its sha256. The default pin carries a
+# digest here (also published as the GitHub release asset digest); override both together with
+# JAUNT_HERDR_VERSION / JAUNT_HERDR_SHA256, else the manifest's sha256 for that version is used.
+# A failure here only warns: the box still works over plain ssh.
+install_herdr() {
+  local v="${JAUNT_HERDR_VERSION:-0.7.5}" want="${JAUNT_HERDR_SHA256:-}" manifest url tmp
+  if [ -z "$want" ] && [ "$v" = "0.7.5" ]; then
+    want="3dc83288073e4c2d3c679a30e7be97bcca9141c6fd17dbbb9219142e95c59253"
+  fi
+  if [ "$("$HOME/.local/bin/herdr" --version 2>/dev/null | awk '{print $2}')" = "$v" ]; then return 0; fi
+  log "installing herdr $v"
+  manifest="$(curl -fsSL --retry 3 https://herdr.dev/latest.json)" || { log "WARNING: cannot fetch the herdr manifest"; return 1; }
+  url="$(printf '%s' "$manifest" | jq -r --arg v "$v" '.releases[$v].assets["linux-x86_64"] // empty')"
+  [ -n "$url" ] || { log "WARNING: herdr $v is not in the herdr.dev manifest"; return 1; }
+  if [ -z "$want" ]; then
+    want="$(printf '%s' "$manifest" | jq -r --arg v "$v" '.releases[$v].sha256["linux-x86_64"] // empty')"
+  fi
+  [ -n "$want" ] || { log "WARNING: no sha256 known for herdr $v; set JAUNT_HERDR_SHA256 (refusing to install unverified)"; return 1; }
+  tmp="$(mktemp)"
+  curl -fsSL --retry 3 "$url" -o "$tmp" || { rm -f "$tmp"; log "WARNING: herdr download failed"; return 1; }
+  if [ "$(sha256sum "$tmp" | cut -d' ' -f1)" != "$want" ]; then
+    rm -f "$tmp"; log "WARNING: herdr checksum mismatch; not installing"; return 1
   fi
   mkdir -p "$HOME/.local/bin"
-  install -m 0755 "$herdr_tmp" "$HOME/.local/bin/herdr"
-  rm -f "$herdr_tmp"
-fi
+  install -m 0755 "$tmp" "$HOME/.local/bin/herdr"
+  rm -f "$tmp"
+}
+install_herdr || log "herdr not installed; bare 'jauntbox' will not work until it is (the box is usable over ssh)"

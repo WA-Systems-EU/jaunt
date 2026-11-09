@@ -20,6 +20,9 @@ var (
 	reconnectCap              = 30 * time.Second
 	reconnectGiveUp           = 10 * time.Minute
 	onlineWait                = 2 * time.Minute
+	provisionPoll             = 10 * time.Second
+	provisionWait             = 20 * time.Minute
+	healthySession            = 30 * time.Second
 	nowFn                     = time.Now
 	sleepFn                   = func(ctx context.Context, d time.Duration) error {
 		select {
@@ -59,6 +62,9 @@ func Attach(ctx context.Context, d Deps, sess session.Session,
 		return err
 	}
 
+	if err := waitProvisioned(ctx, d, host); err != nil {
+		return err
+	}
 	prepareWorkspaces(ctx, d, sess, host)
 
 	_, lerr := lookPath("herdr")
@@ -66,12 +72,17 @@ func Attach(ctx context.Context, d Deps, sess session.Session,
 	var first time.Time
 	delay := reconnectFirst
 	for {
+		started := nowFn()
 		code, err := exec(argv)
 		if err != nil {
 			return fmt.Errorf("run %s: %w", argv[0], err)
 		}
 		if code != exitSSHFailure {
 			return nil
+		}
+		if nowFn().Sub(started) > healthySession {
+			// The session ran fine for a while: this is a fresh drop, not a continuing outage.
+			first, delay = time.Time{}, reconnectFirst
 		}
 		if first.IsZero() {
 			first = nowFn()
@@ -85,6 +96,29 @@ func Attach(ctx context.Context, d Deps, sess session.Session,
 		}
 		if delay *= 2; delay > reconnectCap {
 			delay = reconnectCap
+		}
+	}
+}
+
+// waitProvisioned polls until dev-setup has installed herdr (it runs last),
+// which also means the engineer user exists and ssh works.
+func waitProvisioned(ctx context.Context, d Deps, host string) error {
+	herdr := "/home/" + d.Cfg.User + "/.local/bin/herdr"
+	deadline := nowFn().Add(provisionWait)
+	announced := false
+	for {
+		if _, err := d.Remote.Run(ctx, host, "test", "-x", herdr); err == nil {
+			return nil
+		}
+		if !announced {
+			fmt.Fprintf(attachOut, "provisioning %s (first boot takes ~%d min)…\n", host, int(provisionWait.Minutes()/2))
+			announced = true
+		}
+		if !nowFn().Before(deadline) {
+			return fmt.Errorf("%s is not provisioned after %s (herdr missing); look with `jauntbox ssh` and `sudo cloud-init status --long`", host, provisionWait)
+		}
+		if err := sleepFn(ctx, provisionPoll); err != nil {
+			return err
 		}
 	}
 }
@@ -133,11 +167,11 @@ func prepareWorkspaces(ctx context.Context, d Deps, sess session.Session, host s
 		return
 	}
 	warn := func(what string, err error) { fmt.Fprintf(attachOut, "warning: %s: %v\n", what, err) }
-	if _, err := d.Remote.Run(ctx, host, sess.StartCommand(session.Name)...); err != nil {
+	if _, err := d.Remote.Run(ctx, host, sess.StartCommand(user, session.Name)...); err != nil {
 		warn("starting the session server", err)
 		return
 	}
-	listing, err := d.Remote.Run(ctx, host, sess.ListCommand(session.Name)...)
+	listing, err := d.Remote.Run(ctx, host, sess.ListCommand(user, session.Name)...)
 	if err != nil {
 		warn("listing workspaces", err)
 		return
