@@ -1,6 +1,0 @@
-#!/bin/sh
-# Deletes THIS Hetzner server via the hcloud API. Token is jauntboxes-project-scoped.
-set -eu
-ID=$(curl -fsSL http://169.254.169.254/hetzner/v1/metadata/instance-id)
-curl -fsSL -X DELETE -H "Authorization: Bearer ${hcloud_token}" \
-  "https://api.hetzner.cloud/v1/servers/$ID"

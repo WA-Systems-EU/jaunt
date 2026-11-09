@@ -1,44 +1,43 @@
-# jaunt
+# jauntbox
 
-> **an ephemeral remote development environment you pop into and out of**
+> **Your code workspace, remote by reflex.** A right-sized cloud box one command away,
+> where your AI agents work in containers — far from your laptop, your personal data and
+> your server keys.
 
-Spin a powerful remote dev box up in the morning and delete it at night. Your
-work stays put on a persistent volume, and the box is always reachable at a
-stable [Tailscale](https://tailscale.com) MagicDNS hostname (`jauntbox-<you>`).
-When you stop working, the box tears *itself* down — because a stopped cloud
-server still bills, only a deleted one stops the meter. Next morning, `apply`
-again and your volume re-attaches in about two minutes.
+AI coding agents run for hours with broad access to whatever machine they're on. jauntbox
+moves that machine somewhere else: a box you start in the morning while the coffee
+brews, work on over Tailscale SSH, and that tears **itself** down in the evening. Your
+work lives on a persistent volume, so switching to a bigger box takes minutes and nothing
+is lost.
 
-It runs on commodity EU cloud (Hetzner and UpCloud), so it's cheap and
-sovereign by construction. jaunt isn't a SaaS — the value is the pattern, not a
-hosted service.
+- **One command up, one down — and it goes down by itself:** idle, 10 hours, or 19:00,
+  unless you're actively working or authorised a robot night session.
+- **Agents in containers, always:** each project runs in its own container with only its
+  own repo and a GitHub token scoped to that one repo, valid for an hour.
+- **Humans merge and deploy:** agents push branches and open PRs; your default branch —
+  whatever it's called — is protected on the forge.
+- **Your laptop keeps the keys to production.** The box can't reach your servers.
+- **Cheap and EU by default:** Hetzner Cloud + Tailscale. Open source, MIT.
 
-## 30-second try
+## The goal: one coffee
 
-You'll need an [OpenTofu](https://opentofu.org) install, a Hetzner Cloud API
-token, and a Tailscale API key. Then:
+From installing jauntbox to typing in a shell on your first box should take about as
+long as a cup of coffee — no files to edit, no infrastructure to learn.
 
 ```sh
-cd tofu/hetzner
-cp terraform.tfvars.example terraform.tfvars   # set your user + SSH public key
-tofu init
-tofu apply -var box_on=true                    # box up, volume attached, Tailscale SSH ready
-# ... work over `ssh jauntbox-<you>` ...
-tofu apply -var box_on=false                   # box deleted, volume (your work) kept
+jauntbox init            # detects your user, SSH key and timezone; asks for two API tokens
+jauntbox up small        # returns at once; the box is ready a few minutes later
+jauntbox ssh             # you're in
 ```
-
-The same commands work from `tofu/upcloud` for a second EU provider.
 
 ## Status
 
-This repo is the **tofu foundation**: a complete, toggle-able jauntbox on
-Hetzner and UpCloud, with the signature idle self-teardown. A fast `jaunt` Go
-CLI (`jaunt up` / `connect` / `down`) that replaces the tofu hot path with a
-one-command daily workflow is a **later milestone** — the `cmd/` and `internal/`
-directories are reserved for it.
+**Under construction** on the `feat/remote-workspace` branch — nothing here runs yet.
 
-## Learn more
+- Design: [`docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md)
+- Plan 01 (walking skeleton): [`docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md`](docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md)
 
-<!-- DOMAIN -->
+The earlier OpenTofu implementation (and the team/fleet design built on it) lives in the
+`trunk` branch history; a fleet version comes later.
 
 Built by [WA Systems](https://wa-systems.eu).

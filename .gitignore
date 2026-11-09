@@ -1,21 +1,23 @@
-# tofu
-lenovo.txt
-.terraform/
-.terraform.lock.hcl
-*.tfstate
-*.tfstate.*
-crash.log
-*.tfvars
-!*.tfvars.example
-override.tf
-override.tf.json
+# go
+/jauntbox
+/dist/
+*.test
+coverage.out
 
 # secrets
+lenovo.txt
 *.pem
 .env
 .env.*
 
-# node (site plan)
+# tofu-era local state still on disk (the tofu code lives on trunk) — never commit it
+tofu/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+# node (site)
 node_modules/
 site/out/
 site/.next/

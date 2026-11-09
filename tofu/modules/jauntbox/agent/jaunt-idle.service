@@ -1,7 +1,0 @@
-[Unit]
-Description=jaunt idle-watch (self-teardown when idle)
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/etc/jaunt/agent.env
-ExecStart=/opt/jaunt/idle-watch.sh
