@@ -157,8 +157,8 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("--until must be an RFC3339 time such as 2026-06-02T07:00:00+02:00: %w", err)
 			}
-			if !t.After(s.Now()) {
-				return fmt.Errorf("--until %s is in the past; give a future time", until)
+			if err := supervisor.ValidateNightUntil(s.Now(), t); err != nil {
+				return err
 			}
 			if err := supervisor.SaveNight(s.Paths.Night, t); err != nil {
 				return err

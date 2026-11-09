@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -95,28 +96,64 @@ func (s *Supervisor) evaluate(ctx context.Context, st State) (State, lifecycle.V
 	return st, v, nil
 }
 
+// loadState reads the state; a corrupt file falls back to the zero state
+// (LastActive = UpAt) and, when warn is set, emits a warning event.
+func (s *Supervisor) loadState(warn bool) (State, error) {
+	st, err := LoadState(s.Paths.State)
+	if errors.Is(err, ErrCorruptState) {
+		if warn {
+			s.emit("supervisor.warning", map[string]string{"error": err.Error()})
+		}
+		return State{}, nil
+	}
+	return st, err
+}
+
 // Preview returns the current state and verdict without any side effect.
 func (s *Supervisor) Preview(ctx context.Context) (State, lifecycle.Verdict, error) {
-	st, err := LoadState(s.Paths.State)
+	st, err := s.loadState(false)
 	if err != nil {
 		return st, lifecycle.Verdict{}, err
 	}
 	return s.evaluate(ctx, st)
 }
 
-// RunOnce performs one supervision pass.
-func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
-	now := s.Now()
+func (s *Supervisor) touchHeartbeat(now time.Time) error {
 	if err := os.MkdirAll(filepath.Dir(s.Paths.Heartbeat), 0o755); err != nil {
-		return lifecycle.Verdict{}, err
+		return err
 	}
 	if err := os.WriteFile(s.Paths.Heartbeat, nil, 0o644); err != nil {
+		return err
+	}
+	return os.Chtimes(s.Paths.Heartbeat, now, now)
+}
+
+func (s *Supervisor) lock() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(s.Paths.Lock), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(s.Paths.Lock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, errors.New("another supervisor run is in progress")
+	}
+	return func() { f.Close() }, nil
+}
+
+// RunOnce performs one supervision pass. The heartbeat is touched only as the
+// last step of a successful non-Delete pass, so any persistent failure lets
+// the heartbeat go stale and the external safety net take over.
+func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
+	unlock, err := s.lock()
+	if err != nil {
 		return lifecycle.Verdict{}, err
 	}
-	if err := os.Chtimes(s.Paths.Heartbeat, now, now); err != nil {
-		return lifecycle.Verdict{}, err
-	}
-	st, err := LoadState(s.Paths.State)
+	defer unlock()
+	now := s.Now()
+	st, err := s.loadState(true)
 	if err != nil {
 		return lifecycle.Verdict{}, err
 	}
@@ -125,18 +162,27 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		return v, err
 	}
 	fields := map[string]string{"reason": v.Reason}
+	writeFlag := func() error {
+		if err := os.MkdirAll(filepath.Dir(s.Paths.WrapUpFlag), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(s.Paths.WrapUpFlag, []byte(st.WrapUpReason+"\n"), 0o644)
+	}
 
 	switch {
 	case v.Action == lifecycle.StartWrapUp:
 		st.WrapUpStartedAt, st.WrapUpReason = now, v.Reason
-		if err := os.MkdirAll(filepath.Dir(s.Paths.WrapUpFlag), 0o755); err != nil {
-			return v, err
-		}
-		if err := os.WriteFile(s.Paths.WrapUpFlag, []byte(v.Reason+"\n"), 0o644); err != nil {
+		if err := writeFlag(); err != nil {
 			return v, err
 		}
 		s.emit(events.WrapUpStarted, fields)
-	case v.Action == lifecycle.Keep && v.Reason != "wrapup-in-progress" && !st.WrapUpStartedAt.IsZero():
+	case v.Action == lifecycle.Keep && v.Reason == "wrapup-in-progress":
+		if _, err := os.Stat(s.Paths.WrapUpFlag); os.IsNotExist(err) {
+			if err := writeFlag(); err != nil {
+				return v, err
+			}
+		}
+	case v.Action == lifecycle.Keep && !st.WrapUpStartedAt.IsZero():
 		st.WrapUpStartedAt, st.WrapUpReason = time.Time{}, ""
 		if err := os.Remove(s.Paths.WrapUpFlag); err != nil && !os.IsNotExist(err) {
 			return v, err
@@ -151,11 +197,13 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		return v, err
 	}
 	if v.Action == lifecycle.Delete {
-		s.emit(events.BoxDeleted, fields)
 		s.Sync()
 		if err := s.DeleteSelf(ctx); err != nil {
+			s.emit("box.delete_failed", map[string]string{"reason": v.Reason, "error": err.Error()})
 			return v, err
 		}
+		s.emit(events.BoxDeleted, fields)
+		return v, nil
 	}
-	return v, nil
+	return v, s.touchHeartbeat(now)
 }

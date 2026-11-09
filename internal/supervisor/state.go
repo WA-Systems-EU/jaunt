@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// ErrCorruptState marks an unparsable state file.
+var ErrCorruptState = errors.New("corrupt state file")
+
 // State is what the supervisor remembers between runs.
 type State struct {
 	LastActive      time.Time `json:"last_active"`
@@ -19,7 +22,7 @@ type State struct {
 
 // Paths are the files the supervisor reads and writes.
 type Paths struct {
-	State, Night, StopRequest, Heartbeat, WrapUpFlag, Events string
+	State, Night, StopRequest, Heartbeat, WrapUpFlag, Events, Lock string
 }
 
 // DefaultPaths are the production locations.
@@ -31,6 +34,7 @@ func DefaultPaths() Paths {
 		Heartbeat:   "/var/lib/jauntbox/heartbeat",
 		WrapUpFlag:  "/run/jauntbox/wrapup",
 		Events:      "/home/.jauntbox/events.jsonl",
+		Lock:        "/run/jauntbox/supervisor.lock",
 	}
 }
 
@@ -42,11 +46,22 @@ func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	_, werr := f.Write(data)
+	cerr := f.Close()
+	if err := errors.Join(werr, cerr, os.Chmod(tmp, 0o644)); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // LoadState reads the state; a missing file yields the zero State.
@@ -60,7 +75,7 @@ func LoadState(path string) (State, error) {
 		return st, err
 	}
 	if err := json.Unmarshal(data, &st); err != nil {
-		return st, fmt.Errorf("parse state %s: %w", path, err)
+		return st, fmt.Errorf("parse state %s: %w: %v", path, ErrCorruptState, err)
 	}
 	return st, nil
 }
@@ -97,4 +112,18 @@ func SaveNight(path string, until time.Time) error {
 		return err
 	}
 	return writeAtomic(path, append(data, '\n'))
+}
+
+// MaxNight is the longest night session that can be authorised.
+const MaxNight = 24 * time.Hour
+
+// ValidateNightUntil rejects a night end in the past or more than MaxNight away.
+func ValidateNightUntil(now, until time.Time) error {
+	if !until.After(now) {
+		return fmt.Errorf("--until %s is in the past; give a future time", until.Format(time.RFC3339))
+	}
+	if until.After(now.Add(MaxNight)) {
+		return errors.New("night sessions are limited to 24h; pick an earlier --until")
+	}
+	return nil
 }

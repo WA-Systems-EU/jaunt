@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func newEnv(t *testing.T, now time.Time) *env {
 		},
 		Paths: Paths{
 			State: filepath.Join(d, "state.json"), Night: filepath.Join(d, "night.json"),
-			StopRequest: filepath.Join(d, "stop"), Heartbeat: filepath.Join(d, "hb"),
+			StopRequest: filepath.Join(d, "stop"), Heartbeat: filepath.Join(d, "hb"), Lock: filepath.Join(d, "run", "lock"),
 			WrapUpFlag: filepath.Join(d, "run", "wrapup"), Events: filepath.Join(d, "ev"),
 		},
 		PtsDir: pts, Agents: e.agents, Events: e.sink,
@@ -166,7 +167,7 @@ func TestRunOnceStopRequest(t *testing.T) {
 }
 
 func TestRunOnceHeartbeat(t *testing.T) {
-	e := newEnv(t, at(12, 0))
+	e := newEnv(t, at(11, 0))
 	for i := 0; i < 2; i++ {
 		e.run(t)
 		fi, err := os.Stat(e.s.Paths.Heartbeat)
@@ -192,6 +193,90 @@ func TestBadTimezoneErrors(t *testing.T) {
 	e.s.Info.Timezone = "Nowhere/Land"
 	if _, err := e.s.RunOnce(context.Background()); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+type failAgents struct{}
+
+func (failAgents) Count(context.Context) (int, error) { return 0, errors.New("docker down") }
+
+func TestHeartbeatNotTouchedOnFailure(t *testing.T) {
+	cases := map[string]func(e *env){
+		"agents":   func(e *env) { e.s.Agents = failAgents{} },
+		"delete":   func(e *env) { e.err = errors.New("boom"); os.WriteFile(e.s.Paths.StopRequest, nil, 0o644) },
+		"timezone": func(e *env) { e.s.Info.Timezone = "Nowhere/Land" },
+		"night":    func(e *env) { os.WriteFile(e.s.Paths.Night, []byte("{"), 0o644) },
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, at(12, 0))
+			setup(e)
+			if _, err := e.s.RunOnce(context.Background()); err == nil {
+				t.Fatal("want error")
+			}
+			if exists(e.s.Paths.Heartbeat) {
+				t.Fatal("heartbeat touched on failed pass")
+			}
+		})
+	}
+}
+
+func TestDeleteNeverTouchesHeartbeat(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.run(t)
+	if exists(e.s.Paths.Heartbeat) {
+		t.Fatal("heartbeat touched on Delete")
+	}
+	if e.sink.count(events.BoxDeleted) != 1 {
+		t.Fatal("box.deleted missing")
+	}
+}
+
+func TestDeleteFailedEvent(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	e.err = errors.New("boom")
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.s.RunOnce(context.Background())
+	if e.sink.count("box.delete_failed") != 1 || e.sink.count(events.BoxDeleted) != 0 || e.syncs != 1 {
+		t.Fatalf("%v syncs=%d", e.sink.kinds, e.syncs)
+	}
+}
+
+func TestCorruptStateFallsBack(t *testing.T) {
+	e := newEnv(t, at(11, 0))
+	os.WriteFile(e.s.Paths.State, []byte("{garbage"), 0o644)
+	if v := e.run(t); v.Reason != "ok" {
+		t.Fatalf("got %+v", v)
+	}
+	if e.sink.count("supervisor.warning") != 1 {
+		t.Fatalf("%v", e.sink.kinds)
+	}
+}
+
+func TestLockExcludesConcurrentRun(t *testing.T) {
+	e := newEnv(t, at(11, 0))
+	unlock, err := e.s.lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.RunOnce(context.Background()); err == nil {
+		t.Fatal("want in-progress error")
+	}
+	unlock()
+	e.run(t)
+}
+
+func TestWrapUpFlagRecreated(t *testing.T) {
+	e := newEnv(t, at(19, 0))
+	e.agents.n = 1
+	e.pts("0", time.Hour)
+	e.run(t)
+	os.Remove(e.s.Paths.WrapUpFlag)
+	e.now = e.now.Add(time.Minute)
+	e.pts("0", time.Hour)
+	if v := e.run(t); v.Reason != "wrapup-in-progress" || !exists(e.s.Paths.WrapUpFlag) {
+		t.Fatalf("got %+v", v)
 	}
 }
 
@@ -223,5 +308,18 @@ func TestPreviewNoSideEffects(t *testing.T) {
 	}
 	if exists(e.s.Paths.Heartbeat) || exists(e.s.Paths.State) || len(e.sink.kinds) != 0 {
 		t.Fatal("preview had side effects")
+	}
+}
+
+func TestValidateNightUntil(t *testing.T) {
+	now := at(22, 0)
+	if err := ValidateNightUntil(now, now.Add(8*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateNightUntil(now, now.Add(-time.Minute)); err == nil {
+		t.Fatal("past accepted")
+	}
+	if err := ValidateNightUntil(now, now.Add(25*time.Hour)); err == nil || !strings.Contains(err.Error(), "24h") {
+		t.Fatalf("got %v", err)
 	}
 }
