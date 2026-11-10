@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -369,4 +370,50 @@ func (o SetupGitHubOpts) createApp(ctx context.Context) error {
 	case <-time.After(wait):
 		return fmt.Errorf("timed out after %s waiting for the app to be created; if you complete the GitHub form later, the app %q will exist without its key here: delete it in GitHub's settings before re-running `jauntbox setup github`", wait, "jauntbox-"+o.Cfg.User)
 	}
+}
+
+// ResolveListen turns the --listen value of `jauntbox setup github` into the
+// address the manifest-flow server binds to. "" is loopback; "tailnet" is this
+// machine's Tailscale IPv4 (for a browser on another tailnet device); anything
+// else is an IP with an optional port. Wildcard addresses are refused: the
+// address is also the redirect URL GitHub sends the browser to, so it must be
+// one the browser can reach, and binding everywhere would expose the callback
+// on every network this machine is on.
+func ResolveListen(spec string, tailnetIP func() (string, error)) (string, error) {
+	if spec == "" {
+		return "127.0.0.1:0", nil
+	}
+	if spec == "tailnet" {
+		ip, err := tailnetIP()
+		if err != nil {
+			return "", fmt.Errorf("finding this machine's tailnet IP: %w (pass --listen <ip> instead)", err)
+		}
+		spec = ip
+	}
+	host, port := spec, "0"
+	if h, p, err := net.SplitHostPort(spec); err == nil {
+		host, port = h, p
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return "", fmt.Errorf("--listen %q: want an IP address, an IP:port, or \"tailnet\"", spec)
+	}
+	if ip.IsUnspecified() {
+		return "", fmt.Errorf("--listen %q: a wildcard address is not a URL the browser can open, and it would expose the callback on every network; use \"tailnet\" or a specific IP", spec)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 0 || n > 65535 {
+		return "", fmt.Errorf("--listen %q: port must be a number", spec)
+	}
+	return net.JoinHostPort(ip.String(), port), nil
+}
+
+// IsLoopbackListen reports whether a resolved listen address is loopback, in
+// which case the browser on this machine can be opened directly.
+func IsLoopbackListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

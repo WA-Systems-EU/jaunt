@@ -464,3 +464,35 @@ func TestSetupGitHubLoneMetaReportsMissingKey(t *testing.T) {
 		t.Fatalf("started a new flow: opened=%v convs=%d", br.opened, f.convs())
 	}
 }
+
+func TestResolveListen(t *testing.T) {
+	ts := func() (string, error) { return "100.101.102.103", nil }
+	cases := []struct{ spec, want string }{
+		{"", "127.0.0.1:0"},
+		{"tailnet", "100.101.102.103:0"},
+		{"100.64.0.7", "100.64.0.7:0"},
+		{"100.64.0.7:8765", "100.64.0.7:8765"},
+		{"fd7a:115c:a1e0::1", "[fd7a:115c:a1e0::1]:0"},
+		{"[fd7a:115c:a1e0::1]:9000", "[fd7a:115c:a1e0::1]:9000"},
+	}
+	for _, c := range cases {
+		got, err := ResolveListen(c.spec, ts)
+		if err != nil || got != c.want {
+			t.Errorf("ResolveListen(%q) = %q, %v; want %q", c.spec, got, err, c.want)
+		}
+	}
+	for _, bad := range []string{"0.0.0.0", "0.0.0.0:80", "::", "[::]:0", "my-host", "100.64.0.7:http"} {
+		if got, err := ResolveListen(bad, ts); err == nil {
+			t.Errorf("ResolveListen(%q) = %q, want an error", bad, got)
+		}
+	}
+	if _, err := ResolveListen("tailnet", func() (string, error) { return "", errors.New("tailscale not running") }); err == nil || !strings.Contains(err.Error(), "tailscale not running") {
+		t.Errorf("tailnet lookup error not surfaced: %v", err)
+	}
+}
+
+func TestIsLoopbackListen(t *testing.T) {
+	if !IsLoopbackListen("127.0.0.1:0") || IsLoopbackListen("100.64.0.7:0") {
+		t.Error("IsLoopbackListen wrong")
+	}
+}

@@ -73,6 +73,10 @@ jauntbox unlock                                # push secrets to the box: after 
   account). It needs an admin credential once: `gh auth token`, or `GITHUB_ADMIN_TOKEN`
   when `gh` is absent. That credential is used on the laptop only; it is never stored
   and never sent to the box. Install the App on the repos you want agents to touch.
+  If your browser is on another device than the one running jauntbox, add
+  `--listen tailnet`: the callback server binds to this machine's Tailscale IP (or pass
+  `--listen <ip>[:port]`) and prints the URL to open instead of opening a browser.
+  Wildcard addresses such as `0.0.0.0` are refused.
 - The App has `contents: write`, `pull_requests: write` and `metadata: read`. Nothing
   else: no `workflows`, no `administration`, no `secrets`.
 - Rulesets: on each repo the default branch (plus any `github.protected_patterns`

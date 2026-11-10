@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -95,6 +96,7 @@ func readSecret(cmd *cobra.Command, key string) (string, error) {
 func setupCmd(cfgPath *string) *cobra.Command {
 	root := &cobra.Command{Use: "setup", Short: "Set up integrations"}
 	var check bool
+	var listen string
 	gh := &cobra.Command{
 		Use:   "github",
 		Short: "Create the GitHub App, wait for its installation and apply branch rulesets",
@@ -112,12 +114,21 @@ func setupCmd(cfgPath *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			addr, err := client.ResolveListen(listen, tailnetIPv4)
+			if err != nil {
+				return err
+			}
 			o := client.SetupGitHubOpts{
 				Cfg:         cfg,
 				Store:       secrets.Store{Dir: secrets.DirFor(*cfgPath)},
 				Admin:       github.Admin{Token: tok},
 				OpenBrowser: openBrowser,
 				Out:         cmd.OutOrStdout(),
+				Listen:      func() (net.Listener, error) { return net.Listen("tcp", addr) },
+			}
+			if !client.IsLoopbackListen(addr) {
+				// The browser is on another device: print the URL, don't open one here.
+				o.OpenBrowser = nil
 			}
 			if check {
 				return client.CheckGitHub(ctx, o)
@@ -126,8 +137,22 @@ func setupCmd(cfgPath *string) *cobra.Command {
 		},
 	}
 	gh.Flags().BoolVar(&check, "check", false, "only verify the App permissions and rulesets; change nothing")
+	gh.Flags().StringVar(&listen, "listen", "", `address for the browser callback: "tailnet" (this machine's Tailscale IP, for a browser on another device), an IP or IP:port; default loopback`)
 	root.AddCommand(gh)
 	return root
+}
+
+// tailnetIPv4 is this machine's Tailscale IPv4, from `tailscale ip -4`.
+func tailnetIPv4() (string, error) {
+	out, err := exec.Command("tailscale", "ip", "-4").Output()
+	if err != nil {
+		return "", fmt.Errorf("`tailscale ip -4`: %w", err)
+	}
+	ip, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if ip == "" {
+		return "", errors.New("`tailscale ip -4` printed nothing; is tailscale up?")
+	}
+	return ip, nil
 }
 
 func openBrowser(url string) error {
