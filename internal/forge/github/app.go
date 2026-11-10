@@ -128,6 +128,11 @@ func (e *apiError) Error() string {
 
 // do performs a request. auth is the full Authorization header value.
 func (a *App) do(ctx context.Context, method, path, auth string, body, out any) error {
+	return doRequest(ctx, a.hc, a.apiURL, method, path, auth, body, out)
+}
+
+// doRequest is the shared HTTP helper. An empty auth sends no Authorization header.
+func doRequest(ctx context.Context, hc *http.Client, apiURL, method, path, auth string, body, out any) error {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -136,17 +141,19 @@ func (a *App) do(ctx context.Context, method, path, auth string, body, out any) 
 		}
 		rd = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, a.apiURL+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, apiURL+path, rd)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", auth)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := a.hc.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("github %s %s: %w", method, path, err)
 	}
