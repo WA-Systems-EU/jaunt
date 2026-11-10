@@ -4,7 +4,7 @@
 
 **Goal:** Agents (Claude Code first) run only inside per-run containers on the box, each holding one repo's checkout, its own agent credential and a token for that repo only; forced stops wrap them up into a pushed `CONTINUATION.md`.
 
-**Architecture:** A root-run `jauntctl agent start` builds (once) an embedded agent image, prepares per-run directories, writes the repo's App token into a tmpfs file mounted read-only into the container, and starts the container as a dedicated unprivileged uid on its own Docker network. The container clones the repo itself, so the host never runs git in agent-writable directories. The supervisor refreshes run tokens each tick, enforces each run's max duration, raises a wrap-up flag that managed Claude Code hooks turn into an instruction, and runs a mechanical in-container fallback before stopping containers and revoking tokens.
+**Architecture:** A root-run `jauntctl agent start-run` builds (once) an embedded agent image, prepares per-run directories, writes the repo's App token into a tmpfs file mounted read-only into the container, and starts the container as a dedicated unprivileged uid on its own Docker network. The container clones the repo itself, so the host never runs git in agent-writable directories. You start runs from a herdr pane on the box (`jauntctl agent <repo>`), and Claude runs in that pane. The supervisor refreshes run tokens each tick, enforces each run's max duration, raises a wrap-up flag that managed Claude Code hooks turn into an instruction, and runs a mechanical in-container fallback before stopping containers and revoking tokens.
 
 **Tech Stack:** Go 1.x (cobra), Docker CLI via `os/exec`, iptables/ip6tables `DOCKER-USER`, POSIX sh + jq scripts in the image, Claude Code managed settings hooks.
 
@@ -36,8 +36,8 @@
 
 1. **Token delivery: a file, not a broker.** The supervisor (every tick) and `agent start` write the current token to the run's `token` file; the in-image credential helper reads it. No socket daemon. Cost if wrong: a broker later replaces one writer.
 2. **The container clones its own checkout as uid 64000.** The host never runs git in agent directories, and host git refuses them ("dubious ownership") because the owner differs — the owner works with agents inside the container (spec: herdr panes attach into containers). Do not add `safe.directory` for them. Cost if wrong: owner edits from the host need `docker exec`.
-3. **One active run per repo.** A second `start` on the same repo refuses and names the run to attach to. Cost if wrong: parallel runs later need per-run workspaces.
-4. **You reach an agent through a herdr tab.** Every run gets a tab, labelled `agent <HHMM>`, in its repo's herdr workspace (the workspace is created when the repo has none). An interactive tab runs `jauntctl agent attach <id>`; an unattended tab follows the run's log. `start` creates and focuses the tab and never takes over the terminal it was typed in; from the laptop, `jauntbox agent <repo>` then attaches your herdr session, so you land on that tab. Interactive runs keep the container alive (`sleep infinity` under `--init`) and Claude runs through `docker exec -it`, so closing the tab and reopening it (`jauntctl agent tab <id>`) resumes with `--continue`. Unattended runs make `claude -p` the main process. herdr can't see Claude's working/idle status through `docker exec`; reporting it to herdr is left for later.
+3. **One active run per repo.** A second `jauntctl agent` on the same repo refuses and names the run to attach to. Cost if wrong: parallel runs later need per-run workspaces.
+4. **You start agents from herdr.** `jauntbox` gets you into the box's herdr session; in any pane, `jauntctl agent <repo>` starts the run and Claude runs right there in that pane. `jauntctl agent attach <id>` reopens it in any pane (Claude continues with `--continue`). Interactive runs keep the container alive (`sleep infinity` under `--init`) and Claude runs through `docker exec -it`, so closing the pane doesn't end the run. Unattended runs make `claude -p` the main process; `jauntctl agent logs --follow <id>` watches one in a pane. There is no laptop-side agent command. herdr can't see Claude's working/idle status through `docker exec`; reporting it to herdr is left for later.
 5. **Hooks live in the image's managed settings** (`/etc/claude-code/managed-settings.json`), which the repo and the agent (non-root) cannot change: `PreToolUse` injects the wrap-up instruction once per session via `additionalContext`; `Stop` blocks stopping (`decision: block`) until `CONTINUATION.md` is committed and pushed, unless `stop_hook_active` is true.
 6. **Resume** passes an opening prompt (`Read CONTINUATION.md at the repository root and continue from it.`) when the branch already has `CONTINUATION.md`; no SessionStart hook.
 7. **Permissions:** unattended runs pass `--dangerously-skip-permissions` (the container is the sandbox; it is refused as root, and we run as 64000). Interactive runs use Claude's default mode unless `--skip-permissions` is given.
@@ -50,7 +50,7 @@
 
 1. A locked box or a missing `CLAUDE_CODE_OAUTH_TOKEN` → `start` refuses with the unlock / `jauntbox secrets set` message and leaves nothing behind (Task 4 test).
 2. The repo argument matches no installed repo, or several (`thomas` in two owners) → clear error listing the candidates, nothing created (Task 4 test).
-3. A second `start` on a repo that already has a run → refused, names the existing run (Task 4 test).
+3. A second `jauntctl agent` on a repo that already has a run → refused, names the existing run (Task 4 test).
 4. The container dies during init (clone fails, bad branch name) → `start` reports the tail of the init log and removes container, network and run dirs (Task 4 test).
 5. After a reboot or a Docker restart, `run.json` exists but the container and tmpfs run dir do not → the supervisor marks the run finished without crashing, `agent list` shows it as `gone` (Task 6 test).
 
@@ -159,29 +159,22 @@
 ### Task 5: `jauntctl agent` commands on the box
 
 **Files:**
-- Create: `cmd/jauntbox/agent.go`, `internal/agentrun/list.go`, `internal/agentrun/stop.go`, `internal/agentrun/tab.go`, tests `cmd/jauntbox/agent_test.go`, `internal/agentrun/list_test.go`, `internal/agentrun/stop_test.go`, `internal/agentrun/tab_test.go`
+- Create: `cmd/jauntbox/agent.go`, `internal/agentrun/list.go`, `internal/agentrun/stop.go`, tests `cmd/jauntbox/agent_test.go`, `internal/agentrun/list_test.go`, `internal/agentrun/stop_test.go`
 - Modify: `cmd/jauntbox/main.go` (register under the `jauntctl` root)
 
 **Interfaces:**
 - Consumes: Task 4.
 - Produces:
-  - `jauntctl agent start <repo> [--branch b] [--unattended "<prompt>"] [--max 8h] [--skip-permissions] [--no-focus]`: runs as the box user. It runs the root part as `sudo -n /usr/local/bin/jauntctl agent start-run <same args> --json` (hidden subcommand: `Start`, prints the `Run` as JSON; same sudo pattern as `sudoMint`), then opens the run's herdr tab as the user (below) and prints `run <id> started; it is in the <repo> workspace, tab "agent <HHMM>"`. When `herdr` is not installed it prints the `jauntctl agent attach <id>` command to use instead.
-  - `jauntctl agent attach <id> [--shell]`: no root needed. First attach of an interactive run: `docker exec -it -u 64000:64000 -w /work jauntbox-<id> claude …` with the adapter's `InteractiveCmd(resume = /work/CONTINUATION.md exists, continueSession = false, skipPermissions from run.json)`; later attaches use `continueSession = true` (a marker `first-attach-done` in the volume run dir records it); `--shell` runs `bash`. This is the command a tab runs.
-  - `jauntctl agent tab <id>`: reopens (or focuses) the run's herdr tab.
-  - Herdr tab (`internal/agentrun/tab.go`): `type Herdr func(ctx context.Context, args ...string) ([]byte, error)` runs `~/.local/bin/herdr` with `HERDR_SESSION=jauntbox` as the box user; `OpenTab(ctx context.Context, h Herdr, r Run, user string, focus bool) error`:
-    1. make sure the server runs (same check-then-start as `session.Herdr.StartCommand`, run locally);
-    2. `workspace list` → `result.workspaces[]` (`workspace_id`, `label`); use the one labelled `<repo name>`, else `workspace create --cwd /home/<user> --label <repo name> --no-focus` → `result.workspace.workspace_id`;
-    3. `tab list --workspace <ws>` → `result.tabs[]` (`tab_id`, `label`); a tab labelled `agent <HHMM>` (HHMM = run start, box timezone) → `tab focus <tab_id>` (when focusing) and stop;
-    4. else `tab create --workspace <ws> --label "agent <HHMM>" --focus|--no-focus` → `result.root_pane.pane_id`, then `pane run <pane_id> exec /usr/local/bin/jauntctl agent attach <id>` (unattended: `exec /usr/local/bin/jauntctl agent logs --follow <id>`; `exec` so the tab's shell ends with the run).
-    JSON shapes follow herdr 0.7.5's API schema (`herdr api schema --json`: `TabInfo`, `PaneInfo`, `WorkspaceInfo`, `tab_created` carries `root_pane`); tests use recorded fixtures. Never start, stop or delete a herdr session other than through step 1.
+  - `jauntctl agent <repo> [--branch b] [--unattended "<prompt>"] [--max 8h] [--skip-permissions]` (the parent command takes the repo; a repo whose name equals a subcommand is given as `owner/repo`): runs as the box user. It runs the root part as `sudo -n /usr/local/bin/jauntctl agent start-run <same args> --json` (hidden subcommand: `Start`, prints the `Run` as JSON; same sudo pattern as `sudoMint`). Interactive: then `syscall.Exec` of the attach below in the same terminal, so Claude opens in the pane you typed it in. Unattended: prints `run <id> started; watch it with: jauntctl agent logs --follow <id>`.
+  - `jauntctl agent attach <id> [--shell]`: no root needed. `docker exec -it -u 64000:64000 -w /work jauntbox-<id>` + the adapter's `InteractiveCmd(resume = /work/CONTINUATION.md exists, continueSession, skipPermissions from run.json)`: the first attach of a run has `continueSession = false`, later ones `true` (a marker `first-attach-done` in the volume run dir records it); `--shell` runs `bash`.
   - `jauntctl agent list [--json]`: `agentrun.List(ctx, d Docker, p Paths) ([]Status, error)` with `Status{Run; State string; IP string}`; `State` ∈ `running`, `wrapping-up`, `finished`, `gone` (record without container). Table columns: `RUN REPO BRANCH MODE STATE STARTED MAX IP`.
   - `jauntctl agent stop <id> [--now]`: root; `agentrun.RequestWrapUp(p Paths, id, reason string, now time.Time) error` writes the run's `wrapup` flag (reason `"stop-requested"`) and sets `WrapUpAt`; `--now` additionally calls `agentrun.Finish(ctx, d, p, id, ev) error` (fallback via `docker exec` only while the container is running — an exited or missing container gets none —, then stop/remove container and network, remove tmpfs dir, set `FinishedAt`, emit `agent.stopped` with `fallback` = script output).
   - `jauntctl agent logs <id> [--follow]`: shows `/home/.jauntbox/runs/<id>/log/claude.jsonl` (root; re-execs with `sudo -n`), following with `--follow`.
-- Running the wrong side (`jauntbox agent start` on the box, `jauntctl agent` on the laptop) prints the existing wrong-side message.
+- `jauntctl agent` typed on the laptop prints the existing wrong-side message (agents start on the box).
 
-- [ ] **Step 1: Failing tests:** `TestListStates` (each of the four states from fake inspect + records; Review Focus 5's `gone`), `TestRequestWrapUpWritesFlag`, `TestFinishRunsFallbackBeforeStop` (call order `exec jaunt-wrapup-fallback` → `stop` → `remove` → `network rm`; event fields), `TestFinishWhenContainerGone` (no fallback, record finished, no error), `TestAgentStartRunsRootPartWithSudo` (argv of `start-run`), `TestAttachArgvFirstAndLater` (resume prompt on first attach when CONTINUATION.md exists, `--continue` afterwards), and in `tab_test.go` with a fake `Herdr`: `TestOpenTabCreatesWorkspaceAndTab` (no workspace for the repo → create workspace, create tab, `pane run … exec … agent attach <id>`), `TestOpenTabReusesWorkspace`, `TestOpenTabFocusesExistingTab` (no second tab), `TestOpenTabUnattendedFollowsLog`, `TestOpenTabNoFocus`.
+- [ ] **Step 1: Failing tests:** `TestListStates` (each of the four states from fake inspect + records; Review Focus 5's `gone`), `TestRequestWrapUpWritesFlag`, `TestFinishRunsFallbackBeforeStop` (call order `exec jaunt-wrapup-fallback` → `stop` → `remove` → `network rm`; event fields), `TestFinishWhenContainerGone` (no fallback, record finished, no error), `TestAgentRunsRootPartWithSudo` (argv of `start-run`), `TestAgentInteractiveExecsAttach` (after `start-run`, the exec'd argv is the attach), `TestAttachArgvFirstAndLater` (resume prompt on first attach when CONTINUATION.md exists, `--continue` afterwards), `TestAgentRepoNamedLikeSubcommand` (`jauntctl agent owner/list` starts a run).
 - [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS; `go test ./...`.
-- [ ] **Step 5: Commit** `feat(jauntbox): jauntctl agent start, attach, list, stop and logs`.
+- [ ] **Step 5: Commit** `feat(jauntbox): jauntctl agent, attach, list, stop and logs`.
 
 ### Task 6: Supervisor drives the runs
 
@@ -203,32 +196,19 @@
 - [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS; `go test ./...`; `sh internal/cloudinit/units/safety-net_test.sh`.
 - [ ] **Step 5: Commit** `feat(jauntbox): supervisor refreshes, wraps up and finishes agent runs`.
 
-### Task 7: `jauntbox agent` on the laptop
-
-**Files:**
-- Create: `internal/remote/quote.go`, `internal/remote/quote_test.go`, `internal/client/agent.go`, `internal/client/agent_test.go`
-- Modify: `cmd/jauntbox/main.go` (laptop command)
-
-**Interfaces:**
-- Produces: `remote.ShellQuote(args ...string) string` (POSIX single-quoting, `'` → `'\''`); `client.AgentArgv(cfg config.Config, args []string) []string` = `ssh -t <HostKeyOpts> <user>@jauntbox-<user> -- jauntctl agent <quoted args>`; `client.AgentArgv` is for the pass-through commands (`ssh -t`); laptop `jauntbox agent <repo> [flags]` = ensure the box is up and unlocked (the path bare `jauntbox` uses before attaching: `EnsureSupervisor` + unlock), run `jauntctl agent start <quoted args>` over ssh (no tty; it creates and focuses the tab), print its output, then attach the herdr session exactly like bare `jauntbox` (same `--nested` rule), so you land on the agent's tab. `jauntbox agent list|tab|stop|logs …` pass through with `AgentArgv`.
-
-- [ ] **Step 1: Failing tests:** `TestShellQuote` (plain, spaces, `'`, `$(rm -rf ~)`, empty string → `''`), `TestAgentArgvQuotesPrompt` (an unattended prompt with quotes and `$` arrives as one quoted word), `TestAgentStartEnsuresBoxThenAttachesHerdr` (fake deps: ensure + unlock, then the remote `jauntctl agent start …`, then the herdr attach command; a start failure stops before attaching).
-- [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS; `go test ./...`.
-- [ ] **Step 5: Commit** `feat(jauntbox): jauntbox agent runs and attaches agents from the laptop`.
-
-### Task 8: Docs and smoke checks
+### Task 7: Docs and smoke checks
 
 **Files:**
 - Modify: `README.md` (new "Agents" section after "GitHub and secrets"), `docs/jauntbox/SMOKE.md` (new "Plan 03: agent containers" section before "What good looks like")
 
-- [ ] **Step 1: README "Agents"**: the commands from Tasks 5 and 7 with one-line descriptions; that every run is a herdr tab in its repo's workspace (ruling 4); what a container holds and cannot reach (Global Constraints, ruling 9); wrap-up and `CONTINUATION.md` (ruling 5, grace, mechanical note); resume (ruling 6); one run per repo; host git refuses agent workspaces by design — use `jauntctl agent attach --shell`; first `start` builds the image (minutes); `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`; the full-sudo host user is trusted, agents never run on the host.
+- [ ] **Step 1: README "Agents"**: the commands from Task 5 with one-line descriptions; the flow `jauntbox` → herdr → `jauntctl agent <repo>` in a pane (ruling 4); what a container holds and cannot reach (Global Constraints, ruling 9); wrap-up and `CONTINUATION.md` (ruling 5, grace, mechanical note); resume (ruling 6); one run per repo; host git refuses agent workspaces by design — use `jauntctl agent attach --shell`; first `start` builds the image (minutes); `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`; the full-sudo host user is trusted, agents never run on the host.
 - [ ] **Step 2: SMOKE "Plan 03"**, each with what to record:
   1. Image build time on first `start`; `docker image ls jauntbox/agent`.
   2. Isolation, from `jauntctl agent attach <id> --shell`: `id` is 64000; `curl -m 5 http://169.254.169.254/hetzner/v1/metadata` fails; `curl -m 5 http://100.100.100.100` fails; `ls /run/jauntbox/secrets` fails; `cat /run/jauntbox-run/token` shows only a token; `git push` works on the agent branch; pushing to another installed repo with that token fails (403).
-  3. Interactive, from the laptop: `jauntbox agent <repo>` lands you in herdr on a new `agent <HHMM>` tab in the repo's workspace, with Claude running. Record what Claude asked on the very first run (onboarding), and whether herdr closes the tab when the run ends. Close the tab, run `jauntctl agent tab <id>` from another pane: the tab comes back and Claude continues (`--continue`). Same from a pane on the box: `jauntctl agent start <repo>` opens and focuses the tab.
+  3. Interactive: `jauntbox`, then in a herdr pane `jauntctl agent <repo>`: Claude opens in that pane. Record what Claude asked on the very first run (onboarding). Close the pane; in another pane `jauntctl agent attach <id>`: Claude continues (`--continue`). Record whether herdr shows the pane as an agent.
   4. Wrap-up: `jauntctl agent stop <id>` during an interactive task → Claude receives the instruction, writes, commits and pushes `CONTINUATION.md`; record the hook output seen in the session.
   5. Fallback: `jauntctl agent stop <id>` with Claude idle → after the grace, a mechanical `CONTINUATION.md` is pushed.
   6. Unattended with `--max 10m`: the run wraps up at 10 min; `agent.*` events in `events.jsonl`.
-  7. Resume: `jauntbox agent <repo> --branch <that branch>` opens with the resume prompt.
+  7. Resume: `jauntctl agent <repo> --branch <that branch>` opens with the resume prompt.
   8. Teardown with a running agent: `jauntbox down` → fallback pushed, tokens revoked, box deleted; event order in the next box's log.
 - [ ] **Step 3: Commit** `docs(jauntbox): agent containers usage and smoke checks`.
