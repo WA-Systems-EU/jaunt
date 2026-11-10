@@ -779,3 +779,23 @@ func TestSetupGitHubConvertedOwnerMustMatchChoice(t *testing.T) {
 		t.Fatalf("key stored for a foreign App: %v", err)
 	}
 }
+
+func TestHostMatches(t *testing.T) {
+	cases := []struct {
+		req, bound string
+		want       bool
+	}{
+		{"100.64.0.7:8765", "100.64.0.7:8765", true},
+		{"100.64.0.7", "100.64.0.7:80", true}, // browsers drop the default port
+		{"100.64.0.7:80", "100.64.0.7:80", true},
+		{"[fd7a::1]", "[fd7a::1]:80", true},
+		{"100.64.0.7", "100.64.0.7:8765", false},
+		{"attacker.example:8765", "100.64.0.7:8765", false},
+		{"attacker.example", "100.64.0.7:80", false},
+	}
+	for _, c := range cases {
+		if got := hostMatches(c.req, c.bound); got != c.want {
+			t.Errorf("hostMatches(%q, %q) = %v", c.req, c.bound, got)
+		}
+	}
+}

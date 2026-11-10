@@ -504,7 +504,7 @@ func (o SetupGitHubOpts) createApp(ctx context.Context, owner OwnerChoice) error
 	})
 	// A Host other than the bound address means DNS rebinding or a stray client.
 	guard := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != host {
+		if !hostMatches(r.Host, host) {
 			http.Error(w, "wrong host", http.StatusForbidden)
 			return
 		}
@@ -579,4 +579,20 @@ func IsLoopbackListen(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// hostMatches reports whether a request's Host header names the bound address
+// host:port; browsers omit the port when it is 80.
+func hostMatches(reqHost, bound string) bool {
+	if reqHost == bound {
+		return true
+	}
+	h, p, err := net.SplitHostPort(bound)
+	if err != nil || p != "80" {
+		return false
+	}
+	if strings.Contains(h, ":") {
+		h = "[" + h + "]"
+	}
+	return reqHost == h
 }
