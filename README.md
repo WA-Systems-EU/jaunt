@@ -53,6 +53,43 @@ jauntbox down                       # wrap up and delete the box (the volume sta
 
 Not yet live-tested end to end: see [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).
 
+## GitHub and secrets
+
+The box never holds a long-lived credential on disk. Your secrets stay on the laptop
+in `~/.config/jauntbox/secrets/` (files mode 0600) and are pushed into the box's RAM
+(`/run/jauntbox/secrets`) every time a laptop command reaches the box.
+
+```sh
+jauntbox setup github                          # once: create and install the GitHub App
+jauntbox setup github --check                  # later: report drift from the expected permissions
+jauntbox secrets set CLAUDE_CODE_OAUTH_TOKEN   # an agent credential (prompted, never echoed)
+jauntbox secrets list                          # names only, never values
+jauntbox unlock                                # push secrets to a box that was rebooted
+```
+
+- `setup github` runs the GitHub App manifest flow in your browser and creates
+  `jauntbox-<user>` under the account in `github.org` (empty means your personal
+  account). It needs an admin credential once: `gh auth token`, or `GITHUB_ADMIN_TOKEN`
+  when `gh` is absent. That credential is used on the laptop only; it is never stored
+  and never sent to the box. Install the App on the repos you want agents to touch.
+- The App has `contents: write`, `pull_requests: write` and `metadata: read`. Nothing
+  else: no `workflows`, no `administration`, no `secrets`.
+- Rulesets: on each repo the default branch (plus any `github.protected_patterns`
+  entries in your config) can only be updated or merged by repo admins, which is you.
+  The App never bypasses the ruleset, so agents push branches and open PRs; you merge.
+- On the box, `git` uses a credential helper that mints a token for one repository,
+  valid for an hour and cached until 10 minutes before it expires. `jaunt-repos`
+  lists the repos the App is installed on and clones them; it warns if it finds an old
+  `gh auth login`, which you should remove.
+- **Locked state.** After a reboot (or before the first unlock) the box has no secrets
+  in memory. `git push` then prints the locked message and `jauntbox status` shows
+  `locked`. Any laptop command that reaches the box, or `jauntbox unlock`, fixes it.
+- Tokens are revoked before the box deletes itself; `token.revoked` events are written
+  to `/home/.jauntbox/events.jsonl` on the volume.
+- Box-side commands answer to `jauntctl` (`supervise`, `stop`, `night-set`,
+  `box-status`, `secrets-load`, `mint`, `repos`, `git-credential`). A `jauntbox`
+  symlink to it remains on the box for old units.
+
 ## Status
 
 **Under construction** on the `feat/remote-workspace` branch.

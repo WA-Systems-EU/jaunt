@@ -104,6 +104,38 @@ what you see; if either is false, fix the code and add a test.
   accept both without error, and does the server show the firewall exactly once
   (`hcloud server describe jauntbox-<user>`, or the console's Firewalls tab)?
 
+## Plan 02: forge and secrets
+
+Needs a scratch GitHub repo (with a few commits) in the org from `github.org`
+(`WA-Systems-EU` for the maintainer). Replace `o/r` with that repo and
+`<default branch>` with its real default branch name.
+
+1. **App setup.** `jauntbox setup github` creates `jauntbox-<user>` under
+   `WA-Systems-EU`. Install it on the scratch repo only. The ruleset
+   `jauntbox: humans merge the default branch` is visible in the repo's settings.
+   Record: whether GitHub accepted the manifest as written (`hook_attributes`), or
+   what it rejected.
+2. **Push and merge rules.** On the box, `jaunt-repos` lists the scratch repo with its
+   real default branch and clones it. `git push origin HEAD:agent/smoke` works;
+   `git push origin HEAD:<default branch>` is **rejected** by the ruleset. Open a PR
+   from `agent/smoke` and merge it in the web UI as the human: it **works** (admin
+   bypass). Record the rejection message and anything unexpected in the listing.
+3. **Locked after reboot.** `sudo reboot` the box. `git push` prints the locked
+   message; `jauntbox status` shows locked. `jauntbox unlock` on the laptop, then
+   push works again. Record both outputs.
+4. **Permission drift.** Add the `workflows` permission by hand in the App settings.
+   `jauntbox setup github --check` reports the drift. Minted tokens still lack
+   `workflows`: `curl -H "Authorization: token $(sudo jauntctl mint o/r | jq -r .token)" https://api.github.com/installation/repositories`
+   works, and editing `.github/workflows/x.yml` and pushing is rejected. Record the
+   check output and the push rejection. Remove the permission afterwards.
+5. **Revocation on down.** Note a minted token (step 4), then `jauntbox down`. The
+   events in `/home/.jauntbox/events.jsonl` on the volume (read them from the next
+   box, or by attaching the volume) show `token.revoked` for each minted token, and
+   the old token returns 401 from the GitHub API. Record the event count against the
+   number of mints and the HTTP status.
+6. **Nothing on the volume.** `ls /home` and `grep -r ghs_ /home` find no token or
+   key. Record the output (expected: nothing found).
+
 ## What "good" looks like
 
 - `up` returns quickly; the box joins the tailnet within a few minutes.
