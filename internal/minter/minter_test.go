@@ -19,6 +19,7 @@ import (
 )
 
 type fakeForge struct {
+	mu             sync.Mutex
 	mints, revokes int
 	failRevoke     map[string]bool
 	notInstalled   bool
@@ -30,8 +31,11 @@ func (f *fakeForge) Mint(_ context.Context, repo string) (forge.Token, error) {
 	if f.notInstalled {
 		return forge.Token{}, forge.ErrNotInstalled
 	}
+	f.mu.Lock()
 	f.mints++
-	return forge.Token{Value: fmt.Sprintf("SECRET-TOKEN-%d", f.mints), Repo: repo, ExpiresAt: clock.Add(time.Hour)}, nil
+	n := f.mints
+	f.mu.Unlock()
+	return forge.Token{Value: fmt.Sprintf("SECRET-TOKEN-%d", n), Repo: repo, ExpiresAt: clock.Add(time.Hour)}, nil
 }
 func (f *fakeForge) Revoke(_ context.Context, tok string) error {
 	f.revokes++
@@ -150,7 +154,13 @@ func TestRevokeAllContinuesPastFailure(t *testing.T) {
 	if err == nil || n != 2 || ff.revokes != 3 {
 		t.Fatalf("n=%d err=%v revokes=%d", n, err, ff.revokes)
 	}
-	left, _ := os.ReadDir(m.CacheDir)
+	var left []os.DirEntry
+	all, _ := os.ReadDir(m.CacheDir)
+	for _, e := range all {
+		if strings.HasSuffix(e.Name(), ".json") {
+			left = append(left, e)
+		}
+	}
 	if len(left) != 1 || left[0].Name() != "o__b.json" {
 		t.Fatalf("left=%v", left)
 	}
@@ -178,5 +188,56 @@ func TestEventsNeverContainToken(t *testing.T) {
 		if strings.Contains(fmt.Sprint(e), "SECRET-TOKEN") {
 			t.Fatalf("token in event %v", e)
 		}
+	}
+}
+
+func TestConcurrentMintsSameRepo(t *testing.T) {
+	m, ff, _ := setup(t, true, secrets.AppKeyFile, secrets.AppMetaFile)
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := m.Mint(context.Background(), "o/r")
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ff.mints != 1 {
+		t.Fatalf("mints=%d, want 1 (callers share one token)", ff.mints)
+	}
+	ents, _ := os.ReadDir(m.CacheDir)
+	var jsons int
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("stray temp %s", e.Name())
+		}
+		if strings.HasSuffix(e.Name(), ".json") {
+			jsons++
+		}
+	}
+	if jsons != 1 {
+		t.Fatalf("entries=%v", ents)
+	}
+}
+
+func TestRevokeAllIgnoresStrayTempFiles(t *testing.T) {
+	m, ff, _ := setup(t, true, secrets.AppKeyFile, secrets.AppMetaFile)
+	if _, err := m.Mint(context.Background(), "o/r"); err != nil {
+		t.Fatal(err)
+	}
+	stray := filepath.Join(m.CacheDir, "o__r.json.123.tmp")
+	if err := os.WriteFile(stray, []byte("{bad"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := m.RevokeAll(context.Background()); err != nil || n != 1 || ff.revokes != 1 {
+		t.Fatalf("n=%d err=%v revokes=%d", n, err, ff.revokes)
 	}
 }

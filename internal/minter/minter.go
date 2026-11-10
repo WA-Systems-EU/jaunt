@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/WA-Systems-EU/jaunt/internal/events"
@@ -123,6 +124,15 @@ func (m *Minter) Mint(ctx context.Context, repo string) (forge.Token, error) {
 	if err != nil {
 		return forge.Token{}, err
 	}
+	if err := os.MkdirAll(m.CacheDir, 0o700); err != nil {
+		return forge.Token{}, err
+	}
+	// Serialise callers for this repo so they share one token.
+	unlock, err := lockFile(strings.TrimSuffix(path, ".json") + ".lock")
+	if err != nil {
+		return forge.Token{}, err
+	}
+	defer unlock()
 	if b, err := os.ReadFile(path); err == nil {
 		var c cached
 		if json.Unmarshal(b, &c) == nil && c.Token != "" && c.ExpiresAt.Sub(m.Now()) > ReuseMargin {
@@ -144,9 +154,6 @@ func (m *Minter) Mint(ctx context.Context, repo string) (forge.Token, error) {
 	if err != nil {
 		return forge.Token{}, err
 	}
-	if err := os.MkdirAll(m.CacheDir, 0o700); err != nil {
-		return forge.Token{}, err
-	}
 	if err := writePrivate(path, b); err != nil {
 		return forge.Token{}, err
 	}
@@ -154,13 +161,26 @@ func (m *Minter) Mint(ctx context.Context, repo string) (forge.Token, error) {
 	return tok, nil
 }
 
+// lockFile takes an exclusive flock on path (created 0600) until unlock.
+func lockFile(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
+}
+
+// writePrivate writes b to path atomically via a unique 0600 temp file.
 func writePrivate(path string, b []byte) error {
-	tmp := path + ".tmp"
-	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
+	tmp := f.Name()
 	if _, err := f.Write(b); err != nil {
 		f.Close()
 		os.Remove(tmp)
@@ -170,7 +190,11 @@ func writePrivate(path string, b []byte) error {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // Repos lists the repositories the App is installed on.
@@ -232,6 +256,7 @@ func (m *Minter) RevokeAll(ctx context.Context) (int, error) {
 		if err := os.Remove(path); err != nil {
 			note(err)
 		}
+		_ = os.Remove(strings.TrimSuffix(path, ".json") + ".lock")
 		m.emit("token.revoked", c.Repo, c.ExpiresAt)
 		n++
 	}
