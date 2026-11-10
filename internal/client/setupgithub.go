@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -99,6 +100,36 @@ func (o SetupGitHubOpts) loadApp() (*github.App, github.AppMeta, error) {
 	return app, meta, err
 }
 
+func (o SetupGitHubOpts) webBase() string {
+	if w := strings.TrimRight(o.WebURL, "/"); w != "" {
+		return w
+	}
+	return "https://github.com"
+}
+
+// appSettingsURL is where the owner manages (or deletes) the created App.
+func (o SetupGitHubOpts) appSettingsURL(meta github.AppMeta) string {
+	if meta.OwnerIsOrg {
+		return o.webBase() + "/organizations/" + meta.Owner + "/settings/apps/" + meta.Slug
+	}
+	return o.webBase() + "/settings/apps/" + meta.Slug
+}
+
+// orphanErr explains how to recover an App that exists on GitHub but whose
+// key is not in the store.
+func (o SetupGitHubOpts) orphanErr(meta github.AppMeta, cause error) error {
+	return fmt.Errorf("GitHub App %q exists but its private key is missing from %s%s: delete the app at %s "+
+		"(or generate a new private key there and save it as %s with chmod 600), then re-run `jauntbox setup github`",
+		meta.Slug, o.Store.Dir, causeSuffix(cause), o.appSettingsURL(meta), filepath.Join(o.Store.Dir, secrets.AppKeyFile))
+}
+
+func causeSuffix(err error) string {
+	if err == nil {
+		return ""
+	}
+	return " (" + err.Error() + ")"
+}
+
 func (o SetupGitHubOpts) haveApp() bool {
 	_, e1 := o.Store.Get(secrets.AppKeyFile)
 	_, e2 := o.Store.Get(secrets.AppMetaFile)
@@ -111,6 +142,12 @@ func (o SetupGitHubOpts) haveApp() bool {
 func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
 	out := o.out()
 	if !o.haveApp() {
+		if mb, err := o.Store.Get(secrets.AppMetaFile); err == nil {
+			var meta github.AppMeta
+			if json.Unmarshal(mb, &meta) == nil && meta.Slug != "" {
+				return o.orphanErr(meta, nil)
+			}
+		}
 		if err := o.createApp(ctx); err != nil {
 			return err
 		}
@@ -247,10 +284,7 @@ func (o SetupGitHubOpts) createApp(ctx context.Context) error {
 	}
 	state := hex.EncodeToString(sb[:])
 	base := "http://" + ln.Addr().String()
-	web := strings.TrimRight(o.WebURL, "/")
-	if web == "" {
-		web = "https://github.com"
-	}
+	web := o.webBase()
 	target := web + "/settings/apps/new"
 	if org := o.Cfg.GitHub.Org; org != "" {
 		target = web + "/organizations/" + org + "/settings/apps/new"
@@ -287,15 +321,24 @@ func (o SetupGitHubOpts) createApp(ctx context.Context) error {
 			http.Error(w, "missing code", http.StatusBadRequest)
 			return
 		}
-		meta, pemKey, err := o.Admin.ConvertManifest(r.Context(), code)
+		// GitHub consumes the single-use code, so a dropped browser
+		// connection must not cancel the conversion.
+		cctx, ccancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
+		defer ccancel()
+		meta, pemKey, err := o.Admin.ConvertManifest(cctx, code)
+		if err != nil {
+			http.Error(w, "could not finish creating the app; see the terminal", http.StatusInternalServerError)
+			finish(fmt.Errorf("converting the app manifest: %w (if the app %q was created, delete it in GitHub's settings before re-running)", err, "jauntbox-"+o.Cfg.User))
+			return
+		}
+		// Meta first, so a lone meta file marks "app exists, key missing".
+		mb, _ := json.Marshal(meta)
+		err = o.Store.Put(secrets.AppMetaFile, mb)
 		if err == nil {
 			err = o.Store.Put(secrets.AppKeyFile, pemKey)
 		}
-		if err == nil {
-			mb, _ := json.Marshal(meta)
-			err = o.Store.Put(secrets.AppMetaFile, mb)
-		}
 		if err != nil {
+			err = o.orphanErr(meta, err)
 			http.Error(w, "could not finish creating the app; see the terminal", http.StatusInternalServerError)
 			finish(err)
 			return
@@ -324,6 +367,6 @@ func (o SetupGitHubOpts) createApp(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(wait):
-		return fmt.Errorf("timed out after %s waiting for the app to be created; re-run `jauntbox setup github`", wait)
+		return fmt.Errorf("timed out after %s waiting for the app to be created; if you complete the GitHub form later, the app %q will exist without its key here: delete it in GitHub's settings before re-running `jauntbox setup github`", wait, "jauntbox-"+o.Cfg.User)
 	}
 }

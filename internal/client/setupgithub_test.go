@@ -426,3 +426,41 @@ func TestAdminTokenOrder(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestSetupGitHubStoreFailureExplainsOrphanedApp(t *testing.T) {
+	f, srv := newGHFake(t)
+	br := &browser{t: t, fake: f}
+	o, _ := setupOpts(t, f, srv, br)
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o.Store = secrets.Store{Dir: filepath.Join(blocker, "secrets")} // Put cannot create the dir
+	err := SetupGitHub(context.Background(), o)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	for _, want := range []string{"jauntbox-alice", "https://web.test/organizations/WA-Systems-EU/settings/apps/jauntbox-alice", "delete"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err lacks %q: %v", want, err)
+		}
+	}
+}
+
+func TestSetupGitHubLoneMetaReportsMissingKey(t *testing.T) {
+	f, srv := newGHFake(t)
+	br := &browser{t: t, fake: f}
+	o, _ := setupOpts(t, f, srv, br)
+	mb, _ := json.Marshal(github.AppMeta{AppID: 42, Slug: "jauntbox-alice", Owner: "WA-Systems-EU", OwnerIsOrg: true})
+	if err := o.Store.Put(secrets.AppMetaFile, mb); err != nil {
+		t.Fatal(err)
+	}
+	err := SetupGitHub(context.Background(), o)
+	if err == nil || !strings.Contains(err.Error(), "key is missing") ||
+		!strings.Contains(err.Error(), "https://web.test/organizations/WA-Systems-EU/settings/apps/jauntbox-alice") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(br.opened) != 0 || f.convs() != 0 {
+		t.Fatalf("started a new flow: opened=%v convs=%d", br.opened, f.convs())
+	}
+}
