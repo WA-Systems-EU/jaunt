@@ -161,3 +161,46 @@ func TestSecretsAreClientOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretsLoadRejectsOversizedInput(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "s")
+	big := `{"files":{"a":"` + strings.Repeat("A", maxSecretsInput) + `"}}` // base64-ish filler
+	err := loadSecretsFrom(strings.NewReader(big), dir)
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Fatal("dir created for rejected input")
+	}
+}
+
+func TestSecretsLoadLoadsBundleAndNeverEchoesInput(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "s")
+	if err := loadSecretsFrom(strings.NewReader(`{"files":{"agents.env":"U0VDUkVUVkFMVUU="}}`), dir); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "agents.env")); string(b) != "SECRETVALUE" {
+		t.Fatalf("content = %q", b)
+	}
+	err := loadSecretsFrom(strings.NewReader(`{"files":{"agents.env":"U0VDUkVUVkFMVUU="} garbage`), dir)
+	if err == nil || strings.Contains(err.Error(), "SECRETVALUE") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSecretsLoadIsBoxOnly(t *testing.T) {
+	has := func(root *cobra.Command, name string) bool {
+		for _, c := range root.Commands() {
+			if c.Name() == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(newBoxCmd(), "secrets-load") || has(newClientCmd(), "secrets-load") {
+		t.Fatal("secrets-load must be on the jauntctl root only")
+	}
+	if !has(newClientCmd(), "unlock") || has(newBoxCmd(), "unlock") {
+		t.Fatal("unlock must be on the jauntbox root only")
+	}
+}

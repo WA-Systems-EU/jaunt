@@ -24,8 +24,10 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/policy"
 	"github.com/WA-Systems-EU/jaunt/internal/provider/hetzner"
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
+	"github.com/WA-Systems-EU/jaunt/internal/secrets"
 	"github.com/WA-Systems-EU/jaunt/internal/session"
 	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
+	"github.com/WA-Systems-EU/jaunt/internal/vault"
 )
 
 func stateDir() string {
@@ -97,6 +99,7 @@ func loadDeps(cfgPath string) (client.Deps, error) {
 		Mesh:         mesh.NewTailscale(ts, "", nil),
 		Remote:       remote.NewSSH(cfg.User),
 		Events:       events.JSONLFile(filepath.Join(stateDir(), "events.jsonl")),
+		Secrets:      secrets.Store{Dir: secrets.DirFor(cfgPath)},
 		Now:          time.Now,
 		Spawn:        spawner(cfgPath),
 		HetznerToken: hz,
@@ -152,6 +155,7 @@ func newBoxCmd() *cobra.Command {
 		},
 	}
 	root.AddCommand(boxCmds()...)
+	root.AddCommand(boxOnlyCmds()...)
 	return root
 }
 
@@ -264,6 +268,7 @@ func boxCmds() []*cobra.Command {
 				"state":    st,
 				"verdict":  map[string]string{"action": actions[v.Action], "reason": v.Reason},
 				"deadline": map[string]any{"time": dl, "reason": dlReason},
+				"locked":   vault.Locked(vault.Dir),
 			}
 			if !night.IsZero() {
 				out["night_until"] = night
@@ -379,7 +384,7 @@ func newClientCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(initCmd(&cfgPath), up, push, acl, secretsCmd(&cfgPath), setupCmd(&cfgPath))
+	root.AddCommand(initCmd(&cfgPath), up, push, acl, secretsCmd(&cfgPath), setupCmd(&cfgPath), unlockCmd(&cfgPath))
 	// Transition aliases: boxes created before jauntctl run `jauntbox supervise`
 	// from their unit. Remove in plan 03.
 	for _, c := range boxCmds() {

@@ -13,6 +13,9 @@ type StatusReport struct {
 	Online bool          // on the tailnet
 	// BoxStatus is the raw `box-status --json` output, set when reachable.
 	BoxStatus json.RawMessage
+	// Locked is the box's own report that its secrets are not in memory, read
+	// after any unlock attempt.
+	Locked bool
 	// Err describes why BoxStatus is missing although the box is online.
 	Err string
 }
@@ -37,6 +40,7 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	if !online {
 		return rep, nil
 	}
+	tryUnlock(ctx, d)
 	out, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntctl", "box-status", "--json")
 	if err != nil {
 		rep.Err = "box-status failed (supervisor not installed yet?): " + err.Error()
@@ -44,6 +48,11 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	}
 	if json.Valid(out) {
 		rep.BoxStatus = out
+		var st struct {
+			Locked bool `json:"locked"`
+		}
+		_ = json.Unmarshal(out, &st)
+		rep.Locked = st.Locked
 	} else {
 		rep.Err = "box-status returned invalid JSON: " + string(out)
 	}

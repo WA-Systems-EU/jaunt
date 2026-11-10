@@ -138,7 +138,7 @@ func TestPushBinaryRetriesTransientErrors(t *testing.T) {
 	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.order) != 2 {
+	if len(r.order) != 3 { // copy, install, unlock check
 		t.Fatalf("order = %v", r.order)
 	}
 }
@@ -211,7 +211,7 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 	if m.polls != 3 {
 		t.Fatalf("polls = %d", m.polls)
 	}
-	if len(r.order) != 2 || r.order[0] != "copy:/tmp/jauntbox" || r.order[1] != "run" {
+	if len(r.order) != 3 || r.order[0] != "copy:/tmp/jauntbox" || r.order[1] != "run" || r.order[2] != "run" {
 		t.Fatalf("order = %v", r.order)
 	}
 	want := "[" + installCmd + "]"

@@ -15,6 +15,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/client"
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
+	"github.com/WA-Systems-EU/jaunt/internal/vault"
 )
 
 // clientOpsCmds returns the laptop-side commands that act on an existing box.
@@ -59,6 +60,9 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			}
 			fmt.Fprintf(out, "%s: %s, server type %s, created %s, on tailnet: %v\n",
 				rep.Box.Name, rep.Box.Status, rep.Box.ServerType, rep.Box.Created.Format(time.RFC3339), rep.Online)
+			if rep.Locked {
+				fmt.Fprintln(out, vault.ErrLocked)
+			}
 			if rep.Err != "" {
 				fmt.Fprintln(out, rep.Err)
 			}
@@ -112,6 +116,12 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			cfg, err := config.Load(path)
 			if err != nil {
 				return err
+			}
+			// Unlocking never blocks ssh: any problem is a warning.
+			if d, err := load(path); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not unlock the box: %v\n", err)
+			} else if err := client.EnsureUnlocked(cmd.Context(), d); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not unlock the box: %v\n", err)
 			}
 			bin, err := exec.LookPath("ssh")
 			if err != nil {

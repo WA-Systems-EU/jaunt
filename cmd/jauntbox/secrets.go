@@ -137,3 +137,25 @@ func openBrowser(url string) error {
 	}
 	return exec.Command(name, url).Start()
 }
+
+// unlockCmd is `jauntbox unlock`: push every laptop secret to the box's RAM.
+func unlockCmd(cfgPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unlock",
+		Short: "Push the laptop's secrets to the box's memory (after a reboot or new secrets)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			d, err := loadDeps(*cfgPath)
+			if err != nil {
+				return err
+			}
+			if err := client.PushSecrets(ctx, d); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "the box is unlocked")
+			return nil
+		},
+	}
+}

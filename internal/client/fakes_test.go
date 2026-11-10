@@ -148,6 +148,10 @@ type fakeRemote struct {
 	err   error     // returned by Run
 	out   []byte    // returned by Run
 	seq   *[]string // optional shared call log
+	// locked makes the secrets marker test fail, as on a rebooted box.
+	locked   bool
+	inputs   [][]byte // stdin of each RunInput
+	inputErr error
 }
 
 func (r *fakeRemote) Run(_ context.Context, host string, args ...string) ([]byte, error) {
@@ -156,7 +160,19 @@ func (r *fakeRemote) Run(_ context.Context, host string, args ...string) ([]byte
 	if r.seq != nil {
 		*r.seq = append(*r.seq, "run:"+strings.Join(args, " "))
 	}
+	if r.locked && strings.Contains(strings.Join(args, " "), "/run/jauntbox/secrets/.loaded") {
+		return nil, errors.New("exit 1")
+	}
 	return r.out, r.err
+}
+func (r *fakeRemote) RunInput(_ context.Context, host string, stdin []byte, args ...string) ([]byte, error) {
+	r.order = append(r.order, "runinput")
+	r.cmds = append(r.cmds, fmt.Sprint(args))
+	r.inputs = append(r.inputs, stdin)
+	if r.seq != nil {
+		*r.seq = append(*r.seq, "runinput:"+strings.Join(args, " "))
+	}
+	return nil, r.inputErr
 }
 func (r *fakeRemote) Copy(_ context.Context, host, local, remote string) error {
 	r.order = append(r.order, "copy:"+remote)

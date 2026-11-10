@@ -16,6 +16,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/policy"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
+	"github.com/WA-Systems-EU/jaunt/internal/secrets"
 )
 
 // volumeDetachTimeout bounds how long Up waits for the home volume to be
@@ -30,7 +31,9 @@ type Deps struct {
 	Mesh   mesh.Mesh
 	Remote remote.Runner
 	Events events.Sink
-	Now    func() time.Time
+	// Secrets is the laptop-side secret store that unlock pushes to the box.
+	Secrets secrets.Store
+	Now     func() time.Time
 	// Spawn starts a detached child of this binary with the given args.
 	Spawn func(args ...string) error
 	// HetznerToken is embedded in user-data so the box can delete itself.

@@ -45,6 +45,10 @@ func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte,
 	}
 	return nil, nil
 }
+func (r *scriptRemote) RunInput(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
+	r.cmds = append(r.cmds, "input:"+strings.Join(args, " "))
+	return nil, nil
+}
 func (r *scriptRemote) Copy(_ context.Context, _, _, remote string) error {
 	r.cmds = append(r.cmds, "copy:"+remote)
 	return nil
@@ -145,7 +149,7 @@ func TestEnsureSupervisorSkipsPushWhenInstalled(t *testing.T) {
 			t.Fatalf("pushed although installed: %v", r.cmds)
 		}
 	}
-	if len(r.cmds) != 1 || r.cmds[0] != supervisorCheck {
+	if len(r.cmds) != 2 || r.cmds[0] != supervisorCheck || r.cmds[1] != "sudo -n test -e /run/jauntbox/secrets/.loaded" {
 		t.Fatalf("cmds = %v", r.cmds)
 	}
 }

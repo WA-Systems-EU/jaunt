@@ -24,9 +24,10 @@ const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled
 // Without it the safety net would delete the box under a working human.
 func EnsureSupervisor(ctx context.Context, d Deps) error {
 	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck); err == nil {
+		tryUnlock(ctx, d)
 		return nil
 	}
-	return PushBinary(ctx, d, DefaultPushWait)
+	return PushBinary(ctx, d, DefaultPushWait) // unlocks after installing
 }
 
 // InstallSupervisor is the existing-box counterpart of what Up does on create:
@@ -100,6 +101,7 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 		} else if _, rerr := d.Remote.Run(ctx, host, installCmd); rerr != nil {
 			err = fmt.Errorf("install binary: %w", rerr)
 		} else {
+			tryUnlock(ctx, d)
 			return nil
 		}
 		if time.Now().After(deadline) {

@@ -2,6 +2,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -11,6 +12,9 @@ import (
 type Runner interface {
 	// Run executes `ssh <user>@<host> -- args` and returns combined output.
 	Run(ctx context.Context, host string, args ...string) ([]byte, error)
+	// RunInput is Run with stdin piped to the remote command. Secrets travel
+	// this way, never in argv.
+	RunInput(ctx context.Context, host string, stdin []byte, args ...string) ([]byte, error)
 	// Copy uploads localPath to remotePath with scp.
 	Copy(ctx context.Context, host, localPath, remotePath string) error
 }
@@ -29,9 +33,17 @@ var baseOpts = append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
 func (s sshRunner) target(host string) string { return s.user + "@" + host }
 
 func (s sshRunner) Run(ctx context.Context, host string, args ...string) ([]byte, error) {
+	return s.RunInput(ctx, host, nil, args...)
+}
+
+func (s sshRunner) RunInput(ctx context.Context, host string, stdin []byte, args ...string) ([]byte, error) {
 	argv := append(append([]string{}, baseOpts...), s.target(host), "--")
 	argv = append(argv, args...)
-	out, err := exec.CommandContext(ctx, "ssh", argv...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, "ssh", argv...)
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return out, fmt.Errorf("ssh %s: %w: %s", s.target(host), err, out)
 	}

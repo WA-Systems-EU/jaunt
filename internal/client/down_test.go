@@ -140,7 +140,7 @@ func TestStatusReportsBoxAndRemote(t *testing.T) {
 	if rep.Box == nil || !rep.Online || string(rep.BoxStatus) != `{"verdict":{"action":"keep"}}` || m.polls != 1 {
 		t.Fatalf("report = %+v", rep)
 	}
-	if r.cmds[0] != "[sudo jauntctl box-status --json]" {
+	if r.cmds[len(r.cmds)-1] != "[sudo jauntctl box-status --json]" {
 		t.Fatalf("cmd = %v", r.cmds)
 	}
 }
