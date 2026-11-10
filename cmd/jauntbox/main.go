@@ -299,7 +299,9 @@ func newClientCmd() *cobra.Command {
 		Args:          cobra.NoArgs,
 		// Without a home directory there is no default config path: demand --config.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if defaultCfgErr != nil && !cmd.Flags().Changed("config") {
+			// Box commands (the hidden aliases old units still run) never read the
+			// config, and a system service has no $HOME.
+			if cmd.Annotations["box"] == "" && defaultCfgErr != nil && !cmd.Flags().Changed("config") {
 				return defaultCfgErr
 			}
 			return nil
@@ -397,6 +399,7 @@ func newClientCmd() *cobra.Command {
 	// from their unit. Remove in plan 03.
 	for _, c := range boxCmds() {
 		c.Hidden = true
+		c.Annotations = map[string]string{"box": "1"}
 		root.AddCommand(c)
 	}
 	root.AddCommand(clientOpsCmds(&cfgPath, loadDeps)...)

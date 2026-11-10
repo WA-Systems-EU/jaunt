@@ -287,3 +287,25 @@ func TestMintAndReposAreBoxOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestBoxAliasesIgnoreMissingHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	for _, name := range []string{"supervise", "box-status", "stop"} {
+		root := newClientCmd()
+		root.SetArgs([]string{name})
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		if err := root.Execute(); err != nil && strings.Contains(err.Error(), "default config path") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// a client command still demands --config
+	root := newClientCmd()
+	root.SetArgs([]string{"acl-snippet"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "--config") {
+		t.Errorf("acl-snippet err = %v", err)
+	}
+}

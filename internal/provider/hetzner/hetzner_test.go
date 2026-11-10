@@ -531,14 +531,18 @@ func TestEnsureSSHKeyDifferentKeyRefused(t *testing.T) {
 }
 
 func TestSelfIDIgnoresProxy(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { w(rw, "42\n") }))
-	defer srv.Close()
-	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
-	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
+	hits := 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { hits++; w(rw, "42\n") }))
+	defer proxy.Close()
+	t.Setenv("HTTPS_PROXY", proxy.URL)
+	t.Setenv("HTTP_PROXY", proxy.URL)
 	t.Setenv("NO_PROXY", "")
 	t.Setenv("no_proxy", "")
-	id, err := SelfID(context.Background(), srv.URL)
-	if err != nil || id != 42 {
-		t.Fatalf("id=%d err=%v", id, err)
+	// a non-loopback host: Go never proxies loopback, so only this can fail
+	if _, err := SelfID(context.Background(), "http://169.254.169.254.invalid/id"); err == nil {
+		t.Fatal("expected a dial error")
+	}
+	if hits != 0 {
+		t.Fatalf("metadata request went through the proxy (%d hits)", hits)
 	}
 }
