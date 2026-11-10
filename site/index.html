@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jauntbox</title>
+<meta name="description" content="Isolated, self-deleting dev boxes on Hetzner Cloud for you and your coding agents. Code, agents and secrets stay off your laptop.">
+<meta property="og:title" content="jauntbox">
+<meta property="og:description" content="Isolated, self-deleting dev boxes on Hetzner Cloud for you and your coding agents. Code, agents and secrets stay off your laptop.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#eef2f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1520" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='3' y='8' width='22' height='16' rx='3' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Cpath d='M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Crect x='3' y='14' width='22' height='3' fill='%23f0b928'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg: 'var(--bg)', surface: 'var(--surface)', ink: 'var(--ink)', muted: 'var(--muted)',
+          line: 'var(--line)', route: 'var(--route)', tag: 'var(--tag)', tagink: 'var(--tag-ink)',
+          board: 'var(--board)', boardink: 'var(--board-ink)', ok: 'var(--ok)', warn: 'var(--warn)'
+        },
+        fontFamily: {
+          display: ['"Big Shoulders Display"', 'Impact', '"Arial Narrow"', 'sans-serif'],
+          sans: ['"Public Sans"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace']
+        }
+      }
+    }
+  }
+</script>
+<style>
+  /* Layout: a travel document. Departures board as hero, then the trip in order: pack, depart, work, return, rebuild. */
+  :root {
+    --bg: #eef2f0;        /* cool off-white, slight green bias */
+    --surface: #ffffff;
+    --ink: #13233a;       /* route-map navy */
+    --muted: #55657a;
+    --line: #c9d3d6;
+    --route: #0d6d68;     /* trail teal: links, primary action */
+    --tag: #f0b928;       /* luggage-tag yellow, used sparingly */
+    --tag-ink: #2a1f00;
+    --board: #101a27;     /* departures board */
+    --board-ink: #f3d36b;
+    --ok: #3fb68b;
+    --warn: #e58f3c;
+    --plan: #6aa9e8;      /* planned work, on the dark board */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1520; --surface: #142131; --ink: #e5ecf2; --muted: #9aaabb; --line: #26384d;
+      --route: #4fc2b9; --tag: #f0b928; --tag-ink: #2a1f00; --board: #070c13; --board-ink: #f3d36b;
+      --ok: #4cc79a; --warn: #f0a052; --plan: #7db6ee; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1520; --surface: #142131; --ink: #e5ecf2; --muted: #9aaabb; --line: #26384d;
+    --route: #4fc2b9; --tag: #f0b928; --tag-ink: #2a1f00; --board: #070c13; --board-ink: #f3d36b;
+    --ok: #4cc79a; --warn: #f0a052; --plan: #7db6ee; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: "Public Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.6; }
+  .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1, h2, h3 { text-wrap: balance; }
+  .eyebrow { font-family: "JetBrains Mono", monospace; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; }
+  .tabnum { font-variant-numeric: tabular-nums; }
+  /* dashed route line between trip stops */
+  .route-line { background-image: linear-gradient(to bottom, var(--route) 50%, transparent 50%); background-size: 2px 10px; background-repeat: repeat-y; }
+  @media (min-width: 900px) {
+    .route-line-h { background-image: linear-gradient(to right, var(--route) 50%, transparent 50%); background-size: 10px 2px; background-repeat: repeat-x; background-position: 0 50%; }
+  }
+  /* luggage tag shape */
+  .tag { clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%); }
+  /* flap animation for the board, from a visible resting state */
+  @keyframes flap { 0% { transform: rotateX(0) } 40% { transform: rotateX(80deg) } 100% { transform: rotateX(0) } }
+  .flap { display: inline-block; animation: flap .6s ease-out both; transform-origin: 50% 60%; }
+  @media (prefers-reduced-motion: reduce) { .flap { animation: none; } }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--route); outline-offset: 3px; border-radius: 4px; }
+  .board-row + .board-row { border-top: 1px dashed rgba(243, 211, 107, .18); }
+  /* status stamps: where each promise stands (on the dark board) */
+  .stamp { display: inline-flex; align-items: center; gap: .35em; font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; white-space: nowrap; vertical-align: middle; }
+  .st-live { color: var(--ok); }
+  .st-next { color: var(--board-ink); }
+  .st-plan { color: var(--plan); }
+  .st-later { color: rgba(232, 237, 243, .5); border-style: dashed; }
+  /* status stamps on light surfaces */
+  .lt.st-live { color: var(--route); }
+  .lt.st-next { color: #8a6400; }
+  .lt.st-plan { color: #2d5f95; }
+  .lt.st-later { color: var(--muted); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lt.st-next { color: var(--tag); } :root:not([data-theme="light"]) .lt.st-plan { color: var(--plan); } }
+  :root[data-theme="dark"] .lt.st-next { color: var(--tag); }
+  :root[data-theme="dark"] .lt.st-plan { color: var(--plan); }
+</style>
+</head>
+<body>
+<!-- NAV -->
+<header class="gutter border-b border-line">
+  <div class="mx-auto max-w-6xl flex items-center justify-between gap-4 py-4">
+    <a href="#top" class="flex items-center gap-2 no-underline text-ink">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+        <rect x="3" y="8" width="22" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="3" y="14" width="22" height="3" fill="var(--tag)"/>
+      </svg>
+      <span class="font-display text-2xl font-extrabold tracking-wide">jauntbox</span>
+    </a>
+    <nav class="hidden md:flex items-center gap-7 text-sm text-muted">
+      <a href="#isolation" class="hover:text-ink">Isolation</a>
+      <a href="#roadmap" class="hover:text-ink">Roadmap</a>
+      <a href="#onboarding" class="hover:text-ink">Onboarding</a>
+      <a href="#trip" class="hover:text-ink">How it works</a>
+      <a href="#cost" class="hover:text-ink">Cost</a>
+    </nav>
+    <a href="#start" class="text-sm font-semibold rounded-md bg-ink text-bg px-4 py-2 hover:opacity-90">Get started</a>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- HERO -->
+  <section class="gutter">
+    <div class="mx-auto max-w-6xl grid lg:grid-cols-[1.05fr_1fr] gap-12 py-14 lg:py-20 items-center">
+      <div class="min-w-0">
+        <p class="eyebrow text-route mb-5">Isolated dev boxes on Hetzner Cloud</p>
+        <h1 class="font-display font-extrabold uppercase leading-[.92] text-[3.2rem] sm:text-[4.4rem] lg:text-[5.2rem] tracking-tight">
+          Just jaunt some code<br>on a box.
+        </h1>
+        <p class="mt-6 text-lg text-muted max-w-[34rem]">
+          You get your own sealed cloud machine. Your code, your coding agent and your secrets stay inside it, away from your laptop and your keys. New teammates get their own box, with the right setup, in a matter of minutes. Then they start their coding agent and ask it to onboard them on the project.
+        </p>
+        <ul class="mt-6 flex flex-wrap gap-2 font-mono text-xs">
+          <li class="rounded-full border border-line px-3 py-1">One box per developer</li>
+          <li class="rounded-full border border-line px-3 py-1">Agents in Docker</li>
+          <li class="rounded-full border border-line px-3 py-1">No keys from home</li>
+          <li class="rounded-full border border-line px-3 py-1">Humans merge, agents push</li>
+          <li class="rounded-full border border-line px-3 py-1">Tailscale only, no public ports</li>
+          <li class="rounded-full border border-line px-3 py-1">Open source, MIT</li>
+        </ul>
+        <div class="mt-8 flex flex-wrap gap-3">
+          <a href="#start" class="rounded-md bg-route text-white px-5 py-3 font-semibold hover:opacity-90" style="color: var(--bg)">Read the quickstart</a>
+          <a href="#isolation" class="rounded-md border border-line px-5 py-3 font-semibold hover:border-ink">How isolation works</a>
+        </div>
+        <div class="mt-8 rounded-lg bg-surface border border-line overflow-x-auto">
+          <pre class="font-mono text-sm px-4 py-3 leading-7"><span class="text-muted">$</span> jauntbox up small --wait
+<span class="text-muted">→</span> server <span class="text-route">cpx42</span> in fsn1, Ubuntu 26.04
+<span class="text-muted">→</span> volume <span class="text-route">jauntbox-sam-home</span> mounted at /home
+<span class="text-muted">→</span> joined your tailnet · no public ports
+<span style="color: var(--ok)">✓</span> ready
+<span class="text-muted">$</span> jauntbox
+<span class="text-muted">→</span> herdr session attached</pre>
+        </div>
+      </div>
+
+      <!-- Trip log: one box, one day -->
+      <div class="min-w-0 rounded-xl bg-board text-boardink shadow-[0_24px_60px_-30px_rgba(10,20,35,.6)] overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-white/10">
+          <span class="font-display text-xl font-extrabold uppercase tracking-[.12em]">Today's trip</span>
+          <span class="font-mono text-xs text-white/60 tabnum">Tue 10 Nov · small · fsn1</span>
+        </div>
+        <div class="overflow-x-auto">
+          <div class="min-w-[26rem] font-mono text-[13px] uppercase">
+            <div class="grid grid-cols-[4.5rem_1.8fr_1fr] gap-3 px-5 py-2 text-white/45 text-[11px] tracking-[.12em]">
+              <span>Time</span><span>Event</span><span>Status</span>
+            </div>
+            <div class="board-row grid grid-cols-[4.5rem_1.8fr_1fr] gap-3 px-5 py-3 tabnum">
+              <span>08:58</span><span class="flap">Fresh server</span><span style="color: var(--ok)">● Done</span>
+            </div>
+            <div class="board-row grid grid-cols-[4.5rem_1.8fr_1fr] gap-3 px-5 py-3 tabnum">
+              <span>08:59</span><span class="flap" style="animation-delay:.12s">/home mounted</span><span style="color: var(--ok)">● Done</span>
+            </div>
+            <div class="board-row grid grid-cols-[4.5rem_1.8fr_1fr] gap-3 px-5 py-3 tabnum">
+              <span>09:14</span><span class="flap" style="animation-delay:.24s">Agent at work</span><span style="color: var(--ok)">● In container</span>
+            </div>
+            <div class="board-row grid grid-cols-[4.5rem_1.8fr_1fr] gap-3 px-5 py-3 tabnum">
+              <span>11:02</span><span class="flap" style="animation-delay:.36s">Agent push to default branch</span><span style="color: var(--warn)">✕ Refused</span>
+            </div>
+            <div class="board-row grid grid-cols-[4.5rem_1.8fr_1fr] gap-3 px-5 py-3 tabnum text-white/50">
+              <span>19:00</span><span class="flap" style="animation-delay:.48s">Evening cutoff</span><span>○ Box deletes itself</span>
+            </div>
+          </div>
+        </div>
+        <p class="px-5 py-3 border-t border-white/10 font-sans text-xs normal-case text-white/55">Example day. Once the box is down, you pay only for its volume.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROBLEM -->
+  <section class="gutter border-y border-line bg-surface">
+    <div class="mx-auto max-w-6xl py-16 grid md:grid-cols-[1fr_2fr] gap-10">
+      <div>
+        <p class="eyebrow text-muted mb-3">The problem</p>
+        <h2 class="font-display text-4xl font-extrabold uppercase leading-none">Your laptop has been everywhere.</h2>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-8">
+        <div class="min-w-0">
+          <h3 class="font-semibold mb-2">Work and life, one disk</h3>
+          <p class="text-muted text-[15px]">Repos, database dumps and .env files sit next to your password manager, your browser sessions and your photos.</p>
+        </div>
+        <div class="min-w-0">
+          <h3 class="font-semibold mb-2">Agents with your keys</h3>
+          <p class="text-muted text-[15px]">A coding agent on your laptop can reach your SSH agent, your cloud credentials and your whole home folder.</p>
+        </div>
+        <div class="min-w-0">
+          <h3 class="font-semibold mb-2">Day one lasts a week</h3>
+          <p class="text-muted text-[15px]">A new hire spends days installing the right Ruby, Postgres and secrets before the first commit, and still ends up with a setup nobody else has.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AGENTS / ISOLATION -->
+  <section id="isolation" class="gutter bg-board" style="color: #e8edf3">
+    <div class="mx-auto max-w-6xl py-20 grid lg:grid-cols-[1fr_1.3fr] gap-12">
+      <div>
+        <p class="eyebrow mb-3" style="color: var(--board-ink)">Safety and isolation</p>
+        <h2 class="font-display text-5xl font-extrabold uppercase leading-none">Walls first. Prompts second.</h2>
+        <p class="mt-5 text-white/70 max-w-[30rem]">A coding agent's permission prompt is the last line of defence. jauntbox puts your work behind its own walls, on a machine that is not your laptop, so a bad tool call or a poisoned dependency costs you a rebuild, not your credentials.</p>
+        <div class="mt-8 max-w-[24rem] font-mono text-[13px]">
+          <p class="text-[11px] uppercase tracking-[.12em] text-white/45 mb-3">What a bad tool call has to get through</p>
+          <ol class="space-y-1.5">
+            <li class="rounded-md border border-white/15 px-3 py-2 flex justify-between gap-3"><span><span class="text-white/45">1</span>&nbsp; Agent permission prompt</span></li>
+            <li class="rounded-md border border-white/15 px-3 py-2 ml-3 flex justify-between gap-3"><span><span class="text-white/45">2</span>&nbsp; Docker container</span><span class="stamp st-next">Plan 03</span></li>
+            <li class="rounded-md border border-white/15 px-3 py-2 ml-6 flex justify-between gap-3"><span><span class="text-white/45">3</span>&nbsp; Disposable box, deleted daily</span><span class="stamp st-live">Live</span></li>
+            <li class="rounded-md border border-white/15 px-3 py-2 ml-9 flex justify-between gap-3"><span><span class="text-white/45">4</span>&nbsp; Private tailnet, no public ports</span><span class="stamp st-live">Live</span></li>
+            <li class="rounded-md px-3 py-2 ml-12" style="background: var(--tag); color: var(--tag-ink)">Your laptop, untouched</li>
+          </ol>
+          <div class="mt-6 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-white/60 normal-case">
+            <span><span class="stamp st-live">Live</span> works today</span>
+            <span><span class="stamp st-next">Plan 03</span> planned next</span>
+            <span><span class="stamp st-plan">Plan 04</span> planned after</span>
+            <span><span class="stamp st-later">Later</span> not planned yet</span>
+          </div>
+        </div>
+      </div>
+      <dl class="grid sm:grid-cols-2 gap-x-8 gap-y-8">
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Off your laptop <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">Code and tools live on the box, with its own server, volume and firewall. Your personal files and sessions are out of reach.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Invisible from the internet <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">The firewall allows no inbound traffic. The box is reachable only over your tailnet, and <code class="font-mono text-[13px]">jauntbox acl-snippet</code> gives you the rule that stops it reaching your servers and devices.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">The box deletes itself <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">An on-box supervisor deletes the server at 19:00, after 10 hours, or when idle, and keeps it while you type. A safety net deletes a box whose supervisor stops reporting. The volume is never deleted.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">No keys from home <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">A private GitHub App mints tokens for one repository at a time, valid for an hour and revoked at teardown. The App key and agent credentials live only in the box's memory. No <code class="font-mono text-[13px]">gh auth login</code>, no SSH agent, no cloud credentials from your machine.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Humans merge, agents push <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">A ruleset on each repo's default branch lets only you merge. Agent tokens can push branches and open pull requests, but can't touch workflows, secrets or settings. GitHub offers rulesets on private repos only on paid plans; on GitHub Free, setup names the repos it can't protect.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Agents in Docker, never raw <span class="stamp st-next">Plan 03</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">Each agent run gets its own container with one project checked out, a token for that repo only, no sudo, no Docker socket, and no route to the cloud metadata endpoint or your tailnet. Agents keep the box up overnight only when you authorise a night session.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Services beside the agent <span class="stamp st-plan">Plan 04</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">The project's databases and other services start on each run's private network. The agent reaches them by name but cannot start, stop or inspect containers.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Nothing sticks <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">The server and its system disk are deleted every evening; tomorrow's box is built fresh. Your home volume, with code and dotfiles, carries over.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Your account, your region <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">Boxes run in your own Hetzner account, in EU data centres. No third party sits between you and your code.</dd>
+        </div>
+        <div class="min-w-0 border-t border-white/15 pt-4">
+          <dt class="font-semibold flex flex-wrap items-center gap-2">On the list, not planned yet <span class="stamp st-later">Later</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">An outbound allowlist (model API, registries and git host only), pinned agent tools with a deny-first permission config, and checks of the home volume's rc files and git hooks on mount.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section id="roadmap" class="gutter">
+    <div class="mx-auto max-w-6xl py-20">
+      <p class="eyebrow text-route mb-3">Roadmap</p>
+      <h2 class="font-display text-5xl font-extrabold uppercase leading-none max-w-2xl">Where the trip stands.</h2>
+      <p class="mt-4 text-muted max-w-[40rem]">Built in plans, each one reviewed and tested before the next starts. Updated 10 November 2026.</p>
+
+      <ol class="mt-10 grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 01</span><span class="stamp lt st-live">Done</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Walking skeleton</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li><code class="font-mono text-[13px] text-ink">init</code>, <code class="font-mono text-[13px] text-ink">up</code>, <code class="font-mono text-[13px] text-ink">down</code>, <code class="font-mono text-[13px] text-ink">resize</code>, <code class="font-mono text-[13px] text-ink">status</code>, <code class="font-mono text-[13px] text-ink">night</code></li>
+            <li>On-box supervisor, limits and safety net</li>
+            <li>Bare <code class="font-mono text-[13px] text-ink">jauntbox</code> attaches a herdr session with one workspace per repo</li>
+            <li>Volume and Tailscale identity survive every rebuild</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: resize in about 2 minutes, self-delete, night sessions and volume survival passed. Four fixes landed from it.</p>
+        </li>
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 02</span><span class="stamp lt st-live">Done</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Secrets and GitHub</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li><code class="font-mono text-[13px] text-ink">jauntbox setup github</code>: private App, rulesets</li>
+            <li>Single-repo tokens, revoked at teardown</li>
+            <li>Secrets pushed to box memory; locked until unlocked</li>
+            <li>On the box, commands answer to <code class="font-mono text-[13px] text-ink">jauntctl</code></li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: App setup, locked box after reboot, permission drift, token revocation and a clean volume passed. Six fixes landed from it.</p>
+        </li>
+        <li class="min-w-0 rounded-xl border-2 p-6 flex flex-col gap-3 bg-surface" style="border-color: var(--tag)">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03</span><span class="stamp lt st-next">Next</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Agents in containers</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li><code class="font-mono text-[13px] text-ink">jauntbox agent &lt;repo&gt;</code>, interactive or unattended</li>
+            <li>One container per run, one repo's token, no sudo</li>
+            <li>Metadata endpoint and tailnet blocked</li>
+            <li>Wrap-up: the agent writes <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code> and pushes before the box goes down</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">9 tasks, plan written, waiting for review. Project services follow in Plan 04.</p>
+        </li>
+        <li class="min-w-0 rounded-xl border border-dashed border-line p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">After</span><span class="stamp lt st-later">Later</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Further out</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li>Plan 04: project services, project images, dotfiles in containers</li>
+            <li>A clearer terminal UI: progress steps, colours, icons</li>
+            <li>tmux, Gitea/Forgejo, Headscale and NetBird adapters</li>
+            <li>arm64 and other flavours</li>
+            <li>A prebuilt base image for faster boots</li>
+            <li>Packaged installs</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Teams and fleets are a separate project.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ONBOARDING -->
+  <section id="onboarding" class="gutter">
+    <div class="mx-auto max-w-6xl py-20 grid lg:grid-cols-[1fr_1.15fr] gap-12 items-start">
+      <div>
+        <p class="eyebrow text-route mb-3">Onboarding</p>
+        <h2 class="font-display text-5xl font-extrabold uppercase leading-none">First commit before lunch.</h2>
+        <p class="mt-5 text-muted max-w-[32rem]">The box is described in one file. A new teammate, contractor or agent gets their own box, set up the same way as everyone else's: right runtimes, seeded database, tests passing. No setup wiki, no "works on my machine".</p>
+        <p class="mt-4 text-muted max-w-[32rem]">Their coding agent is already on the box, with the code and the context it needs. The first thing they type is <code class="font-mono text-[13px] text-ink">onboard me on this project</code>, and they get a tour of the codebase, how to run it and where to start.</p>
+        <p class="mt-4 text-muted max-w-[32rem]">When they leave, revoke their key and destroy their box. Nothing of the project stays on their laptop.</p>
+      </div>
+      <div class="min-w-0 rounded-xl border border-line bg-surface overflow-hidden">
+        <div class="px-5 py-3 border-b border-line flex items-center justify-between">
+          <span class="eyebrow text-muted">Sam's first morning</span>
+          <span class="font-mono text-xs text-muted">Mon</span>
+        </div>
+        <ol class="divide-y divide-[color:var(--line)] tabnum">
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:00</span><span>Laptop out of the box. Accepts the invite.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:10</span><span><code class="font-mono text-[13px]">jauntbox up small</code>. Box ready, database seeded.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:15</span><span><code class="font-mono text-[13px]">jauntbox</code> opens a herdr session. Test suite green.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:20</span><span>Starts the coding agent: <code class="font-mono text-[13px]">onboard me on this project</code>. Gets a tour of the codebase.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">10:30</span><span>Pairs with a teammate, each on their own box.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3 font-semibold"><span class="font-mono text-sm text-route">11:45</span><span>First pull request opened.</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRIP / HOW IT WORKS -->
+  <section id="trip" class="gutter">
+    <div class="mx-auto max-w-6xl py-20">
+      <p class="eyebrow text-route mb-3">How it works</p>
+      <h2 class="font-display text-5xl font-extrabold uppercase leading-none max-w-2xl">One trip, five stops.</h2>
+      <p class="mt-4 text-muted max-w-[38rem]">A single Go binary, running against your own Hetzner Cloud account and tailnet. Nothing to host, no control plane in between.</p>
+
+      <ol class="mt-12 grid lg:grid-cols-5 gap-0 lg:gap-4 relative">
+        <li class="relative pl-10 lg:pl-0 pb-10 lg:pb-0">
+          <span class="absolute left-[11px] top-7 bottom-0 w-[2px] route-line lg:hidden" aria-hidden="true"></span>
+          <span class="absolute left-0 top-0 lg:static flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">1</span>
+          <h3 class="lg:mt-4 font-display text-2xl font-extrabold uppercase">Pack</h3>
+          <p class="text-muted text-[15px] mt-1"><code class="font-mono text-[13px]">jauntbox init</code> once, then pick a size: <code class="font-mono text-[13px]">small</code>, <code class="font-mono text-[13px]">big</code> or <code class="font-mono text-[13px]">huge</code>.</p>
+        </li>
+        <li class="relative pl-10 lg:pl-0 pb-10 lg:pb-0">
+          <span class="absolute left-[11px] top-7 bottom-0 w-[2px] route-line lg:hidden" aria-hidden="true"></span>
+          <span class="absolute left-0 top-0 lg:static flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">2</span>
+          <h3 class="lg:mt-4 font-display text-2xl font-extrabold uppercase">Depart</h3>
+          <p class="text-muted text-[15px] mt-1">A fresh server joins your tailnet, mounts your volume at <code class="font-mono text-[13px]">/home</code> and installs your toolchain.</p>
+        </li>
+        <li class="relative pl-10 lg:pl-0 pb-10 lg:pb-0">
+          <span class="absolute left-[11px] top-7 bottom-0 w-[2px] route-line lg:hidden" aria-hidden="true"></span>
+          <span class="absolute left-0 top-0 lg:static flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">3</span>
+          <h3 class="lg:mt-4 font-display text-2xl font-extrabold uppercase">Work</h3>
+          <p class="text-muted text-[15px] mt-1">Type <code class="font-mono text-[13px]">jauntbox</code> to land in a herdr session that survives dropped Wi-Fi, or <code class="font-mono text-[13px]">jauntbox ssh</code> for a plain shell.</p>
+        </li>
+        <li class="relative pl-10 lg:pl-0 pb-10 lg:pb-0">
+          <span class="absolute left-[11px] top-7 bottom-0 w-[2px] route-line lg:hidden" aria-hidden="true"></span>
+          <span class="absolute left-0 top-0 lg:static flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">4</span>
+          <h3 class="lg:mt-4 font-display text-2xl font-extrabold uppercase">Down</h3>
+          <p class="text-muted text-[15px] mt-1"><code class="font-mono text-[13px]">jauntbox down</code> stops the box safely. You pay for the hours you worked, plus a small volume.</p>
+        </li>
+        <li class="relative pl-10 lg:pl-0">
+          <span class="absolute left-0 top-0 lg:static flex h-6 w-6 items-center justify-center rounded-full bg-tag text-tagink font-mono text-xs font-bold">5</span>
+          <h3 class="lg:mt-4 font-display text-2xl font-extrabold uppercase">Evening</h3>
+          <p class="text-muted text-[15px] mt-1">Forgot? The box deletes itself at 19:00, after 10 hours, or when idle. <code class="font-mono text-[13px]">jauntbox night</code> keeps it up for agents until a deadline.</p>
+        </li>
+      </ol>
+      <div class="hidden lg:block h-[2px] route-line-h -mt-[118px] mb-[116px] mx-3 opacity-60 pointer-events-none" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <!-- COMMANDS -->
+  <section class="gutter">
+    <div class="mx-auto max-w-6xl pb-16">
+      <div class="rounded-xl border border-line bg-surface overflow-hidden">
+        <div class="px-5 py-3 border-b border-line"><span class="eyebrow text-muted">Five commands</span></div>
+        <dl class="grid sm:grid-cols-2 lg:grid-cols-5">
+          <div class="min-w-0 px-5 py-5 border-t border-line first:border-t-0 sm:[&:nth-child(2)]:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0">
+            <dt class="font-mono text-[15px] font-bold text-route">jauntbox up small</dt>
+            <dd class="text-muted text-[15px] mt-1">Start a small box.</dd>
+          </div>
+          <div class="min-w-0 px-5 py-5 border-t border-line first:border-t-0 sm:[&:nth-child(2)]:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0">
+            <dt class="font-mono text-[15px] font-bold text-route">jauntbox resize big</dt>
+            <dd class="text-muted text-[15px] mt-1">More cores and memory in about two minutes, home intact.</dd>
+          </div>
+          <div class="min-w-0 px-5 py-5 border-t border-line first:border-t-0 sm:[&:nth-child(2)]:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0">
+            <dt class="font-mono text-[15px] font-bold text-route">jauntbox</dt>
+            <dd class="text-muted text-[15px] mt-1">Connect and start a herdr session.</dd>
+          </div>
+          <div class="min-w-0 px-5 py-5 border-t border-line first:border-t-0 sm:[&:nth-child(2)]:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0">
+            <dt class="font-mono text-[15px] font-bold text-route">jauntbox ssh</dt>
+            <dd class="text-muted text-[15px] mt-1">Plain SSH, over Tailscale.</dd>
+          </div>
+          <div class="min-w-0 px-5 py-5 border-t border-line first:border-t-0 sm:[&:nth-child(2)]:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0">
+            <dt class="font-mono text-[15px] font-bold text-route">jauntbox down</dt>
+            <dd class="text-muted text-[15px] mt-1">Stop the box safely.</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- CATTLE / PET -->
+  <section class="gutter">
+    <div class="mx-auto max-w-6xl pb-20 grid md:grid-cols-2 gap-6">
+      <div class="min-w-0 rounded-xl border border-line bg-surface p-7">
+        <p class="eyebrow text-muted">Server and system disk</p>
+        <h3 class="font-display text-3xl font-extrabold uppercase mt-2">Rebuilt, not repaired</h3>
+        <p class="text-muted mt-3">Every box starts from stock Ubuntu and installs the same toolchain on first boot: Docker, language runtimes, herdr and Claude Code. When it breaks or ages, you replace it. A prebuilt base image for faster boots comes later.</p>
+        <ul class="mt-5 font-mono text-[13px] space-y-1.5">
+          <li><span class="text-muted">image</span>  ubuntu-26.04 + cloud-init</li>
+          <li><span class="text-muted">tools</span>  go · rust · node · ruby · docker</li>
+          <li><span class="text-muted">life </span>  one day, deleted in the evening</li>
+        </ul>
+      </div>
+      <div class="min-w-0 rounded-xl p-7 bg-tag text-tagink tag pl-10">
+        <p class="eyebrow opacity-70">/home volume</p>
+        <h3 class="font-display text-3xl font-extrabold uppercase mt-2">Your luggage</h3>
+        <p class="mt-3 opacity-85">Code, dotfiles, shell history, Docker images and the box's Tailscale identity live on a separate volume that outlasts every rebuild. One volume, labelled like a bag.</p>
+        <ul class="mt-5 font-mono text-[13px] space-y-1.5">
+          <li><span class="opacity-60">volume</span>  jauntbox-sam-home · 100 GB</li>
+          <li><span class="opacity-60">kept  </span>  across rebuilds and resizes</li>
+          <li><span class="opacity-60">never </span>  deleted by any automatic route</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- COST -->
+  <section id="cost" class="gutter">
+    <div class="mx-auto max-w-6xl py-20 grid lg:grid-cols-[1fr_1.1fr] gap-12 items-start">
+      <div>
+        <p class="eyebrow text-route mb-3">Cost</p>
+        <h2 class="font-display text-5xl font-extrabold uppercase leading-none">Pay for the trip, not the suitcase.</h2>
+        <p class="mt-5 text-muted max-w-[32rem]">A cloud box billed by the hour, stopped when you are not using it, costs a fraction of a top-end laptop spread over three years. A light laptop is enough to drive it.</p>
+      </div>
+      <div class="min-w-0 rounded-xl border border-line bg-surface overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-[15px] tabnum">
+            <thead>
+              <tr class="text-left eyebrow text-muted border-b border-line">
+                <th class="px-5 py-3 font-normal">Per developer, per month</th>
+                <th class="px-5 py-3 font-normal text-right">Estimate</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-line">
+                <td class="px-5 py-3">jauntbox, worked hours only</td>
+                <td class="px-5 py-3 text-right font-mono">€10–15</td>
+              </tr>
+              <tr class="border-b border-line">
+                <td class="px-5 py-3">Light laptop, over 3 years</td>
+                <td class="px-5 py-3 text-right font-mono">€15–19</td>
+              </tr>
+              <tr class="border-b border-line font-semibold">
+                <td class="px-5 py-3">Total</td>
+                <td class="px-5 py-3 text-right font-mono text-route">€25–34</td>
+              </tr>
+              <tr>
+                <td class="px-5 py-3 text-muted">High-end laptop, over 3 years</td>
+                <td class="px-5 py-3 text-right font-mono text-muted">€83–105</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="px-5 py-3 text-xs text-muted border-t border-line">Estimates for a Rails or Django workload on Hetzner Cloud CX instances, EUR excl. VAT. Your hours and server type change the numbers.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section id="start" class="gutter">
+    <div class="mx-auto max-w-6xl py-20">
+      <div class="rounded-2xl border-2 border-ink p-8 sm:p-12 grid lg:grid-cols-[1.2fr_1fr] gap-10 items-center">
+        <div>
+          <p class="eyebrow text-route mb-3">Beta</p>
+          <h2 class="font-display text-5xl sm:text-6xl font-extrabold uppercase leading-none">Pack light.</h2>
+          <p class="mt-4 text-muted max-w-[32rem]">jauntbox is one Go binary, open source under the MIT licence. During the beta you build it from source; packaged installs come later. You need Go, a dedicated Hetzner Cloud project with an API token, and a Tailscale API key. <code class="font-mono text-[13px] text-ink">jauntbox init</code> checks both and writes your config.</p>
+        </div>
+        <div class="min-w-0 rounded-lg bg-board overflow-x-auto">
+          <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> git clone &lt;repo&gt; jaunt &amp;&amp; cd jaunt
+<span style="color:#7f8fa3">$</span> go build -o ~/bin/jauntbox ./cmd/jauntbox
+<span style="color:#7f8fa3">$</span> jauntbox init
+<span style="color:#7f8fa3">$</span> jauntbox up small --wait
+<span style="color:#7f8fa3">$</span> jauntbox</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="gutter border-t border-line">
+  <div class="mx-auto max-w-6xl py-8 flex flex-wrap items-center justify-between gap-4 text-sm text-muted">
+    <span><span class="font-display text-lg font-extrabold text-ink">jauntbox</span> · MIT licensed · built by WA Systems</span>
+    <span>Sibling of <a href="https://getodysseus.dev" class="text-route hover:underline">Odysseus</a>, the lean Rails deploy tool</span>
+  </div>
+</footer>
+</body>
+</html>
