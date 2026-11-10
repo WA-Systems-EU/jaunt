@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"github.com/WA-Systems-EU/jaunt/internal/forge"
+	"github.com/WA-Systems-EU/jaunt/internal/minter"
+	"github.com/WA-Systems-EU/jaunt/internal/vault"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -202,5 +206,84 @@ func TestSecretsLoadIsBoxOnly(t *testing.T) {
 	}
 	if !has(newClientCmd(), "unlock") || has(newBoxCmd(), "unlock") {
 		t.Fatal("unlock must be on the jauntbox root only")
+	}
+}
+
+func credRun(t *testing.T, in string, mint func(string) (forge.Token, error)) (string, string, error) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	err := gitCredential("get", strings.NewReader(in), &out, &errb, mint)
+	return out.String(), errb.String(), err
+}
+
+func TestGitCredentialGet(t *testing.T) {
+	var got string
+	out, _, err := credRun(t, "protocol=https\nhost=github.com\npath=o/r.git\n\n", func(r string) (forge.Token, error) {
+		got = r
+		return forge.Token{Value: "tok"}, nil
+	})
+	if err != nil || got != "o/r" || out != "username=x-access-token\npassword=tok\n" {
+		t.Fatalf("repo=%q out=%q err=%v", got, out, err)
+	}
+}
+
+func TestGitCredentialIgnoresOtherHosts(t *testing.T) {
+	called := false
+	mint := func(string) (forge.Token, error) { called = true; return forge.Token{}, nil }
+	for _, in := range []string{"host=gitlab.com\npath=o/r\n", "host=github.com\n"} {
+		out, e, err := credRun(t, in, mint)
+		if err != nil || out != "" || e != "" || called {
+			t.Fatalf("in=%q out=%q err=%v called=%v", in, out, err, called)
+		}
+	}
+}
+
+func TestGitCredentialNotInstalled(t *testing.T) {
+	ne := &minter.NotInstalledError{Repo: "o/r", InstallURL: "https://github.com/apps/x/installations/new"}
+	out, e, err := credRun(t, "host=github.com\npath=o/r\n", func(string) (forge.Token, error) { return forge.Token{}, ne })
+	if !errors.Is(err, errCredential) || out != "" || strings.Count(e, "\n") != 1 || !strings.Contains(e, "https://github.com/apps/x/installations/new") {
+		t.Fatalf("out=%q err=%q %v", out, e, err)
+	}
+}
+
+func TestGitCredentialLocked(t *testing.T) {
+	_, e, err := credRun(t, "host=github.com\npath=o/r\n", func(string) (forge.Token, error) { return forge.Token{}, vault.ErrLocked })
+	if !errors.Is(err, errCredential) || e != vault.ErrLocked.Error()+"\n" {
+		t.Fatalf("err=%q %v", e, err)
+	}
+}
+
+func TestGitCredentialStoreEraseSilent(t *testing.T) {
+	for _, op := range []string{"store", "erase"} {
+		var out, errb bytes.Buffer
+		if err := gitCredential(op, strings.NewReader("host=github.com\npath=o/r\npassword=x\n"), &out, &errb, nil); err != nil || out.Len()+errb.Len() != 0 {
+			t.Fatalf("%s: %v", op, err)
+		}
+	}
+}
+
+func TestReposJSONShape(t *testing.T) {
+	var b bytes.Buffer
+	rs := []forge.Repo{{Owner: "o", Name: "r", DefaultBranch: "main", CloneURL: "https://github.com/o/r.git"}}
+	if err := printRepos(&b, rs, true); err != nil {
+		t.Fatal(err)
+	}
+	if b.String() != `[{"owner":"o","name":"r","default_branch":"main","clone_url":"https://github.com/o/r.git"}]`+"\n" {
+		t.Fatalf("json = %s", b.String())
+	}
+	b.Reset()
+	_ = printRepos(&b, rs, false)
+	if b.String() != "o/r  (default branch main)\n" {
+		t.Fatalf("human = %q", b.String())
+	}
+}
+
+func TestMintAndReposAreBoxOnly(t *testing.T) {
+	for _, n := range []string{"mint", "repos", "git-credential"} {
+		for _, c := range newClientCmd().Commands() {
+			if c.Name() == n {
+				t.Errorf("%s on laptop root", n)
+			}
+		}
 	}
 }

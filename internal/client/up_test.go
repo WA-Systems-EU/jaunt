@@ -215,7 +215,7 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 		t.Fatalf("order = %v", r.order)
 	}
 	want := "[" + installCmd + "]"
-	if r.cmds[0] != want || installCmd != "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer" {
+	if r.cmds[0] != want || installCmd != "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer && git config --global --replace-all credential.https://github.com.helper '' && git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && git config --global credential.https://github.com.useHttpPath true" {
 		t.Fatalf("cmd = %q", r.cmds[0])
 	}
 }
@@ -435,5 +435,21 @@ func TestUpWaitErrorWording(t *testing.T) {
 func TestSupervisorCheckNeedsJauntctl(t *testing.T) {
 	if supervisorCheck != "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer" {
 		t.Fatalf("supervisorCheck = %q", supervisorCheck)
+	}
+}
+
+func TestInstallCmdConfiguresGitHelper(t *testing.T) {
+	parts := []string{
+		"git config --global --replace-all credential.https://github.com.helper ''",
+		"git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential'",
+		"git config --global credential.https://github.com.useHttpPath true",
+	}
+	pos := strings.Index(installCmd, "systemctl enable")
+	for _, p := range parts {
+		i := strings.Index(installCmd, p)
+		if i < pos {
+			t.Fatalf("%q missing or out of order in %q", p, installCmd)
+		}
+		pos = i
 	}
 }

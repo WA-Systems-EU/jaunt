@@ -397,6 +397,9 @@ func newClientCmd() *cobra.Command {
 
 func main() {
 	if err := rootFor(os.Args[0]).ExecuteContext(context.Background()); err != nil {
+		if errors.Is(err, errCredential) {
+			os.Exit(1) // git-credential already wrote its single stderr line
+		}
 		fmt.Fprintf(os.Stderr, "%s: %v\n", filepath.Base(os.Args[0]), err)
 		os.Exit(1)
 	}

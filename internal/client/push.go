@@ -14,7 +14,7 @@ var osExecutable = os.Executable
 // DefaultPushWait is how long PushBinary waits for the box to join the tailnet.
 const DefaultPushWait = 15 * time.Minute
 
-const installCmd = "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer"
+const installCmd = "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer && git config --global --replace-all credential.https://github.com.helper '' && git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && git config --global credential.https://github.com.useHttpPath true"
 
 const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer"
 
