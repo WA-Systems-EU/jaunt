@@ -191,6 +191,6 @@ App owner `WA-Systems-EU` (GitHub Free), installed on the private repo `WA-Syste
 | 1. App setup | **Three issues, all fixed.** The manifest flow only listened on loopback, unreachable from a browser on another device: `--listen tailnet` added (`5db48db`). With `github.org` unset the App was created under the personal account and could not be installed in the org: setup now asks for the owner (`3e659ca`). Rulesets returned 403 "Upgrade to GitHub Pro" on a private repo on GitHub Free: setup now names unprotectable repos and stops unless `--allow-unprotected` / `github.allow_unprotected` (`d0c2902`). After the fixes: App created under the org and installed; **no ruleset** on `thomas` (Free plan). Manifest accepted as written. |
 | 2. Push and merge rules | Not recorded yet. The default-branch rejection cannot be tested on `thomas` (unprotected); needs a public scratch repo or a paid plan. |
 | 3. Locked after reboot | Pass. |
-| 4. Permission drift | Not run yet. |
+| 4. Permission drift | Pass: `setup github --check` reported the added `workflows` permission. Workflow-file push rejection not recorded. |
 | 5. Revocation on down | Not run yet. |
 | 6. Nothing on the volume | Not run yet. |
