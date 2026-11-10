@@ -37,6 +37,11 @@ func InstallSupervisor(ctx context.Context, d Deps, wait bool) error {
 	if wait {
 		return EnsureSupervisor(ctx, d)
 	}
+	// Already installed: do not re-push over a running supervisor, but still unlock.
+	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck); err == nil {
+		tryUnlock(ctx, d)
+		return nil
+	}
 	if err := d.Spawn("internal-push"); err != nil {
 		return fmt.Errorf("starting the supervisor install failed (run `jauntbox internal-push`): %w", err)
 	}

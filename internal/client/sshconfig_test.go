@@ -11,8 +11,8 @@ import (
 
 func TestEnsureSSHConfigCreatesFileAndDir(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".ssh", "config")
-	added, err := EnsureSSHConfig(path, "alice")
-	if err != nil || !added {
+	added, warn, err := EnsureSSHConfig(path, "alice")
+	if err != nil || !added || warn != "" {
 		t.Fatalf("added=%v err=%v", added, err)
 	}
 	b, _ := os.ReadFile(path)
@@ -31,8 +31,8 @@ func TestEnsureSSHConfigAppendsWithoutRewriting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
 	orig := "Host other\n    User x"
 	os.WriteFile(path, []byte(orig), 0o600)
-	added, err := EnsureSSHConfig(path, "alice")
-	if err != nil || !added {
+	added, warn, err := EnsureSSHConfig(path, "alice")
+	if err != nil || !added || warn != "" {
 		t.Fatalf("added=%v err=%v", added, err)
 	}
 	b, _ := os.ReadFile(path)
@@ -43,10 +43,10 @@ func TestEnsureSSHConfigAppendsWithoutRewriting(t *testing.T) {
 
 func TestEnsureSSHConfigSkipsExistingHost(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
-	orig := "Host jauntbox-alice\n    User alice\n"
+	orig := "Host jauntbox-alice\n    User alice\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n"
 	os.WriteFile(path, []byte(orig), 0o600)
-	added, err := EnsureSSHConfig(path, "alice")
-	if err != nil || added {
+	added, warn, err := EnsureSSHConfig(path, "alice")
+	if err != nil || added || warn != "" {
 		t.Fatalf("added=%v err=%v", added, err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != orig {
@@ -80,5 +80,21 @@ func TestInitOffersSSHConfig(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Host jauntbox-thomas") {
 		t.Errorf("block not printed:\n%s", out.String())
+	}
+}
+
+func TestEnsureSSHConfigWarnsOnBareHostEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	orig := "Host jauntbox-alice\n    User alice\n"
+	os.WriteFile(path, []byte(orig), 0o600)
+	added, warn, err := EnsureSSHConfig(path, "alice")
+	if err != nil || added {
+		t.Fatalf("added=%v err=%v", added, err)
+	}
+	if !strings.Contains(warn, "StrictHostKeyChecking") || !strings.Contains(warn, "UserKnownHostsFile") {
+		t.Errorf("warning = %q", warn)
+	}
+	if b, _ := os.ReadFile(path); string(b) != orig {
+		t.Errorf("rewritten: %q", b)
 	}
 }

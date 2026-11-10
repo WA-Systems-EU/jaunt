@@ -290,12 +290,20 @@ func boxCmds() []*cobra.Command {
 func newClientCmd() *cobra.Command {
 	var cfgPath string
 	var nested bool
+	defaultCfg, defaultCfgErr := config.DefaultPath()
 	root := &cobra.Command{
 		Use:           "jauntbox",
 		Short:         "On-demand remote workspace on Hetzner",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
+		// Without a home directory there is no default config path: demand --config.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if defaultCfgErr != nil && !cmd.Flags().Changed("config") {
+				return defaultCfgErr
+			}
+			return nil
+		},
 		// Bare `jauntbox`: bring the box up, wait for it and attach to the persistent session.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -308,7 +316,7 @@ func newClientCmd() *cobra.Command {
 		},
 	}
 	root.Flags().BoolVar(&nested, "nested", false, "attach even from inside a local herdr pane (herdr inside herdr)")
-	root.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to the jauntbox config file")
+	root.PersistentFlags().StringVar(&cfgPath, "config", defaultCfg, "path to the jauntbox config file")
 
 	var wait bool
 	up := &cobra.Command{

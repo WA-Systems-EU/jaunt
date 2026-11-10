@@ -91,13 +91,21 @@ func TestLoc(t *testing.T) {
 
 func TestDefaultPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/x/cfg")
-	if got := DefaultPath(); got != "/x/cfg/jauntbox/config.yaml" {
-		t.Errorf("got %q", got)
+	if got, err := DefaultPath(); err != nil || got != "/x/cfg/jauntbox/config.yaml" {
+		t.Errorf("got %q, %v", got, err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "/h")
-	if got := DefaultPath(); got != "/h/.config/jauntbox/config.yaml" {
-		t.Errorf("got %q", got)
+	if got, err := DefaultPath(); err != nil || got != "/h/.config/jauntbox/config.yaml" {
+		t.Errorf("got %q, %v", got, err)
+	}
+}
+
+func TestDefaultPathNoHome(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if got, err := DefaultPath(); err == nil || !strings.Contains(err.Error(), "--config") {
+		t.Errorf("got %q, %v; want an error naming --config", got, err)
 	}
 }
 

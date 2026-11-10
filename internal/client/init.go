@@ -243,9 +243,12 @@ func Init(ctx context.Context, p Prompter, det Detected, lister func(token strin
 			return cfg, err
 		}
 		if ok {
-			added, err := EnsureSSHConfig(o.sshConfig, cfg.User)
+			added, warn, err := EnsureSSHConfig(o.sshConfig, cfg.User)
 			if err != nil {
 				return cfg, err
+			}
+			if warn != "" {
+				fmt.Fprintf(o.out, "warning: %s\n", warn)
 			}
 			if added {
 				fmt.Fprintf(o.out, "Added the jauntbox-%s block to %s.\n", cfg.User, o.sshConfig)

@@ -67,19 +67,18 @@ func New(info boxinfo.BoxInfo) *Supervisor {
 	}
 }
 
-func (s *Supervisor) emit(kind string, fields map[string]string) {
-	_ = s.Events.Emit(events.Event{Time: s.Now().UTC(), Kind: kind, Fields: fields})
+func (s *Supervisor) emit(now time.Time, kind string, fields map[string]string) {
+	_ = s.Events.Emit(events.Event{Time: now.UTC(), Kind: kind, Fields: fields})
 }
 
 // evaluate gathers the inputs and decides, without side effects.
 // st.LastActive is refreshed in the returned copy. warn is non-nil when the
 // agent count failed but the human is active, so the pass can go on without it.
-func (s *Supervisor) evaluate(ctx context.Context, st State) (_ State, _ lifecycle.Verdict, warn error, err error) {
+func (s *Supervisor) evaluate(ctx context.Context, now time.Time, st State) (_ State, _ lifecycle.Verdict, warn error, err error) {
 	loc, err := time.LoadLocation(s.Info.Timezone)
 	if err != nil {
 		return st, lifecycle.Verdict{}, nil, fmt.Errorf("load timezone %q from box info: %w", s.Info.Timezone, err)
 	}
-	now := s.Now()
 	if st.LastActive.IsZero() {
 		st.LastActive = s.Info.UpAt
 	}
@@ -120,11 +119,11 @@ func (s *Supervisor) evaluate(ctx context.Context, st State) (_ State, _ lifecyc
 
 // loadState reads the state; a corrupt file falls back to the zero state
 // (LastActive = UpAt) and, when warn is set, emits a warning event.
-func (s *Supervisor) loadState(warn bool) (State, error) {
+func (s *Supervisor) loadState(now time.Time, warn bool) (State, error) {
 	st, err := LoadState(s.Paths.State)
 	if errors.Is(err, ErrCorruptState) {
 		if warn {
-			s.emit("supervisor.warning", map[string]string{"error": err.Error()})
+			s.emit(now, "supervisor.warning", map[string]string{"error": err.Error()})
 		}
 		return State{}, nil
 	}
@@ -133,11 +132,12 @@ func (s *Supervisor) loadState(warn bool) (State, error) {
 
 // Preview returns the current state and verdict without any side effect.
 func (s *Supervisor) Preview(ctx context.Context) (State, lifecycle.Verdict, error) {
-	st, err := s.loadState(false)
+	now := s.Now()
+	st, err := s.loadState(now, false)
 	if err != nil {
 		return st, lifecycle.Verdict{}, err
 	}
-	st, v, _, err := s.evaluate(ctx, st)
+	st, v, _, err := s.evaluate(ctx, now, st)
 	return st, v, err
 }
 
@@ -179,16 +179,16 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 	}
 	defer unlock()
 	now := s.Now()
-	st, err := s.loadState(true)
+	st, err := s.loadState(now, true)
 	if err != nil {
 		return lifecycle.Verdict{}, err
 	}
-	st, v, warn, err := s.evaluate(ctx, st)
+	st, v, warn, err := s.evaluate(ctx, now, st)
 	if err != nil {
 		return v, err
 	}
 	if warn != nil {
-		s.emit("supervisor.warning", map[string]string{"error": warn.Error()})
+		s.emit(now, "supervisor.warning", map[string]string{"error": warn.Error()})
 	}
 	fields := map[string]string{"reason": v.Reason}
 	writeFlag := func() error {
@@ -204,7 +204,7 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		if err := writeFlag(); err != nil {
 			return v, err
 		}
-		s.emit(events.WrapUpStarted, fields)
+		s.emit(now, events.WrapUpStarted, fields)
 	case v.Action == lifecycle.Keep && v.Reason == "wrapup-in-progress":
 		if _, err := os.Stat(s.Paths.WrapUpFlag); os.IsNotExist(err) {
 			if err := writeFlag(); err != nil {
@@ -216,10 +216,10 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		if err := os.Remove(s.Paths.WrapUpFlag); err != nil && !os.IsNotExist(err) {
 			return v, err
 		}
-		s.emit(events.WrapUpCancelled, fields)
+		s.emit(now, events.WrapUpCancelled, fields)
 	}
 	if v.Reason != st.LastVerdict {
-		s.emit(events.SupervisorTick, fields)
+		s.emit(now, events.SupervisorTick, fields)
 	}
 	st.LastVerdict = v.Reason
 	if err := SaveState(s.Paths.State, st); err != nil {
@@ -231,15 +231,15 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 			err := s.Revoke(rctx)
 			cancel()
 			if err != nil {
-				s.emit("token.revoke_failed", map[string]string{"error": err.Error()})
+				s.emit(now, "token.revoke_failed", map[string]string{"error": err.Error()})
 			}
 		}
 		s.Sync()
 		if err := s.DeleteSelf(ctx); err != nil {
-			s.emit("box.delete_failed", map[string]string{"reason": v.Reason, "error": err.Error()})
+			s.emit(now, "box.delete_failed", map[string]string{"reason": v.Reason, "error": err.Error()})
 			return v, err
 		}
-		s.emit(events.BoxDeleted, fields)
+		s.emit(now, events.BoxDeleted, fields)
 		return v, nil
 	}
 	return v, s.touchHeartbeat(now)

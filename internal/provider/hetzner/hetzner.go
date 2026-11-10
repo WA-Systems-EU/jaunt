@@ -56,6 +56,9 @@ func (h *Hetzner) EnsureSSHKey(ctx context.Context, name, publicKey string, labe
 		return 0, fmt.Errorf("list ssh keys: %w", err)
 	}
 	if len(keys) > 0 {
+		if normKey(keys[0].PublicKey) != normKey(publicKey) {
+			return 0, fmt.Errorf("ssh key %q in Hetzner differs from ssh_public_key in your config: delete it in the Hetzner console or fix the config", name)
+		}
 		return keys[0].ID, nil
 	}
 	k, _, err := h.c.SSHKey.Create(ctx, hcloud.SSHKeyCreateOpts{Name: name, PublicKey: publicKey, Labels: labels})
@@ -63,6 +66,15 @@ func (h *Hetzner) EnsureSSHKey(ctx context.Context, name, publicKey string, labe
 		return 0, fmt.Errorf("create ssh key %q: %w", name, err)
 	}
 	return k.ID, nil
+}
+
+// normKey reduces an authorized_keys line to "type base64", dropping the comment.
+func normKey(k string) string {
+	f := strings.Fields(k)
+	if len(f) > 2 {
+		f = f[:2]
+	}
+	return strings.Join(f, " ")
 }
 
 // EnsureFirewall creates a firewall with no rules (all inbound denied; Tailscale
@@ -167,6 +179,14 @@ func (h *Hetzner) FindBox(ctx context.Context, labels map[string]string) (*provi
 	if err != nil {
 		return nil, fmt.Errorf("list servers: %w", err)
 	}
+	// A deleting server is on its way out; `up` waits for its volume to detach.
+	live := servers[:0:0]
+	for _, sv := range servers {
+		if sv.Status != hcloud.ServerStatusDeleting {
+			live = append(live, sv)
+		}
+	}
+	servers = live
 	switch len(servers) {
 	case 0:
 		return nil, nil
@@ -315,7 +335,9 @@ func SelfID(ctx context.Context, metadataURL string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	// The metadata service is link-local: never send it through a proxy.
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}}
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("query metadata service: %w", err)
 	}

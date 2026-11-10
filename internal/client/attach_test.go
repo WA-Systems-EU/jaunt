@@ -165,14 +165,29 @@ func TestInstallSupervisorOnExistingBox(t *testing.T) {
 		spawned++
 		return nil
 	}
-	if err := InstallSupervisor(context.Background(), d, false); err != nil || spawned != 1 || len(r.cmds) != 0 {
+	if err := InstallSupervisor(context.Background(), d, false); err != nil || spawned != 1 || len(r.cmds) != 1 || r.cmds[0] != supervisorCheck {
 		t.Fatalf("background: err=%v spawned=%d cmds=%v", err, spawned, r.cmds)
 	}
+	r.cmds = nil
 	if err := InstallSupervisor(context.Background(), d, true); err != nil || spawned != 1 {
 		t.Fatalf("foreground: err=%v spawned=%d", err, spawned)
 	}
 	if !strings.Contains(strings.Join(r.cmds, "\n"), "copy:/tmp/jauntbox") {
 		t.Errorf("foreground did not push: %v", r.cmds)
+	}
+}
+
+func TestInstallSupervisorNoWaitSkipsPushWhenInstalled(t *testing.T) {
+	d, _, r := attachFixture(t)
+	d.Spawn = func(args ...string) error {
+		t.Errorf("spawned %v although installed", args)
+		return nil
+	}
+	if err := InstallSupervisor(context.Background(), d, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.cmds) != 2 || r.cmds[0] != supervisorCheck || r.cmds[1] != "sudo -n test -e /run/jauntbox/secrets/.loaded" {
+		t.Fatalf("cmds = %v (want the check, then the unlock probe)", r.cmds)
 	}
 }
 

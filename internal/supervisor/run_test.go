@@ -444,3 +444,14 @@ func TestKeepVerdictDoesNotRevoke(t *testing.T) {
 		t.Fatalf("revoked=%d", revoked)
 	}
 }
+
+func TestRunUsesOneNow(t *testing.T) {
+	e := newEnv(t, at(14, 0))
+	calls := 0
+	e.s.Now = func() time.Time { calls++; return e.now.Add(time.Duration(calls) * time.Second) }
+	e.pts("0", time.Minute)
+	e.run(t)
+	if calls != 1 {
+		t.Fatalf("Now read %d times in one pass, want 1", calls)
+	}
+}

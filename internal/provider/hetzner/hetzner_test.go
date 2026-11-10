@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -255,7 +256,7 @@ func TestEnsureSSHKey(t *testing.T) {
 	h, f := newFake(t, func(r rec, rw http.ResponseWriter) {
 		if r.method == "GET" {
 			if exists {
-				w(rw, `{"ssh_keys":[{"id":5,"name":"jauntbox-alice"}]}`)
+				w(rw, `{"ssh_keys":[{"id":5,"name":"jauntbox-alice","public_key":"ssh-ed25519 AAAA"}]}`)
 			} else {
 				w(rw, `{"ssh_keys":[]}`)
 			}
@@ -490,5 +491,54 @@ func TestDeleteBoxNotFoundIsSuccess(t *testing.T) {
 	})
 	if err := h.DeleteBox(context.Background(), 9); err != nil {
 		t.Fatalf("err = %v, want nil for an already-gone server", err)
+	}
+}
+
+func TestFindBoxSkipsDeletingServer(t *testing.T) {
+	srv := func(id int, status string) string {
+		return fmt.Sprintf(`{"id":%d,"name":"jauntbox-alice","status":%q,"created":"2026-11-09T10:00:00+00:00","server_type":{"name":"cpx31"}}`, id, status)
+	}
+	body := ""
+	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) { w(rw, `{"servers":[`+body+`]}`) })
+	labels := map[string]string{"role": "box", "jauntbox": "alice"}
+	body = srv(7, "deleting")
+	if b, err := h.FindBox(context.Background(), labels); b != nil || err != nil {
+		t.Fatalf("only deleting: b=%v err=%v", b, err)
+	}
+	body = srv(7, "deleting") + "," + srv(8, "running")
+	b, err := h.FindBox(context.Background(), labels)
+	if err != nil || b == nil || b.ID != 8 {
+		t.Fatalf("deleting+running: b=%+v err=%v", b, err)
+	}
+}
+
+func TestEnsureSSHKeyDifferentKeyRefused(t *testing.T) {
+	h, f := newFake(t, func(r rec, rw http.ResponseWriter) {
+		w(rw, `{"ssh_keys":[{"id":5,"name":"jauntbox-alice","public_key":"ssh-ed25519 OLDKEY old-comment"}]}`)
+	})
+	_, err := h.EnsureSSHKey(context.Background(), "jauntbox-alice", "ssh-ed25519 NEWKEY new-comment", nil)
+	want := `ssh key "jauntbox-alice" in Hetzner differs from ssh_public_key in your config: delete it in the Hetzner console or fix the config`
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v", err)
+	}
+	if len(f.posts("/ssh_keys")) != 0 {
+		t.Error("created a key")
+	}
+	// same key, different comment/whitespace: accepted
+	if id, err := h.EnsureSSHKey(context.Background(), "jauntbox-alice", " ssh-ed25519  OLDKEY other-comment\n", nil); err != nil || id != 5 {
+		t.Fatalf("same key: id=%d err=%v", id, err)
+	}
+}
+
+func TestSelfIDIgnoresProxy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { w(rw, "42\n") }))
+	defer srv.Close()
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("no_proxy", "")
+	id, err := SelfID(context.Background(), srv.URL)
+	if err != nil || id != 42 {
+		t.Fatalf("id=%d err=%v", id, err)
 	}
 }

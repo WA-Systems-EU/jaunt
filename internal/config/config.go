@@ -175,11 +175,15 @@ func (c Config) Loc() (*time.Location, error) {
 }
 
 // DefaultPath is $XDG_CONFIG_HOME/jauntbox/config.yaml, falling back to
-// ~/.config/jauntbox/config.yaml.
-func DefaultPath() string {
+// ~/.config/jauntbox/config.yaml. It errors when neither is known, rather than
+// returning a path relative to the current directory.
+func DefaultPath() (string, error) {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "jauntbox", "config.yaml")
+		return filepath.Join(x, "jauntbox", "config.yaml"), nil
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "jauntbox", "config.yaml")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot locate the default config path (%w); set XDG_CONFIG_HOME or pass --config", err)
+	}
+	return filepath.Join(home, ".config", "jauntbox", "config.yaml"), nil
 }
