@@ -134,7 +134,7 @@ box before `jauntbox down`, so the box gets `jauntctl`.
    works, and editing `.github/workflows/x.yml` and pushing is rejected. Record the
    check output and the push rejection. Remove the permission afterwards.
 5. **Revocation on down.** Note a minted token (step 4), then `jauntbox down`. The
-   events in `/home/.jauntbox/events.jsonl` on the volume (read them from the next
+   events in `/home/.jauntbox/events.jsonl` on the volume (root-only: `sudo grep`; read them from the next
    box, or by attaching the volume) show `token.revoked` for the tokens minted since
    the step-3 reboot, and the old token returns 401 from the GitHub API. Tokens
    minted before the reboot lived in the tmpfs cache, which the reboot wiped; they
