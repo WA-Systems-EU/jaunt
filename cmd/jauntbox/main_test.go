@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"github.com/WA-Systems-EU/jaunt/internal/client"
 	"github.com/WA-Systems-EU/jaunt/internal/forge"
 	"github.com/WA-Systems-EU/jaunt/internal/minter"
 	"github.com/WA-Systems-EU/jaunt/internal/vault"
@@ -339,5 +340,30 @@ func TestBoxAliasesIgnoreMissingHome(t *testing.T) {
 	root.SetErr(&bytes.Buffer{})
 	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "--config") {
 		t.Errorf("acl-snippet err = %v", err)
+	}
+}
+
+func TestPickOwner(t *testing.T) {
+	choices := []client.OwnerChoice{{Login: "alice"}, {Login: "WA-Systems-EU", Org: true}}
+	cases := []struct {
+		in      string
+		want    int
+		wantErr bool
+	}{
+		{"\n", 1, false},
+		{"", 1, false},
+		{"1\n", 0, false},
+		{"9\nx\n2\n", 1, false},
+		{"x", 0, true},
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		got, err := pickOwner(strings.NewReader(c.in), &out, choices, 1)
+		if (err != nil) != c.wantErr || (!c.wantErr && got != c.want) {
+			t.Errorf("input %q: got %d, %v", c.in, got, err)
+		}
+		if !strings.Contains(out.String(), " * 2) WA-Systems-EU (organization)") || !strings.Contains(out.String(), "1) alice (personal account)") {
+			t.Errorf("prompt:\n%s", out.String())
+		}
 	}
 }

@@ -43,6 +43,22 @@ func (a Admin) Login(ctx context.Context) (string, error) {
 	return out.Login, nil
 }
 
+// Orgs returns the logins of the organizations the admin token's user belongs
+// to (needs the read:org scope, which `gh auth token` has by default).
+func (a Admin) Orgs(ctx context.Context) ([]string, error) {
+	var out []struct {
+		Login string `json:"login"`
+	}
+	if err := a.do(ctx, "GET", "/user/orgs?per_page=100", nil, &out); err != nil {
+		return nil, err
+	}
+	logins := make([]string, 0, len(out))
+	for _, o := range out {
+		logins = append(logins, o.Login)
+	}
+	return logins, nil
+}
+
 // ConvertManifest exchanges the code from the App manifest flow for the App
 // metadata and its private key. GitHub needs no authentication for this call.
 func (a Admin) ConvertManifest(ctx context.Context, code string) (AppMeta, []byte, error) {

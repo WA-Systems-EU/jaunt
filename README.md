@@ -69,8 +69,9 @@ jauntbox unlock                                # push secrets to the box: after 
 ```
 
 - `setup github` runs the GitHub App manifest flow in your browser and creates
-  `jauntbox-<user>` under the account in `github.org` (empty means your personal
-  account). It needs an admin credential once: `gh auth token`, or `GITHUB_ADMIN_TOKEN`
+  `jauntbox-<user>`. It first asks which account owns the App: your personal account or
+  one of your organizations (default `github.org`; `--owner <login>` skips the
+  question). The App is private, so only its owner can install it. It needs an admin credential once: `gh auth token`, or `GITHUB_ADMIN_TOKEN`
   when `gh` is absent. That credential is used on the laptop only; it is never stored
   and never sent to the box. Install the App on the repos you want agents to touch.
   If your browser is on another device than the one running jauntbox, add

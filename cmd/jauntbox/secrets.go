@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -96,7 +98,7 @@ func readSecret(cmd *cobra.Command, key string) (string, error) {
 func setupCmd(cfgPath *string) *cobra.Command {
 	root := &cobra.Command{Use: "setup", Short: "Set up integrations"}
 	var check bool
-	var listen string
+	var listen, owner string
 	gh := &cobra.Command{
 		Use:   "github",
 		Short: "Create the GitHub App, wait for its installation and apply branch rulesets",
@@ -125,6 +127,12 @@ func setupCmd(cfgPath *string) *cobra.Command {
 				OpenBrowser: openBrowser,
 				Out:         cmd.OutOrStdout(),
 				Listen:      func() (net.Listener, error) { return net.Listen("tcp", addr) },
+				Owner:       owner,
+			}
+			if term.IsTerminal(int(os.Stdin.Fd())) {
+				o.PickOwner = func(c []client.OwnerChoice, def int) (int, error) {
+					return pickOwner(os.Stdin, cmd.OutOrStdout(), c, def)
+				}
 			}
 			if !client.IsLoopbackListen(addr) {
 				// The browser is on another device: print the URL, don't open one here.
@@ -137,9 +145,41 @@ func setupCmd(cfgPath *string) *cobra.Command {
 		},
 	}
 	gh.Flags().BoolVar(&check, "check", false, "only verify the App permissions and rulesets; change nothing")
+	gh.Flags().StringVar(&owner, "owner", "", "account that will own a new App: your login or one of your organizations (default: ask)")
 	gh.Flags().StringVar(&listen, "listen", "", `address for the browser callback: "tailnet" (this machine's Tailscale IP, for a browser on another device), an IP or IP:port; default loopback`)
 	root.AddCommand(gh)
 	return root
+}
+
+// pickOwner shows the possible App owners and reads a number (empty = default).
+func pickOwner(in io.Reader, out io.Writer, choices []client.OwnerChoice, def int) (int, error) {
+	fmt.Fprintln(out, "Which account should own the GitHub App? A private App can only be installed on its owner.")
+	for i, c := range choices {
+		mark := " "
+		if i == def {
+			mark = "*"
+		}
+		fmt.Fprintf(out, " %s %d) %s\n", mark, i+1, c)
+	}
+	r := bufio.NewReader(in)
+	for {
+		fmt.Fprintf(out, "Owner [%d]: ", def+1)
+		line, err := r.ReadString('\n')
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if err != nil && err != io.EOF {
+				return 0, err
+			}
+			return def, nil
+		}
+		if n, perr := strconv.Atoi(line); perr == nil && n >= 1 && n <= len(choices) {
+			return n - 1, nil
+		}
+		if err != nil {
+			return 0, fmt.Errorf("no valid choice entered")
+		}
+		fmt.Fprintf(out, "enter a number from 1 to %d\n", len(choices))
+	}
 }
 
 // tailnetIPv4 is this machine's Tailscale IPv4, from `tailscale ip -4`.

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -34,6 +35,23 @@ type SetupGitHubOpts struct {
 	InstallWait time.Duration // how long to wait for the installation (default 10 min)
 	PollEvery   time.Duration // installation poll interval (default 5 s)
 	Listen      func() (net.Listener, error)
+	// Owner is the account that will own a new App (--owner); "" means ask.
+	Owner string
+	// PickOwner asks the human to choose; nil when there is no terminal.
+	PickOwner func(choices []OwnerChoice, def int) (int, error)
+}
+
+// OwnerChoice is an account the App can be created under.
+type OwnerChoice struct {
+	Login string
+	Org   bool
+}
+
+func (c OwnerChoice) String() string {
+	if c.Org {
+		return c.Login + " (organization)"
+	}
+	return c.Login + " (personal account)"
 }
 
 const defaultInstallWait = 10 * time.Minute
@@ -149,13 +167,26 @@ func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
 				return o.orphanErr(meta, nil)
 			}
 		}
-		if err := o.createApp(ctx); err != nil {
+		owner, err := o.chooseOwner(ctx)
+		if err != nil {
+			return err
+		}
+		if owner.Org {
+			fmt.Fprintf(out, "creating the GitHub App jauntbox-%s under the organization %s\n", o.Cfg.User, owner.Login)
+		} else {
+			fmt.Fprintf(out, "creating the GitHub App jauntbox-%s under your personal account %s (only that account can install it)\n", o.Cfg.User, owner.Login)
+		}
+		if err := o.createApp(ctx, owner); err != nil {
 			return err
 		}
 	}
 	app, meta, err := o.loadApp()
 	if err != nil {
 		return err
+	}
+	if want := o.wantedOwner(); want != "" && !strings.EqualFold(want, meta.Owner) {
+		return fmt.Errorf("the App %s already exists under %s, not %s; to move it, delete it at %s, remove %s and %s from %s, then re-run `jauntbox setup github`",
+			meta.Slug, meta.Owner, want, o.appSettingsURL(meta), secrets.AppMetaFile, secrets.AppKeyFile, o.Store.Dir)
 	}
 
 	if meta.InstallationID == 0 {
@@ -267,8 +298,85 @@ func (o SetupGitHubOpts) waitInstalled(ctx context.Context, app *github.App) (in
 	}
 }
 
+// wantedOwner is the owner asked for by --owner, else by github.org.
+func (o SetupGitHubOpts) wantedOwner() string {
+	if o.Owner != "" {
+		return o.Owner
+	}
+	return o.Cfg.GitHub.Org
+}
+
+// chooseOwner settles which account a new App is created under: --owner, else
+// a prompt over the admin user's own account and organizations (defaulting to
+// github.org), else github.org without a terminal. With no terminal and nothing
+// configured it refuses to guess: a private App can only ever be installed on
+// the account that owns it.
+func (o SetupGitHubOpts) chooseOwner(ctx context.Context) (OwnerChoice, error) {
+	login, err := o.Admin.Login(ctx)
+	if err != nil {
+		return OwnerChoice{}, fmt.Errorf("checking the GitHub admin credential: %w", err)
+	}
+	choices := []OwnerChoice{{Login: login}}
+	orgs, orgErr := o.Admin.Orgs(ctx)
+	if orgErr != nil {
+		fmt.Fprintf(o.out(), "warning: could not list your organizations (%v); only your personal account and github.org are offered\n", orgErr)
+	}
+	for _, org := range orgs {
+		choices = append(choices, OwnerChoice{Login: org, Org: true})
+	}
+	find := func(name string) int {
+		for i, c := range choices {
+			if strings.EqualFold(c.Login, name) {
+				return i
+			}
+		}
+		return -1
+	}
+	if org := o.Cfg.GitHub.Org; org != "" && find(org) < 0 {
+		choices = append(choices, OwnerChoice{Login: org, Org: true})
+	}
+	if o.Owner != "" {
+		if i := find(o.Owner); i >= 0 {
+			return choices[i], nil
+		}
+		if orgErr != nil { // cannot verify membership: trust the flag
+			return OwnerChoice{Login: o.Owner, Org: true}, nil
+		}
+		names := make([]string, len(choices))
+		for i, c := range choices {
+			names[i] = c.Login
+		}
+		return OwnerChoice{}, fmt.Errorf("--owner %s: not your account or one of your organizations (%s)", o.Owner, strings.Join(names, ", "))
+	}
+	def := 0
+	if org := o.Cfg.GitHub.Org; org != "" {
+		def = find(org)
+	}
+	if len(choices) == 1 {
+		return choices[0], nil
+	}
+	if o.PickOwner == nil {
+		if o.Cfg.GitHub.Org != "" {
+			return choices[def], nil
+		}
+		names := make([]string, len(choices))
+		for i, c := range choices {
+			names[i] = c.Login
+		}
+		return OwnerChoice{}, fmt.Errorf("the App could be created under %s; pass --owner <login> (or set github.org in the config)", strings.Join(names, ", "))
+	}
+	i, err := o.PickOwner(choices, def)
+	if err != nil {
+		return OwnerChoice{}, err
+	}
+	if i < 0 || i >= len(choices) {
+		return OwnerChoice{}, fmt.Errorf("no such choice")
+	}
+	return choices[i], nil
+}
+
 // createApp runs the manifest flow through a short-lived loopback server.
-func (o SetupGitHubOpts) createApp(ctx context.Context) error {
+func (o SetupGitHubOpts) createApp(ctx context.Context, owner OwnerChoice) error {
 	out := o.out()
 	listen := o.Listen
 	if listen == nil {
@@ -287,8 +395,8 @@ func (o SetupGitHubOpts) createApp(ctx context.Context) error {
 	base := "http://" + ln.Addr().String()
 	web := o.webBase()
 	target := web + "/settings/apps/new"
-	if org := o.Cfg.GitHub.Org; org != "" {
-		target = web + "/organizations/" + org + "/settings/apps/new"
+	if owner.Org {
+		target = web + "/organizations/" + url.PathEscape(owner.Login) + "/settings/apps/new"
 	}
 	target += "?state=" + state
 	manifest := AppManifest(o.Cfg.User, base+"/callback")

@@ -178,3 +178,16 @@ func TestAdminErrorsOmitToken(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+func TestOrgs(t *testing.T) {
+	srv, calls := adminServer(t, func(r *http.Request, _ string) (int, string) {
+		return 200, `[{"login":"WA-Systems-EU"},{"login":"other"}]`
+	})
+	got, err := Admin{Token: "adm", APIURL: srv.URL}.Orgs(context.Background())
+	if err != nil || len(got) != 2 || got[0] != "WA-Systems-EU" || got[1] != "other" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if c := (*calls)[0]; c.auth != "Bearer adm" || c.path != "/user/orgs" {
+		t.Fatalf("call %+v", c)
+	}
+}

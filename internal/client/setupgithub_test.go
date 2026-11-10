@@ -37,6 +37,7 @@ type ghFake struct {
 	rulesets    map[string]int64 // owner/repo -> id
 	rulesetCall int
 	nextID      int64
+	orgsFail    bool
 }
 
 func newGHFake(t *testing.T) (*ghFake, *httptest.Server) {
@@ -60,6 +61,15 @@ func (f *ghFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	p := r.URL.Path
 	switch {
+	case r.Method == "GET" && p == "/user":
+		fmt.Fprint(w, `{"login":"alice"}`)
+	case r.Method == "GET" && p == "/user/orgs":
+		if f.orgsFail {
+			w.WriteHeader(403)
+			fmt.Fprint(w, `{"message":"Resource not accessible"}`)
+			return
+		}
+		fmt.Fprint(w, `[{"login":"WA-Systems-EU"},{"login":"other-org"}]`)
 	case r.Method == "POST" && p == "/app-manifests/c0de/conversions":
 		f.conversions++
 		pemJSON, _ := json.Marshal(f.pem)
@@ -256,6 +266,7 @@ func TestSetupGitHubPersonalAccountFormURL(t *testing.T) {
 	br := &browser{t: t, fake: f}
 	o, _ := setupOpts(t, f, srv, br)
 	o.Cfg.GitHub.Org = ""
+	o.Owner = "alice"
 	// The personal-account path ends in the same fake (owner comes from the conversion),
 	// so stop after the page is served: cancel once the form has been read.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -494,5 +505,115 @@ func TestResolveListen(t *testing.T) {
 func TestIsLoopbackListen(t *testing.T) {
 	if !IsLoopbackListen("127.0.0.1:0") || IsLoopbackListen("100.64.0.7:0") {
 		t.Error("IsLoopbackListen wrong")
+	}
+}
+
+// formOwner runs setup until the GitHub form has been read and returns its action.
+func formOwner(t *testing.T, mutate func(*SetupGitHubOpts)) (string, string, error) {
+	t.Helper()
+	f, srv := newGHFake(t)
+	br := &browser{t: t, fake: f}
+	o, out := setupOpts(t, f, srv, br)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	br.cancel = cancel
+	br.state = "00000000000000000000000000000000"
+	mutate(&o)
+	err := SetupGitHub(ctx, o)
+	return br.action, out.String(), err
+}
+
+func TestSetupGitHubOwnerPrompt(t *testing.T) {
+	var seen []OwnerChoice
+	var seenDef int
+	action, out, _ := formOwner(t, func(o *SetupGitHubOpts) {
+		o.Cfg.GitHub.Org = "WA-Systems-EU"
+		o.PickOwner = func(c []OwnerChoice, def int) (int, error) { seen, seenDef = c, def; return 2, nil }
+	})
+	want := []OwnerChoice{{"alice", false}, {"WA-Systems-EU", true}, {"other-org", true}}
+	if fmt.Sprint(seen) != fmt.Sprint(want) || seenDef != 1 {
+		t.Fatalf("choices %v def %d", seen, seenDef)
+	}
+	if !strings.HasPrefix(action, "https://web.test/organizations/other-org/settings/apps/new?state=") {
+		t.Fatalf("form action = %q", action)
+	}
+	if !strings.Contains(out, "under the organization other-org") {
+		t.Fatalf("output lacks the owner:\n%s", out)
+	}
+}
+
+func TestSetupGitHubOwnerPromptDefaultsToPersonal(t *testing.T) {
+	var seenDef = -1
+	action, out, _ := formOwner(t, func(o *SetupGitHubOpts) {
+		o.Cfg.GitHub.Org = ""
+		o.PickOwner = func(c []OwnerChoice, def int) (int, error) { seenDef = def; return def, nil }
+	})
+	if seenDef != 0 || !strings.HasPrefix(action, "https://web.test/settings/apps/new?state=") {
+		t.Fatalf("def %d action %q", seenDef, action)
+	}
+	if !strings.Contains(out, "under your personal account alice") {
+		t.Fatalf("output:\n%s", out)
+	}
+}
+
+func TestSetupGitHubOwnerFlag(t *testing.T) {
+	action, _, _ := formOwner(t, func(o *SetupGitHubOpts) {
+		o.Owner = "wa-systems-eu"
+		o.PickOwner = func([]OwnerChoice, int) (int, error) { t.Fatal("prompted despite --owner"); return 0, nil }
+	})
+	if !strings.HasPrefix(action, "https://web.test/organizations/WA-Systems-EU/settings/apps/new?state=") {
+		t.Fatalf("form action = %q", action)
+	}
+	_, _, err := formOwner(t, func(o *SetupGitHubOpts) { o.Owner = "nope" })
+	if err == nil || !strings.Contains(err.Error(), "alice, WA-Systems-EU, other-org") {
+		t.Fatalf("unknown owner err = %v", err)
+	}
+}
+
+func TestSetupGitHubOwnerNonInteractive(t *testing.T) {
+	// Configured org: used without asking.
+	action, _, _ := formOwner(t, func(o *SetupGitHubOpts) {})
+	if !strings.HasPrefix(action, "https://web.test/organizations/WA-Systems-EU/") {
+		t.Fatalf("form action = %q", action)
+	}
+	// Nothing configured, orgs exist, no terminal: refuse to guess.
+	action, _, err := formOwner(t, func(o *SetupGitHubOpts) { o.Cfg.GitHub.Org = "" })
+	if err == nil || !strings.Contains(err.Error(), "--owner") || action != "" {
+		t.Fatalf("err = %v action = %q", err, action)
+	}
+}
+
+func TestSetupGitHubOwnerOrgsUnlisted(t *testing.T) {
+	// Without read:org the org list fails: the configured org is still offered.
+	f, srv := newGHFake(t)
+	f.orgsFail = true
+	br := &browser{t: t, fake: f}
+	o, out := setupOpts(t, f, srv, br)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	br.cancel = cancel
+	br.state = "00000000000000000000000000000000"
+	var seen []OwnerChoice
+	o.PickOwner = func(c []OwnerChoice, def int) (int, error) { seen = c; return def, nil }
+	_ = SetupGitHub(ctx, o)
+	if fmt.Sprint(seen) != fmt.Sprint([]OwnerChoice{{"alice", false}, {"WA-Systems-EU", true}}) {
+		t.Fatalf("choices %v", seen)
+	}
+	if !strings.Contains(out.String(), "could not list your organizations") {
+		t.Fatalf("output:\n%s", out)
+	}
+}
+
+func TestSetupGitHubExistingAppOtherOwner(t *testing.T) {
+	f, srv := newGHFake(t)
+	br := &browser{t: t, fake: f}
+	o, _ := setupOpts(t, f, srv, br)
+	if err := SetupGitHub(context.Background(), o); err != nil { // App under WA-Systems-EU
+		t.Fatal(err)
+	}
+	o.Owner = "other-org"
+	err := SetupGitHub(context.Background(), o)
+	if err == nil || !strings.Contains(err.Error(), "already exists under WA-Systems-EU") || !strings.Contains(err.Error(), secrets.AppKeyFile) {
+		t.Fatalf("err = %v", err)
 	}
 }
