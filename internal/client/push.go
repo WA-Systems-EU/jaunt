@@ -14,9 +14,9 @@ var osExecutable = os.Executable
 // DefaultPushWait is how long PushBinary waits for the box to join the tailnet.
 const DefaultPushWait = 15 * time.Minute
 
-const installCmd = "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer"
+const installCmd = "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer"
 
-const supervisorCheck = "test -x /usr/local/bin/jauntbox && systemctl is-enabled --quiet jauntbox-supervise.timer"
+const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer"
 
 // EnsureSupervisor makes sure an existing box runs the supervisor: if the
 // binary or the enabled timer is missing (an interrupted first attach, or the

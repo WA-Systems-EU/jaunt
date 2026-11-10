@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,8 +52,68 @@ func TestRunInheritedDropsHerdrEnv(t *testing.T) {
 }
 
 func TestRootHasNestedFlag(t *testing.T) {
-	f := newRootCmd().Flags().Lookup("nested")
+	f := newClientCmd().Flags().Lookup("nested")
 	if f == nil || f.DefValue != "false" {
 		t.Fatalf("--nested flag missing or defaults on: %v", f)
+	}
+}
+
+func names(c *cobra.Command) (visible, hidden map[string]bool) {
+	visible, hidden = map[string]bool{}, map[string]bool{}
+	for _, sub := range c.Commands() {
+		if sub.Hidden {
+			hidden[sub.Name()] = true
+		} else {
+			visible[sub.Name()] = true
+		}
+	}
+	return
+}
+
+func TestRootForBoxName(t *testing.T) {
+	v, h := names(rootFor("/usr/local/bin/jauntctl"))
+	for _, n := range []string{"supervise", "stop", "night-set", "box-status"} {
+		if !v[n] {
+			t.Errorf("jauntctl lacks %s", n)
+		}
+	}
+	if v["up"] || h["up"] {
+		t.Error("jauntctl must not have up")
+	}
+	v, h = names(rootFor("jauntbox"))
+	if !v["up"] || !v["status"] {
+		t.Error("jauntbox lacks up/status")
+	}
+	for _, n := range []string{"supervise", "stop", "night-set", "box-status"} {
+		if v[n] || !h[n] {
+			t.Errorf("%s should be hidden-only on the client (visible=%v hidden=%v)", n, v[n], h[n])
+		}
+	}
+}
+
+func TestJauntctlRejectsLaptopCommand(t *testing.T) {
+	root := rootFor("jauntctl")
+	root.SetArgs([]string{"up"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	err := root.Execute()
+	want := "\"up\" is a laptop command: run `jauntbox up` on your laptop"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+}
+
+func TestClientHelpHidesBoxCommands(t *testing.T) {
+	root := rootFor("jauntbox")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"supervise", "box-status", "night-set"} {
+		if strings.Contains(out.String(), n) {
+			t.Errorf("client help mentions %s:\n%s", n, out.String())
+		}
 	}
 }

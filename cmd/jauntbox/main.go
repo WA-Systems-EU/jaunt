@@ -116,8 +116,48 @@ func runInherited(argv []string) (int, error) {
 	return 0, err
 }
 
-func newRootCmd() *cobra.Command {
-	var cfgPath string
+// BoxName is the name the binary answers to on the box (installed as
+// /usr/local/bin/jauntctl); under any other name it is the laptop client.
+const BoxName = "jauntctl"
+
+// rootFor picks the command tree for the name this binary was invoked as.
+func rootFor(argv0 string) *cobra.Command {
+	if filepath.Base(argv0) == BoxName {
+		return newBoxCmd()
+	}
+	return newClientCmd()
+}
+
+// newBoxCmd is the jauntctl root. Later tasks register further box commands
+// on it by adding them to the AddCommand call below.
+func newBoxCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:           BoxName,
+		Short:         "Box-side commands for a jauntbox workspace",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		// Accept anything so that a laptop command gets a pointed message
+		// rather than cobra's generic "unknown command".
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			for _, c := range newClientCmd().Commands() {
+				if c.Name() == args[0] {
+					return fmt.Errorf("%q is a laptop command: run `jauntbox %s` on your laptop", args[0], args[0])
+				}
+			}
+			return fmt.Errorf("unknown command %q for %q", args[0], BoxName)
+		},
+	}
+	root.AddCommand(boxCmds()...)
+	return root
+}
+
+// boxCmds builds the box command set; fresh instances on every call so the
+// client can also register them as hidden transition aliases.
+func boxCmds() []*cobra.Command {
 	boxSup := func() (*supervisor.Supervisor, error) {
 		if os.Geteuid() != 0 {
 			return nil, errors.New("run with sudo")
@@ -238,7 +278,12 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	boxStatus.Flags().BoolVar(&asJSON, "json", false, "machine-readable output")
+	return []*cobra.Command{supervise, stop, nightSet, boxStatus}
+}
 
+// newClientCmd is the jauntbox (laptop) root.
+func newClientCmd() *cobra.Command {
+	var cfgPath string
 	var nested bool
 	root := &cobra.Command{
 		Use:           "jauntbox",
@@ -334,14 +379,20 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(initCmd(&cfgPath), up, push, acl, supervise, stop, nightSet, boxStatus)
+	root.AddCommand(initCmd(&cfgPath), up, push, acl)
+	// Transition aliases: boxes created before jauntctl run `jauntbox supervise`
+	// from their unit. Remove in plan 03.
+	for _, c := range boxCmds() {
+		c.Hidden = true
+		root.AddCommand(c)
+	}
 	root.AddCommand(clientOpsCmds(&cfgPath, loadDeps)...)
 	return root
 }
 
 func main() {
-	if err := newRootCmd().ExecuteContext(context.Background()); err != nil {
-		fmt.Fprintln(os.Stderr, "jauntbox:", err)
+	if err := rootFor(os.Args[0]).ExecuteContext(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", filepath.Base(os.Args[0]), err)
 		os.Exit(1)
 	}
 }

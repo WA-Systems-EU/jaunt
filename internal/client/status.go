@@ -37,7 +37,7 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	if !online {
 		return rep, nil
 	}
-	out, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntbox", "box-status", "--json")
+	out, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntctl", "box-status", "--json")
 	if err != nil {
 		rep.Err = "box-status failed (supervisor not installed yet?): " + err.Error()
 		return rep, nil

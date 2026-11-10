@@ -177,6 +177,9 @@ func TestRenderSuperviseServiceHasStartTimeout(t *testing.T) {
 	if !strings.Contains(unit, "TimeoutStartSec=90") {
 		t.Fatalf("supervise.service lacks TimeoutStartSec=90:\n%s", unit)
 	}
+	if !strings.Contains(unit, "ExecStart=/usr/local/bin/jauntctl supervise\n") {
+		t.Fatalf("supervise.service must run jauntctl supervise:\n%s", unit)
+	}
 }
 
 func TestRenderPinsTailscaledStateViaDefaultsFile(t *testing.T) {

@@ -32,7 +32,7 @@ func Night(ctx context.Context, d Deps, until string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntbox", "night-set", "--until", at.Format(time.RFC3339)); err != nil {
+	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntctl", "night-set", "--until", at.Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("night-set on the box: %w", err)
 	}
 	fmt.Printf("night session authorised until %s\n", at.Format(time.RFC3339))

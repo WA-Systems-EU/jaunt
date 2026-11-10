@@ -215,7 +215,7 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 		t.Fatalf("order = %v", r.order)
 	}
 	want := "[" + installCmd + "]"
-	if r.cmds[0] != want || !strings.Contains(installCmd, "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer") {
+	if r.cmds[0] != want || installCmd != "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer" {
 		t.Fatalf("cmd = %q", r.cmds[0])
 	}
 }
@@ -430,4 +430,10 @@ func TestUpWaitErrorWording(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+}
+
+func TestSupervisorCheckNeedsJauntctl(t *testing.T) {
+	if supervisorCheck != "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer" {
+		t.Fatalf("supervisorCheck = %q", supervisorCheck)
+	}
 }
