@@ -111,3 +111,32 @@ what you see; if either is false, fix the code and add a test.
   is never deleted.
 - Nothing is left billing: after the test, the Hetzner project shows no server
   (the volume and firewall/key may remain, delete them when fully done).
+
+## Results log
+
+### 2026-11-10: first live run (branch `feat/remote-workspace`)
+
+Ubuntu 26.04 stock image, `fsn1`, dedicated Hetzner project.
+
+| Check | Result |
+|---|---|
+| 1. `init` | Pass: fast, well within the ~15 min target (exact time not measured). |
+| 2. Tailnet policy | Not recorded. |
+| 3. `up --wait`, `ssh`, timers, tailscaled state on the volume | Pass. |
+| 4. `status` | Pass. |
+| 5. Self-delete at `max_uptime`, volume kept | Pass. |
+| 6. Volume survives `up` again (same hostname, marker intact, `box.json` back to defaults) | Pass. |
+| 7. Night session: kept while the agent ran, wrap-up at the deadline (`night-deadline`), deleted after `wrapup_grace` (`wrapup-grace-elapsed`), volume kept | Pass. |
+| 8. `resize` both ways | **Failed first** with Hetzner `volume already attached`: `Down` returned once the server was gone, before Hetzner reported the volume detached. Fixed in `67d08f1` (`Up` waits for the detach). After the fix: pass, about 2 minutes per resize, marker intact, no `-1` hostname. |
+| 8. `down` | Pass. |
+| 9. Safety net | **Not run live.** Covered offline by `safety-net_test.sh` only. |
+| herdr 1. bare `jauntbox` attaches | Pass (from a plain ssh session on the Linux box). |
+| herdr 2. Wi-Fi drop reconnect, `herdr --remote` exit status | Not run yet (needs the binary on the laptop). |
+| herdr 3. second client, same session | Not run yet. |
+| herdr 4. typing registers via `/dev/pts` atime | Not checked yet. |
+| herdr 6. inside a local herdr pane | **Failed first** with herdr's "nested herdr is disabled". Fixed in `b787e4b`: refuses by default with a hint; `--nested` attaches. Pass after the fix. |
+| herdr 7. fresh-box provisioning wait | Not run yet. |
+| Tailscale `connectedToControl` in default `/devices` | Present (`true`); no `fields=all` needed. |
+| Hetzner firewall attached by id and by label selector | Accepted; listed exactly once on the server. |
+
+Shell history (`~/.zsh_history`) survives server changes.
