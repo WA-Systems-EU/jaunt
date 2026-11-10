@@ -193,4 +193,5 @@ App owner `WA-Systems-EU` (GitHub Free), installed on the private repo `WA-Syste
 | 3. Locked after reboot | Pass. |
 | 4. Permission drift | Pass: `setup github --check` reported the added `workflows` permission. Workflow-file push rejection not recorded. |
 | 5. Revocation on down | Pass: 2 `token.minted` since the step-3 reboot, 2 `token.revoked` just before the delete; the pre-reboot token was not revoked (cache wiped, expires on its own), as expected. Old token: HTTP 401. Found along the way: one NUL-filled line in `events.jsonl` and no `box.deleted` events, because `box.deleted` was written after the self-delete call; fixed in `26996b0` (written and synced first, every event fsynced). Read the log with `grep -a`. |
-| 6. Nothing on the volume | Not run yet. |
+| 6. Nothing on the volume | Pass: no `ghs_` token and no private key under `/home`. |
+| `box.deleted` recorded by a fixed box (`26996b0`) | Not recorded yet. |
