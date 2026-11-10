@@ -162,6 +162,7 @@ func (o SetupGitHubOpts) haveApp() bool {
 // already done, so a re-run resumes.
 func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
 	out := o.out()
+	created := false
 	if !o.haveApp() {
 		if mb, err := o.Store.Get(secrets.AppMetaFile); err == nil {
 			var meta github.AppMeta
@@ -181,14 +182,20 @@ func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
 		if err := o.createApp(ctx, owner); err != nil {
 			return err
 		}
+		created = true
 	}
 	app, meta, err := o.loadApp()
 	if err != nil {
 		return err
 	}
-	if want := o.wantedOwner(); want != "" && !strings.EqualFold(want, meta.Owner) {
+	// An explicit --owner must match; github.org is only the prompt's default,
+	// so an App that lives elsewhere (picked at the prompt) earns a warning.
+	if o.Owner != "" && !strings.EqualFold(o.Owner, meta.Owner) {
 		return fmt.Errorf("the App %s already exists under %s, not %s; to move it, delete it at %s, remove %s and %s from %s, then re-run `jauntbox setup github`",
-			meta.Slug, meta.Owner, want, o.appSettingsURL(meta), secrets.AppMetaFile, secrets.AppKeyFile, o.Store.Dir)
+			meta.Slug, meta.Owner, o.Owner, o.appSettingsURL(meta), secrets.AppMetaFile, secrets.AppKeyFile, o.Store.Dir)
+	}
+	if org := o.Cfg.GitHub.Org; !created && org != "" && !strings.EqualFold(org, meta.Owner) {
+		fmt.Fprintf(out, "warning: the App %s is owned by %s, not github.org (%s); pass --owner %s to require that owner\n", meta.Slug, meta.Owner, org, org)
 	}
 
 	if meta.InstallationID == 0 {
@@ -329,14 +336,6 @@ func unprotectedErr(repos []string) error {
 		strings.Join(repos, ", "))
 }
 
-// wantedOwner is the owner asked for by --owner, else by github.org.
-func (o SetupGitHubOpts) wantedOwner() string {
-	if o.Owner != "" {
-		return o.Owner
-	}
-	return o.Cfg.GitHub.Org
-}
-
 // chooseOwner settles which account a new App is created under: --owner, else
 // a prompt over the admin user's own account and organizations (defaulting to
 // github.org), else github.org without a terminal. With no terminal and nothing
@@ -377,7 +376,7 @@ func (o SetupGitHubOpts) chooseOwner(ctx context.Context) (OwnerChoice, error) {
 		for i, c := range choices {
 			names[i] = c.Login
 		}
-		return OwnerChoice{}, fmt.Errorf("--owner %s: not your account or one of your organizations (%s)", o.Owner, strings.Join(names, ", "))
+		return OwnerChoice{}, fmt.Errorf("--owner %s: not your account or one of your organizations (%s); if it is an organization the list misses, set github.org to it instead", o.Owner, strings.Join(names, ", "))
 	}
 	def := 0
 	if org := o.Cfg.GitHub.Org; org != "" {
@@ -423,7 +422,17 @@ func (o SetupGitHubOpts) createApp(ctx context.Context, owner OwnerChoice) error
 		return err
 	}
 	state := hex.EncodeToString(sb[:])
-	base := "http://" + ln.Addr().String()
+	// The page and the callback live under a random path: on a tailnet listener
+	// other devices can reach the port, and the page reveals the state. Only
+	// the printed URL leads in.
+	var nb [16]byte
+	if _, err := rand.Read(nb[:]); err != nil {
+		ln.Close()
+		return err
+	}
+	prefix := "/" + hex.EncodeToString(nb[:])
+	host := ln.Addr().String()
+	base := "http://" + host + prefix
 	web := o.webBase()
 	target := web + "/settings/apps/new"
 	if owner.Org {
@@ -440,8 +449,8 @@ func (o SetupGitHubOpts) createApp(ctx context.Context, owner OwnerChoice) error
 		}
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
+	mux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != prefix+"/" {
 			http.NotFound(w, r)
 			return
 		}
@@ -450,7 +459,7 @@ func (o SetupGitHubOpts) createApp(ctx context.Context, owner OwnerChoice) error
 <form id="f" method="post" action="%s"><input type="hidden" name="manifest" value="%s"><noscript><button>Continue</button></noscript></form>
 <script>document.getElementById("f").submit()</script></body></html>`, html.EscapeString(target), html.EscapeString(string(manifest)))
 	})
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(prefix+"/callback", func(w http.ResponseWriter, r *http.Request) {
 		got := r.URL.Query().Get("state")
 		if subtle.ConstantTimeCompare([]byte(got), []byte(state)) != 1 {
 			http.Error(w, "state mismatch", http.StatusBadRequest)
@@ -471,6 +480,13 @@ func (o SetupGitHubOpts) createApp(ctx context.Context, owner OwnerChoice) error
 			finish(fmt.Errorf("converting the app manifest: %w (if the app %q was created, delete it in GitHub's settings before re-running)", err, "jauntbox-"+o.Cfg.User))
 			return
 		}
+		// Never keep an App someone else owns (a forged callback from another
+		// account's manifest flow).
+		if !strings.EqualFold(meta.Owner, owner.Login) {
+			http.Error(w, "the app was created under another account; see the terminal", http.StatusBadRequest)
+			finish(fmt.Errorf("GitHub created the App %s under %s, not %s; nothing was stored: delete it at %s and re-run `jauntbox setup github`", meta.Slug, meta.Owner, owner.Login, o.appSettingsURL(meta)))
+			return
+		}
 		// Meta first, so a lone meta file marks "app exists, key missing".
 		mb, _ := json.Marshal(meta)
 		err = o.Store.Put(secrets.AppMetaFile, mb)
@@ -486,7 +502,15 @@ func (o SetupGitHubOpts) createApp(ctx context.Context, owner OwnerChoice) error
 		fmt.Fprintln(w, "done, you can close this tab")
 		finish(nil)
 	})
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	// A Host other than the bound address means DNS rebinding or a stray client.
+	guard := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != host {
+			http.Error(w, "wrong host", http.StatusForbidden)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	srv := &http.Server{Handler: guard, ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	defer func() {
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)

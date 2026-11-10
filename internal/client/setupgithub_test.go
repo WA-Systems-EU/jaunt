@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,6 +40,7 @@ type ghFake struct {
 	nextID      int64
 	orgsFail    bool
 	paywalled   map[string]bool // owner/repo -> rulesets need a paid plan
+	convOwner   string          // owner GitHub reports for the new App ("" = WA-Systems-EU)
 }
 
 func newGHFake(t *testing.T) (*ghFake, *httptest.Server) {
@@ -74,7 +76,11 @@ func (f *ghFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "POST" && p == "/app-manifests/c0de/conversions":
 		f.conversions++
 		pemJSON, _ := json.Marshal(f.pem)
-		fmt.Fprintf(w, `{"id":42,"slug":"jauntbox-alice","pem":%s,"owner":{"login":"WA-Systems-EU","type":"Organization"}}`, pemJSON)
+		owner := f.convOwner
+		if owner == "" {
+			owner = "WA-Systems-EU"
+		}
+		fmt.Fprintf(w, `{"id":42,"slug":"jauntbox-alice","pem":%s,"owner":{"login":%q,"type":"Organization"}}`, pemJSON, owner)
 	case r.Method == "GET" && p == "/app":
 		fmt.Fprintf(w, `{"permissions":%s}`, f.perms)
 	case r.Method == "GET" && p == "/orgs/WA-Systems-EU/installation":
@@ -146,11 +152,15 @@ type browser struct {
 	pageHTML string
 	action   string
 	cancel   context.CancelFunc
+	probe    func(u string) // runs against the local page before the flow continues
 }
 
 func (b *browser) open(u string) error {
 	b.opened = append(b.opened, u)
 	if strings.HasPrefix(u, "http://127.0.0.1:") {
+		if b.probe != nil {
+			b.probe(u)
+		}
 		resp, err := http.Get(u)
 		if err != nil {
 			return err
@@ -690,5 +700,82 @@ func TestCheckGitHubUnprotectedFails(t *testing.T) {
 	err := CheckGitHub(context.Background(), o)
 	if err == nil || !strings.Contains(err.Error(), "WA-Systems-EU/api") {
 		t.Fatalf("err = %v\n%s", err, out)
+	}
+}
+
+func TestSetupGitHubPromptPickOtherThanConfigCompletes(t *testing.T) {
+	// github.org names one org, the human picks another: setup must finish,
+	// and a re-run must not reject the App for living elsewhere than github.org.
+	f, srv := newGHFake(t)
+	br := &browser{t: t, fake: f}
+	o, out := setupOpts(t, f, srv, br)
+	o.Cfg.GitHub.Org = "other-org"
+	o.PickOwner = func(c []OwnerChoice, def int) (int, error) { return 1, nil } // WA-Systems-EU
+	if err := SetupGitHub(context.Background(), o); err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	out.Reset()
+	if err := SetupGitHub(context.Background(), o); err != nil {
+		t.Fatalf("re-run: %v", err)
+	}
+	if !strings.Contains(out.String(), "warning: the App jauntbox-alice is owned by WA-Systems-EU, not github.org (other-org)") {
+		t.Fatalf("re-run output:\n%s", out)
+	}
+}
+
+func TestSetupGitHubLocalPageNeedsSecretPathAndHost(t *testing.T) {
+	f, srv := newGHFake(t)
+	br := &browser{t: t, fake: f}
+	o, out := setupOpts(t, f, srv, br)
+	var root, wrongHost, bareCallback int
+	br.probe = func(u string) {
+		pu, err := neturl.Parse(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !regexp.MustCompile(`^/[0-9a-f]{32}/$`).MatchString(pu.Path) {
+			t.Errorf("page path %q lacks a secret component", pu.Path)
+		}
+		get := func(target, host string) int {
+			req, _ := http.NewRequest("GET", target, nil)
+			if host != "" {
+				req.Host = host
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			return resp.StatusCode
+		}
+		root = get("http://"+pu.Host+"/", "")
+		bareCallback = get("http://"+pu.Host+"/callback?code=c0de&state=x", "")
+		wrongHost = get(u, "attacker.example:80")
+	}
+	if err := SetupGitHub(context.Background(), o); err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	if root != 404 || bareCallback != 404 || wrongHost != 403 {
+		t.Fatalf("root=%d bareCallback=%d wrongHost=%d", root, bareCallback, wrongHost)
+	}
+}
+
+func TestSetupGitHubConvertedOwnerMustMatchChoice(t *testing.T) {
+	f, srv := newGHFake(t)
+	f.convOwner = "mallory"
+	br := &browser{t: t, fake: f}
+	o, _ := setupOpts(t, f, srv, br)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := SetupGitHub(ctx, o)
+	if err == nil || !strings.Contains(err.Error(), "under mallory, not WA-Systems-EU") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := o.Store.Get(secrets.AppMetaFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("meta stored for a foreign App: %v", err)
+	}
+	if _, err := o.Store.Get(secrets.AppKeyFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("key stored for a foreign App: %v", err)
 	}
 }

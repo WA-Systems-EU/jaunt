@@ -13,10 +13,12 @@ const (
 	BoxUpRequested   = "box.up_requested"
 	BoxCreated       = "box.created"
 	BoxDownRequested = "box.down_requested"
-	BoxDeleted       = "box.deleted"
-	WrapUpStarted    = "wrapup.started"
-	WrapUpCancelled  = "wrapup.cancelled"
-	NightAuthorised  = "night.authorised"
+	// BoxDeleted is written just before the box asks to delete itself (the
+	// power is cut right after); box.delete_failed follows it if the call fails.
+	BoxDeleted      = "box.deleted"
+	WrapUpStarted   = "wrapup.started"
+	WrapUpCancelled = "wrapup.cancelled"
+	NightAuthorised = "night.authorised"
 	// SupervisorTick is emitted only when the verdict changes.
 	SupervisorTick = "supervisor.tick"
 )
