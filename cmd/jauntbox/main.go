@@ -379,7 +379,7 @@ func newClientCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(initCmd(&cfgPath), up, push, acl)
+	root.AddCommand(initCmd(&cfgPath), up, push, acl, secretsCmd(&cfgPath))
 	// Transition aliases: boxes created before jauntctl run `jauntbox supervise`
 	// from their unit. Remove in plan 03.
 	for _, c := range boxCmds() {

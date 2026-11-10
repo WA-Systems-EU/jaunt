@@ -158,3 +158,24 @@ func TestLoadEmptyFileIsNotAParseError(t *testing.T) {
 		t.Fatalf("empty file reported as EOF: %v", err)
 	}
 }
+
+func TestGitHubSectionRoundTrips(t *testing.T) {
+	c, err := Load(writeCfg(t, minimal+"github:\n  org: WA-Systems-EU\n  protected_patterns: [\"release/*\", \"prod\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.GitHub.Org != "WA-Systems-EU" || len(c.GitHub.ProtectedPatterns) != 2 || c.GitHub.ProtectedPatterns[0] != "release/*" {
+		t.Fatalf("github = %+v", c.GitHub)
+	}
+}
+
+func TestGitHubProtectedPatternsRejected(t *testing.T) {
+	_, err := Load(writeCfg(t, minimal+"github:\n  protected_patterns: [\"refs/heads/x\"]\n"))
+	if err == nil || !strings.Contains(err.Error(), `protected_patterns: write "x", not "refs/heads/x"`) {
+		t.Fatalf("err = %v", err)
+	}
+	_, err = Load(writeCfg(t, minimal+"github:\n  protected_patterns: [\"\"]\n"))
+	if err == nil || !strings.Contains(err.Error(), "protected_patterns") {
+		t.Fatalf("empty pattern err = %v", err)
+	}
+}

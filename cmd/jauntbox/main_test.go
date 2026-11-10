@@ -117,3 +117,47 @@ func TestClientHelpHidesBoxCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretsListNeverPrintsValues(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	run := func(in string, args ...string) (string, error) {
+		root := newClientCmd()
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetIn(strings.NewReader(in))
+		root.SetArgs(append([]string{"--config", cfg}, args...))
+		err := root.Execute()
+		return out.String(), err
+	}
+	if _, err := run("sekrit-value-1\n", "secrets", "set", "CLAUDE_CODE_OAUTH_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("sekrit-value-2\n", "secrets", "set", "OTHER_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run("", "secrets", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "sekrit") {
+		t.Fatalf("list leaked a value:\n%s", out)
+	}
+	if !strings.Contains(out, "CLAUDE_CODE_OAUTH_TOKEN") || !strings.Contains(out, "OTHER_KEY") {
+		t.Fatalf("list missing keys:\n%s", out)
+	}
+	if out, err := run("x\n", "secrets", "set", "bad key"); err == nil || strings.Contains(out, "x\n") {
+		t.Fatalf("bad key accepted: %v", err)
+	}
+	if _, err := run("\n", "secrets", "set", "EMPTY"); err == nil {
+		t.Fatal("empty value accepted")
+	}
+}
+
+func TestSecretsAreClientOnly(t *testing.T) {
+	for _, c := range newBoxCmd().Commands() {
+		if c.Name() == "secrets" {
+			t.Fatal("secrets registered on the box root")
+		}
+	}
+}

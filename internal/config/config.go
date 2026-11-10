@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -32,6 +33,12 @@ type Limits struct {
 	WrapUpGrace       Duration `yaml:"wrapup_grace" json:"wrapup_grace"`
 }
 
+// GitHub configures the forge integration.
+type GitHub struct {
+	Org               string   `yaml:"org"`
+	ProtectedPatterns []string `yaml:"protected_patterns"`
+}
+
 // Config is the client configuration file.
 type Config struct {
 	User               string             `yaml:"user"`
@@ -46,6 +53,7 @@ type Config struct {
 	Limits             Limits             `yaml:"limits"`
 	HetznerTokenEnv    string             `yaml:"hetzner_token_env"`
 	TailscaleAPIKeyEnv string             `yaml:"tailscale_api_key_env"`
+	GitHub             GitHub             `yaml:"github"`
 }
 
 // Default returns the built-in defaults. The server types are unverified
@@ -136,6 +144,14 @@ func (c Config) Validate() error {
 	}
 	if !hhmmSpan.MatchString(c.Limits.NightHours) {
 		return fmt.Errorf("invalid night_hours %q (want HH:MM-HH:MM, e.g. \"22:00-07:00\")", c.Limits.NightHours)
+	}
+	for _, p := range c.GitHub.ProtectedPatterns {
+		if p == "" {
+			return fmt.Errorf("protected_patterns: entries must not be empty")
+		}
+		if rest, ok := strings.CutPrefix(p, "refs/"); ok {
+			return fmt.Errorf("protected_patterns: write %q, not %q", strings.TrimPrefix(rest, "heads/"), p)
+		}
 	}
 	return nil
 }
