@@ -146,6 +146,7 @@ func (a Admin) VerifyRuleset(ctx context.Context, owner, repo string, patterns [
 		Conditions  struct {
 			RefName struct {
 				Include []string `json:"include"`
+				Exclude []string `json:"exclude"`
 			} `json:"ref_name"`
 		} `json:"conditions"`
 		Rules []struct {
@@ -170,6 +171,9 @@ func (a Admin) VerifyRuleset(ctx context.Context, owner, repo string, patterns [
 	want := RulesetBody(patterns)["conditions"].(map[string]any)["ref_name"].(map[string]any)["include"].([]string)
 	if !sortedEq(got.Conditions.RefName.Include, want) {
 		drift = append(drift, fmt.Sprintf("ref include is %v, want %v", got.Conditions.RefName.Include, want))
+	}
+	if len(got.Conditions.RefName.Exclude) > 0 {
+		drift = append(drift, fmt.Sprintf("ref exclude is %v, want empty", got.Conditions.RefName.Exclude))
 	}
 	var types []string
 	for _, r := range got.Rules {

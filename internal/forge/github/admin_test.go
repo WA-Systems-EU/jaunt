@@ -137,6 +137,12 @@ func TestVerifyRulesetReportsDrift(t *testing.T) {
 		t.Fatalf("bypass: %v", err)
 	}
 	err = verifyWith(t, list, rulesetJSON(t, func(m map[string]any) {
+		m["conditions"].(map[string]any)["ref_name"].(map[string]any)["exclude"] = []any{"~DEFAULT_BRANCH"}
+	}))
+	if err == nil || !strings.Contains(err.Error(), "exclude") {
+		t.Fatalf("exclude: %v", err)
+	}
+	err = verifyWith(t, list, rulesetJSON(t, func(m map[string]any) {
 		m["rules"] = []any{map[string]any{"type": "deletion"}}
 	}))
 	if err == nil || !strings.Contains(err.Error(), "rules") {
