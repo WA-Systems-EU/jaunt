@@ -207,6 +207,32 @@ func TestInstallationLookup(t *testing.T) {
 	}
 }
 
+func TestInstallationIDExported(t *testing.T) {
+	var lookups int32
+	a, _, _ := newTestApp(t, AppMeta{AppID: 1, Slug: "s", Owner: "thomas"}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users/thomas/installation" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if atomic.AddInt32(&lookups, 1) == 1 {
+			w.WriteHeader(404)
+			fmt.Fprint(w, `{"message":"Not Found"}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":55}`)
+	}))
+	if _, err := a.InstallationID(context.Background()); err == nil {
+		t.Fatal("want error while not installed")
+	}
+	for i := 0; i < 2; i++ {
+		if id, err := a.InstallationID(context.Background()); err != nil || id != 55 {
+			t.Fatalf("id=%d err=%v", id, err)
+		}
+	}
+	if lookups != 2 {
+		t.Fatalf("lookups = %d, want 2 (failure retried, success cached)", lookups)
+	}
+}
+
 func TestReposPaginatesAndRevokesListingToken(t *testing.T) {
 	var revoked int32
 	a, _, _ := newTestApp(t, orgMeta, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

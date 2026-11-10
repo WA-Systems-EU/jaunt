@@ -188,6 +188,10 @@ func (a *App) appDo(ctx context.Context, method, path string, body, out any) err
 	return a.do(ctx, method, path, "Bearer "+j, body, out)
 }
 
+// InstallationID returns the id of the App's installation on its owner,
+// looked up once and cached; an error means the App is not installed (yet).
+func (a *App) InstallationID(ctx context.Context) (int64, error) { return a.installationID(ctx) }
+
 func (a *App) installationID(ctx context.Context) (int64, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

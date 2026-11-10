@@ -1,0 +1,329 @@
+package client
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/WA-Systems-EU/jaunt/internal/config"
+	"github.com/WA-Systems-EU/jaunt/internal/forge/github"
+	"github.com/WA-Systems-EU/jaunt/internal/secrets"
+)
+
+// SetupGitHubOpts carries everything `jauntbox setup github` needs.
+type SetupGitHubOpts struct {
+	Cfg         config.Config
+	Store       secrets.Store
+	Admin       github.Admin
+	AppAPIURL   string // API base for the App client ("" = github.com)
+	WebURL      string // web base for the manifest form ("" = https://github.com)
+	OpenBrowser func(url string) error
+	Out         io.Writer
+	InstallWait time.Duration // how long to wait for the installation (default 10 min)
+	PollEvery   time.Duration // installation poll interval (default 5 s)
+	Listen      func() (net.Listener, error)
+}
+
+const defaultInstallWait = 10 * time.Minute
+
+// AppManifest is the GitHub App manifest for the manifest flow.
+func AppManifest(user, redirectURL string) []byte {
+	b, _ := json.Marshal(map[string]any{
+		"name":                "jauntbox-" + user,
+		"url":                 "https://github.com/WA-Systems-EU/jaunt",
+		"redirect_url":        redirectURL,
+		"public":              false,
+		"default_permissions": github.Permissions,
+		"default_events":      []string{},
+		"hook_attributes":     map[string]any{"url": "https://example.invalid/jauntbox", "active": false},
+	})
+	return b
+}
+
+// AdminToken finds the human's GitHub credential: `gh auth token`, else
+// GITHUB_ADMIN_TOKEN. It is used once and never stored.
+func AdminToken(lookPath func(string) (string, error), run func(argv ...string) ([]byte, error), getenv func(string) string) (string, error) {
+	if _, err := lookPath("gh"); err == nil {
+		if out, err := run("gh", "auth", "token"); err == nil {
+			if t := strings.TrimSpace(string(out)); t != "" {
+				return t, nil
+			}
+		}
+	}
+	if t := strings.TrimSpace(getenv("GITHUB_ADMIN_TOKEN")); t != "" {
+		return t, nil
+	}
+	return "", errors.New("no GitHub admin credential: run `gh auth login` on this laptop or set GITHUB_ADMIN_TOKEN (used once, never stored)")
+}
+
+func (o SetupGitHubOpts) out() io.Writer {
+	if o.Out == nil {
+		return io.Discard
+	}
+	return o.Out
+}
+
+func (o SetupGitHubOpts) open(url string) {
+	if o.OpenBrowser == nil {
+		return
+	}
+	if err := o.OpenBrowser(url); err != nil {
+		fmt.Fprintf(o.out(), "could not open a browser (%v); open the URL above by hand\n", err)
+	}
+}
+
+func (o SetupGitHubOpts) loadApp() (*github.App, github.AppMeta, error) {
+	pemKey, err := o.Store.Get(secrets.AppKeyFile)
+	if err != nil {
+		return nil, github.AppMeta{}, err
+	}
+	mb, err := o.Store.Get(secrets.AppMetaFile)
+	if err != nil {
+		return nil, github.AppMeta{}, err
+	}
+	var meta github.AppMeta
+	if err := json.Unmarshal(mb, &meta); err != nil {
+		return nil, github.AppMeta{}, fmt.Errorf("%s: %w", secrets.AppMetaFile, err)
+	}
+	app, err := github.NewApp(meta, pemKey, o.AppAPIURL)
+	return app, meta, err
+}
+
+func (o SetupGitHubOpts) haveApp() bool {
+	_, e1 := o.Store.Get(secrets.AppKeyFile)
+	_, e2 := o.Store.Get(secrets.AppMetaFile)
+	return e1 == nil && e2 == nil
+}
+
+// SetupGitHub creates the App (manifest flow), waits for its installation,
+// checks its permissions and applies the rulesets. Each step is skipped when
+// already done, so a re-run resumes.
+func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
+	out := o.out()
+	if !o.haveApp() {
+		if err := o.createApp(ctx); err != nil {
+			return err
+		}
+	}
+	app, meta, err := o.loadApp()
+	if err != nil {
+		return err
+	}
+
+	if meta.InstallationID == 0 {
+		fmt.Fprintf(out, "install the app on the repositories agents may work on:\n  %s\n", app.InstallURL())
+		o.open(app.InstallURL())
+		id, err := o.waitInstalled(ctx, app)
+		if err != nil {
+			return err
+		}
+		meta.InstallationID = id
+		mb, _ := json.Marshal(meta)
+		if err := o.Store.Put(secrets.AppMetaFile, mb); err != nil {
+			return err
+		}
+	}
+
+	if err := app.CheckPermissions(ctx); err != nil {
+		return err
+	}
+	repos, err := app.Repos(ctx)
+	if err != nil {
+		return err
+	}
+	if len(repos) == 0 {
+		fmt.Fprintf(out, "the app is installed on no repositories yet; add some at %s and re-run\n", app.InstallURL())
+	}
+	for _, r := range repos {
+		created, err := o.Admin.EnsureRuleset(ctx, r.Owner, r.Name, o.Cfg.GitHub.ProtectedPatterns)
+		if err != nil {
+			return fmt.Errorf("%s: %w", r.FullName(), err)
+		}
+		verb := "updated"
+		if created {
+			verb = "created"
+		}
+		fmt.Fprintf(out, "✓ %s (default branch %s) ruleset %s\n", r.FullName(), r.DefaultBranch, verb)
+	}
+	fmt.Fprintln(out, "token auto-expiry: yes (1 h)")
+	fmt.Fprintln(out, "workflow isolation: yes (no workflows permission)")
+	fmt.Fprintln(out, "next: `jauntbox unlock` (or any `jauntbox` command) pushes the App key to the box")
+	return nil
+}
+
+// CheckGitHub verifies, without a browser or any write, that the App's
+// permissions and every installed repository's ruleset are as expected.
+func CheckGitHub(ctx context.Context, o SetupGitHubOpts) error {
+	out := o.out()
+	if !o.haveApp() {
+		return errors.New("no GitHub App is set up yet; run `jauntbox setup github`")
+	}
+	app, meta, err := o.loadApp()
+	if err != nil {
+		return err
+	}
+	if meta.InstallationID == 0 {
+		return fmt.Errorf("the app is not installed yet; run `jauntbox setup github` (install URL: %s)", app.InstallURL())
+	}
+	if err := app.CheckPermissions(ctx); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "✓ app permissions within the allowed set")
+	repos, err := app.Repos(ctx)
+	if err != nil {
+		return err
+	}
+	var bad []string
+	for _, r := range repos {
+		if err := o.Admin.VerifyRuleset(ctx, r.Owner, r.Name, o.Cfg.GitHub.ProtectedPatterns); err != nil {
+			fmt.Fprintf(out, "✗ %s: %v\n", r.FullName(), err)
+			bad = append(bad, r.FullName())
+			continue
+		}
+		fmt.Fprintf(out, "✓ %s (default branch %s) ruleset ok\n", r.FullName(), r.DefaultBranch)
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("ruleset drift on %s; run `jauntbox setup github` to repair", strings.Join(bad, ", "))
+	}
+	return nil
+}
+
+func (o SetupGitHubOpts) waitInstalled(ctx context.Context, app *github.App) (int64, error) {
+	wait, every := o.InstallWait, o.PollEvery
+	if wait <= 0 {
+		wait = defaultInstallWait
+	}
+	if every <= 0 {
+		every = 5 * time.Second
+	}
+	deadline := time.Now().Add(wait)
+	var last error
+	for {
+		id, err := app.InstallationID(ctx)
+		if err == nil {
+			return id, nil
+		}
+		last = err
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		if !time.Now().Add(every).Before(deadline) {
+			return 0, fmt.Errorf("timed out after %s waiting for the app to be installed (%v); install it at %s, then re-run `jauntbox setup github`",
+				wait, last, app.InstallURL())
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(every):
+		}
+	}
+}
+
+// createApp runs the manifest flow through a short-lived loopback server.
+func (o SetupGitHubOpts) createApp(ctx context.Context) error {
+	out := o.out()
+	listen := o.Listen
+	if listen == nil {
+		listen = func() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:0") }
+	}
+	ln, err := listen()
+	if err != nil {
+		return err
+	}
+	var sb [16]byte
+	if _, err := rand.Read(sb[:]); err != nil {
+		ln.Close()
+		return err
+	}
+	state := hex.EncodeToString(sb[:])
+	base := "http://" + ln.Addr().String()
+	web := strings.TrimRight(o.WebURL, "/")
+	if web == "" {
+		web = "https://github.com"
+	}
+	target := web + "/settings/apps/new"
+	if org := o.Cfg.GitHub.Org; org != "" {
+		target = web + "/organizations/" + org + "/settings/apps/new"
+	}
+	target += "?state=" + state
+	manifest := AppManifest(o.Cfg.User, base+"/callback")
+
+	done := make(chan error, 1)
+	finish := func(err error) {
+		select {
+		case done <- err:
+		default:
+		}
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!doctype html><html><body><p>Redirecting to GitHub to create the app...</p>
+<form id="f" method="post" action="%s"><input type="hidden" name="manifest" value="%s"><noscript><button>Continue</button></noscript></form>
+<script>document.getElementById("f").submit()</script></body></html>`, html.EscapeString(target), html.EscapeString(string(manifest)))
+	})
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		got := r.URL.Query().Get("state")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(state)) != 1 {
+			http.Error(w, "state mismatch", http.StatusBadRequest)
+			return
+		}
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			http.Error(w, "missing code", http.StatusBadRequest)
+			return
+		}
+		meta, pemKey, err := o.Admin.ConvertManifest(r.Context(), code)
+		if err == nil {
+			err = o.Store.Put(secrets.AppKeyFile, pemKey)
+		}
+		if err == nil {
+			mb, _ := json.Marshal(meta)
+			err = o.Store.Put(secrets.AppMetaFile, mb)
+		}
+		if err != nil {
+			http.Error(w, "could not finish creating the app; see the terminal", http.StatusInternalServerError)
+			finish(err)
+			return
+		}
+		fmt.Fprintln(w, "done, you can close this tab")
+		finish(nil)
+	})
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go srv.Serve(ln)
+	defer func() {
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		srv.Shutdown(sctx)
+	}()
+
+	fmt.Fprintf(out, "creating the GitHub App; continue in your browser:\n  %s/\n", base)
+	o.open(base + "/")
+
+	wait := o.InstallWait
+	if wait <= 0 {
+		wait = defaultInstallWait
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(wait):
+		return fmt.Errorf("timed out after %s waiting for the app to be created; re-run `jauntbox setup github`", wait)
+	}
+}

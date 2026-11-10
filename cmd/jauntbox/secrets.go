@@ -5,11 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/WA-Systems-EU/jaunt/internal/client"
+	"github.com/WA-Systems-EU/jaunt/internal/config"
+	"github.com/WA-Systems-EU/jaunt/internal/forge/github"
 	"github.com/WA-Systems-EU/jaunt/internal/secrets"
 )
 
@@ -82,4 +89,51 @@ func readSecret(cmd *cobra.Command, key string) (string, error) {
 		return "", fmt.Errorf("read value: %w", err)
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// setupCmd is `jauntbox setup github [--check]`.
+func setupCmd(cfgPath *string) *cobra.Command {
+	root := &cobra.Command{Use: "setup", Short: "Set up integrations"}
+	var check bool
+	gh := &cobra.Command{
+		Use:   "github",
+		Short: "Create the GitHub App, wait for its installation and apply branch rulesets",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			cfg, err := config.Load(*cfgPath)
+			if err != nil {
+				return err
+			}
+			tok, err := client.AdminToken(exec.LookPath, func(argv ...string) ([]byte, error) {
+				return exec.Command(argv[0], argv[1:]...).Output()
+			}, os.Getenv)
+			if err != nil {
+				return err
+			}
+			o := client.SetupGitHubOpts{
+				Cfg:         cfg,
+				Store:       secrets.Store{Dir: secrets.DirFor(*cfgPath)},
+				Admin:       github.Admin{Token: tok},
+				OpenBrowser: openBrowser,
+				Out:         cmd.OutOrStdout(),
+			}
+			if check {
+				return client.CheckGitHub(ctx, o)
+			}
+			return client.SetupGitHub(ctx, o)
+		},
+	}
+	gh.Flags().BoolVar(&check, "check", false, "only verify the App permissions and rulesets; change nothing")
+	root.AddCommand(gh)
+	return root
+}
+
+func openBrowser(url string) error {
+	name := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		name = "open"
+	}
+	return exec.Command(name, url).Start()
 }
