@@ -107,6 +107,7 @@ func loadDeps(cfgPath string) (client.Deps, error) {
 func runInherited(argv []string) (int, error) {
 	c := exec.Command(argv[0], argv[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	c.Env = session.WithoutHerdrEnv(os.Environ()) // the box's session is not a nested local one
 	err := c.Run()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -238,6 +239,7 @@ func newRootCmd() *cobra.Command {
 	}
 	boxStatus.Flags().BoolVar(&asJSON, "json", false, "machine-readable output")
 
+	var nested bool
 	root := &cobra.Command{
 		Use:           "jauntbox",
 		Short:         "On-demand remote workspace on Hetzner",
@@ -252,9 +254,10 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return client.Attach(ctx, d, session.Herdr{}, runInherited, exec.LookPath)
+			return client.Attach(ctx, d, session.Herdr{}, nested, runInherited, exec.LookPath)
 		},
 	}
+	root.Flags().BoolVar(&nested, "nested", false, "attach even from inside a local herdr pane (herdr inside herdr)")
 	root.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to the jauntbox config file")
 
 	var wait bool

@@ -52,6 +52,8 @@ func (r *scriptRemote) Copy(_ context.Context, _, _, remote string) error {
 
 func attachFixture(t *testing.T) (Deps, *fakeProv, *scriptRemote) {
 	t.Helper()
+	t.Setenv("HERDR_ENV", "") // tests may themselves run inside a herdr pane
+	t.Setenv("HERDR_SESSION", "")
 	d, p, _, _, _, _ := newDeps(t)
 	d.Cfg.DefaultProfile = "small"
 	r := &scriptRemote{}
@@ -72,7 +74,7 @@ func TestAttachUpThenExec(t *testing.T) {
 	r.src = "/home/alice/src/a/\n/home/alice/src/b/\n"
 	r.list = `{"result":{"workspaces":[{"label":"a"}]}}`
 	var got [][]string
-	err := Attach(context.Background(), d, session.Herdr{}, func(argv []string) (int, error) {
+	err := Attach(context.Background(), d, session.Herdr{}, false, func(argv []string) (int, error) {
 		got = append(got, argv)
 		return 0, nil
 	}, func(string) (string, error) { return "/usr/bin/herdr", nil })
@@ -100,7 +102,7 @@ func TestAttachUpThenExec(t *testing.T) {
 func TestAttachExistingBoxSkipsPush(t *testing.T) {
 	d, p, r := attachFixture(t)
 	withBox(p)
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { return 0, nil },
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { return 0, nil },
 		func(string) (string, error) { return "", errors.New("none") })
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +122,7 @@ func TestAttachExistingBoxEnsuresSupervisorBeforeAttach(t *testing.T) {
 	withBox(p)
 	r.noSupervisor = true
 	attached := false
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) {
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) {
 		attached = true
 		joined := strings.Join(r.cmds, "\n")
 		if !strings.Contains(joined, "copy:/tmp/jauntbox") || !strings.Contains(joined, "systemctl enable --now jauntbox-supervise.timer") {
@@ -174,7 +176,7 @@ func TestAttachFallsBackToSSHWithoutLocalHerdr(t *testing.T) {
 	d, p, _ := attachFixture(t)
 	withBox(p)
 	var got []string
-	_ = Attach(context.Background(), d, session.Herdr{}, func(a []string) (int, error) { got = a; return 0, nil },
+	_ = Attach(context.Background(), d, session.Herdr{}, false, func(a []string) (int, error) { got = a; return 0, nil },
 		func(string) (string, error) { return "", errors.New("none") })
 	if got[0] != "ssh" {
 		t.Fatalf("exec = %v", got)
@@ -188,7 +190,7 @@ func TestAttachReconnectsOnTransportFailure(t *testing.T) {
 	var slept []time.Duration
 	sleepFn = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
 	calls := 0
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) {
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) {
 		c := codes[calls]
 		calls++
 		return c, nil
@@ -213,7 +215,7 @@ func TestAttachBackoffCapsAndGivesUp(t *testing.T) {
 		clock = clock.Add(d)
 		return nil
 	}
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { return 255, nil },
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { return 255, nil },
 		func(string) (string, error) { return "x", nil })
 	if err == nil || !strings.Contains(err.Error(), "giving up") {
 		t.Fatalf("err = %v", err)
@@ -233,7 +235,7 @@ func TestAttachStopsOnUserExit(t *testing.T) {
 	withBox(p)
 	for _, code := range []int{0, 1, 130} {
 		calls := 0
-		err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { calls++; return code, nil },
+		err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { calls++; return code, nil },
 			func(string) (string, error) { return "x", nil })
 		if err != nil || calls != 1 {
 			t.Fatalf("code %d: calls=%d err=%v", code, calls, err)
@@ -246,7 +248,7 @@ func TestAttachSkipsUnsafeProjectNames(t *testing.T) {
 	withBox(p)
 	r.src = "/home/alice/src/ok/\n/home/alice/src/a;rm -rf x/\n"
 	r.list = `{"result":{"workspaces":[]}}`
-	_ = Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { return 0, nil },
+	_ = Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { return 0, nil },
 		func(string) (string, error) { return "x", nil })
 	joined := strings.Join(r.cmds, "\n")
 	if !strings.Contains(joined, "--label ok") || strings.Contains(joined, "rm -rf") && strings.Contains(joined, "create --cwd /home/alice/src/a") {
@@ -262,7 +264,7 @@ func TestAttachWaitsForOnlineThenFails(t *testing.T) {
 	nowFn = func() time.Time { return clock }
 	t.Cleanup(func() { nowFn = time.Now })
 	sleepFn = func(_ context.Context, d time.Duration) error { clock = clock.Add(d); return nil }
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { t.Fatal("exec"); return 0, nil },
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { t.Fatal("exec"); return 0, nil },
 		func(string) (string, error) { return "x", nil })
 	if err == nil || !strings.Contains(err.Error(), "not on the tailnet") {
 		t.Fatalf("err = %v", err)
@@ -273,7 +275,7 @@ func TestAttachWaitsForProvisioning(t *testing.T) {
 	d, p, r := attachFixture(t)
 	withBox(p)
 	r.testFails = 3
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { return 0, nil },
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { return 0, nil },
 		func(string) (string, error) { return "x", nil })
 	if err != nil || r.tests != 4 {
 		t.Fatalf("tests=%d err=%v", r.tests, err)
@@ -292,7 +294,7 @@ func TestAttachProvisioningTimeout(t *testing.T) {
 	t.Cleanup(func() { nowFn = time.Now })
 	sleepFn = func(_ context.Context, d time.Duration) error { clock = clock.Add(d); return nil }
 	provisionPoll = 10 * time.Second
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) { t.Fatal("exec"); return 0, nil },
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { t.Fatal("exec"); return 0, nil },
 		func(string) (string, error) { return "x", nil })
 	if err == nil || !strings.Contains(err.Error(), "jauntbox ssh") || !strings.Contains(err.Error(), "cloud-init status --long") {
 		t.Fatalf("err = %v", err)
@@ -317,7 +319,7 @@ func TestAttachReconnectResetsAfterHealthySession(t *testing.T) {
 		code int
 	}{{0, 255}, {0, 255}, {2 * time.Hour, 255}, {0, 0}}
 	i := 0
-	err := Attach(context.Background(), d, session.Herdr{}, func([]string) (int, error) {
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) {
 		r := runs[i]
 		i++
 		clock = clock.Add(r.dur)
@@ -329,5 +331,63 @@ func TestAttachReconnectResetsAfterHealthySession(t *testing.T) {
 	want := []time.Duration{2 * time.Second, 4 * time.Second, 2 * time.Second}
 	if !reflect.DeepEqual(slept, want) {
 		t.Fatalf("backoff = %v want %v", slept, want)
+	}
+}
+
+func TestAttachRefusesInsideLocalHerdrByDefault(t *testing.T) {
+	for _, name := range []string{"HERDR_ENV", "HERDR_SESSION"} {
+		t.Run(name, func(t *testing.T) {
+			d, p, r := attachFixture(t)
+			t.Setenv(name, "1")
+			withBox(p)
+			p.calls = nil
+			execs := 0
+			err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { execs++; return 0, nil },
+				func(string) (string, error) { return "/bin/herdr", nil })
+			if err == nil || !strings.Contains(err.Error(), "--nested") {
+				t.Fatalf("err = %v, want one mentioning --nested", err)
+			}
+			if execs != 0 || len(r.cmds) != 0 || len(p.calls) != 0 {
+				t.Fatalf("work done before refusing: execs=%d remote=%v provider=%v", execs, r.cmds, p.calls)
+			}
+		})
+	}
+}
+
+func TestAttachNestedPrintsNoticeAndAttaches(t *testing.T) {
+	for _, name := range []string{"HERDR_ENV", "HERDR_SESSION"} {
+		t.Run(name, func(t *testing.T) {
+			d, p, _ := attachFixture(t)
+			t.Setenv(name, "1")
+			withBox(p)
+			var buf strings.Builder
+			attachOut = &buf
+			execs := 0
+			err := Attach(context.Background(), d, session.Herdr{}, true, func([]string) (int, error) { execs++; return 0, nil },
+				func(string) (string, error) { return "/bin/herdr", nil })
+			if err != nil || execs != 1 {
+				t.Fatalf("err=%v execs=%d", err, execs)
+			}
+			if !strings.Contains(buf.String(), "inside a local herdr pane") {
+				t.Fatalf("no notice: %q", buf.String())
+			}
+		})
+	}
+}
+
+func TestAttachOutsideHerdrUnaffected(t *testing.T) {
+	t.Setenv("HERDR_ENV", "")
+	t.Setenv("HERDR_SESSION", "")
+	for _, nested := range []bool{false, true} {
+		d, p, _ := attachFixture(t)
+		withBox(p)
+		var buf strings.Builder
+		attachOut = &buf
+		execs := 0
+		err := Attach(context.Background(), d, session.Herdr{}, nested, func([]string) (int, error) { execs++; return 0, nil },
+			func(string) (string, error) { return "/bin/herdr", nil })
+		if err != nil || execs != 1 || strings.Contains(buf.String(), "herdr pane") {
+			t.Fatalf("nested=%v err=%v execs=%d out=%q", nested, err, execs, buf.String())
+		}
 	}
 }

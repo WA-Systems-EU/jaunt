@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -42,9 +43,14 @@ var projectName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // Attach brings the box up (idempotently), prepares one workspace per project
 // in ~/src and attaches the persistent session, reattaching after transport
-// failures. It returns when the session ends for any other reason.
-func Attach(ctx context.Context, d Deps, sess session.Session,
+// failures. It returns when the session ends for any other reason. Inside a
+// local herdr pane it refuses, before doing anything, unless nested is set.
+func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 	exec func(argv []string) (int, error), lookPath func(string) (string, error)) error {
+	if session.InsideHerdr() && !nested {
+		return errors.New("you are inside a local herdr pane; attaching to the box's herdr session from here would nest herdr inside herdr.\n" +
+			"Run it from a plain terminal, or use `jauntbox --nested` to attach anyway")
+	}
 	host := hostname(d.Cfg.User)
 	res, err := Up(ctx, WithoutSpawn(d), d.Cfg.DefaultProfile)
 	if err != nil && !res.Created {
@@ -72,6 +78,9 @@ func Attach(ctx context.Context, d Deps, sess session.Session,
 	}
 	prepareWorkspaces(ctx, d, sess, host)
 
+	if session.InsideHerdr() {
+		fmt.Fprintf(attachOut, "inside a local herdr pane: attaching to the box's %q session (local herdr pane variables are not passed on)\n", session.Name)
+	}
 	_, lerr := lookPath("herdr")
 	argv := sess.AttachCommand(host, d.Cfg.User, session.Name, lerr == nil)
 	var first time.Time

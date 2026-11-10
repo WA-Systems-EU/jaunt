@@ -81,9 +81,11 @@ have `herdr` installed by provisioning (`herdr --version` on the box).
    `internal/session/herdr.go`); `herdr --remote` exits with a status other than
    255 when the connection drops (if so, add it to the reconnect rule). Note
    the exit status you actually see when the link drops (record it here).
-6. Run bare `jauntbox` from inside a local herdr pane (so `HERDR_SESSION`,
-   `HERDR_SOCKET_PATH` and `HERDR_ENV` are inherited): confirm it attaches to
-   the box's `jauntbox` session and not to the local one.
+6. From inside a local herdr pane (so `HERDR_SESSION`, `HERDR_SOCKET_PATH` and
+   `HERDR_ENV` are set): bare `jauntbox` must refuse with a hint to use a plain
+   terminal or `--nested`, without touching the box. `jauntbox --nested` must
+   attach to the box's `jauntbox` session (not the local one), printing the
+   "inside a local herdr pane" notice.
 7. Fresh box: bare `jauntbox` waits through first-boot provisioning ("provisioning
    jauntbox-<user>…") and then attaches without manual steps.
 
