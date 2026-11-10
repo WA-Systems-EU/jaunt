@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,7 +249,9 @@ func TestDeleteFailedEvent(t *testing.T) {
 	e.err = errors.New("boom")
 	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
 	e.s.RunOnce(context.Background())
-	if e.sink.count("box.delete_failed") != 1 || e.sink.count(events.BoxDeleted) != 0 || e.syncs != 1 {
+	// box.deleted is written before the attempt; box.delete_failed follows it.
+	k := e.sink.kinds
+	if e.sink.count("box.delete_failed") != 1 || e.sink.count(events.BoxDeleted) != 1 || k[len(k)-1] != "box.delete_failed" || e.syncs != 1 {
 		t.Fatalf("%v syncs=%d", e.sink.kinds, e.syncs)
 	}
 }
@@ -463,5 +466,25 @@ func TestRunUsesOneNow(t *testing.T) {
 	e.run(t)
 	if calls != 1 {
 		t.Fatalf("Now read %d times in one pass, want 1", calls)
+	}
+}
+
+func TestBoxDeletedWrittenBeforeSyncAndDelete(t *testing.T) {
+	// The box loses power right after DeleteSelf: anything emitted later never
+	// reaches the volume, so box.deleted must be on disk before the call.
+	e := newEnv(t, at(12, 0))
+	var calls []string
+	e.s.Sync = func() { calls = append(calls, fmt.Sprintf("sync(deleted=%d)", e.sink.count(events.BoxDeleted))) }
+	e.s.DeleteSelf = func(context.Context) error {
+		calls = append(calls, fmt.Sprintf("delete-self(deleted=%d)", e.sink.count(events.BoxDeleted)))
+		return nil
+	}
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.run(t)
+	if got := strings.Join(calls, ","); got != "sync(deleted=1),delete-self(deleted=1)" {
+		t.Fatalf("calls %q", got)
+	}
+	if e.sink.count(events.BoxDeleted) != 1 {
+		t.Fatalf("kinds %v", e.sink.kinds)
 	}
 }

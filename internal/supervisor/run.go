@@ -234,12 +234,15 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 				s.emit(now, "token.revoke_failed", map[string]string{"error": err.Error()})
 			}
 		}
+		// Hetzner cuts power soon after DeleteSelf returns, so nothing written
+		// after it reaches the volume: record box.deleted first, then sync. A
+		// failed delete follows it with box.delete_failed.
+		s.emit(now, events.BoxDeleted, fields)
 		s.Sync()
 		if err := s.DeleteSelf(ctx); err != nil {
 			s.emit(now, "box.delete_failed", map[string]string{"reason": v.Reason, "error": err.Error()})
 			return v, err
 		}
-		s.emit(now, events.BoxDeleted, fields)
 		return v, nil
 	}
 	return v, s.touchHeartbeat(now)

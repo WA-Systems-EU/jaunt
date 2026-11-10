@@ -46,7 +46,8 @@ type jsonl struct {
 }
 
 // JSONLFile appends one JSON object per line to path, creating the parent
-// directory (0700) and the file (0600) as needed.
+// directory (0700) and the file (0600) as needed. Each event is synced to disk
+// before Emit returns.
 func JSONLFile(path string) Sink { return &jsonl{path: path} }
 
 func (j *jsonl) Emit(e Event) error {
@@ -64,6 +65,12 @@ func (j *jsonl) Emit(e Event) error {
 		return err
 	}
 	if _, err := f.Write(append(b, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	// The box can lose power at any moment (self-delete, safety net): without
+	// a sync the file length can reach the disk before the data, leaving NULs.
+	if err := f.Sync(); err != nil {
 		f.Close()
 		return err
 	}
