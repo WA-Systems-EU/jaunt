@@ -228,7 +228,7 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 	if v.Action == lifecycle.Delete {
 		if s.Revoke != nil {
 			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			err := s.Revoke(rctx)
+			err := safeRevoke(rctx, s.Revoke)
 			cancel()
 			if err != nil {
 				s.emit(now, "token.revoke_failed", map[string]string{"error": err.Error()})
@@ -243,4 +243,15 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		return v, nil
 	}
 	return v, s.touchHeartbeat(now)
+}
+
+// safeRevoke turns a panic in the revoke hook into an error so the box still
+// syncs and deletes itself.
+func safeRevoke(ctx context.Context, revoke func(context.Context) error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("revoke panicked: %v", r)
+		}
+	}()
+	return revoke(ctx)
 }

@@ -165,6 +165,8 @@ func gitCredential(op string, in io.Reader, out, errw io.Writer, mint func(repo 
 	tok, err := mint(repo)
 	if err != nil {
 		fmt.Fprintln(errw, err.Error())
+		// Without quit=1 git ignores the failure and prompts for a username.
+		fmt.Fprint(out, "quit=1\n")
 		return errCredential
 	}
 	fmt.Fprintf(out, "username=x-access-token\npassword=%s\n", tok.Value)

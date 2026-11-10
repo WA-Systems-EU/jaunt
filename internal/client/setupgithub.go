@@ -194,7 +194,7 @@ func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
 	}
 	fmt.Fprintln(out, "token auto-expiry: yes (1 h)")
 	fmt.Fprintln(out, "workflow isolation: yes (no workflows permission)")
-	fmt.Fprintln(out, "next: `jauntbox unlock` (or any `jauntbox` command) pushes the App key to the box")
+	fmt.Fprintln(out, "next: run `jauntbox unlock` to push the App key to the box")
 	return nil
 }
 

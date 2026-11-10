@@ -8,6 +8,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/vault"
 	"github.com/spf13/cobra"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -241,15 +242,46 @@ func TestGitCredentialIgnoresOtherHosts(t *testing.T) {
 func TestGitCredentialNotInstalled(t *testing.T) {
 	ne := &minter.NotInstalledError{Repo: "o/r", InstallURL: "https://github.com/apps/x/installations/new"}
 	out, e, err := credRun(t, "host=github.com\npath=o/r\n", func(string) (forge.Token, error) { return forge.Token{}, ne })
-	if !errors.Is(err, errCredential) || out != "" || strings.Count(e, "\n") != 1 || !strings.Contains(e, "https://github.com/apps/x/installations/new") {
+	if !errors.Is(err, errCredential) || out != "quit=1\n" || strings.Count(e, "\n") != 1 || !strings.Contains(e, "https://github.com/apps/x/installations/new") {
 		t.Fatalf("out=%q err=%q %v", out, e, err)
 	}
 }
 
 func TestGitCredentialLocked(t *testing.T) {
-	_, e, err := credRun(t, "host=github.com\npath=o/r\n", func(string) (forge.Token, error) { return forge.Token{}, vault.ErrLocked })
-	if !errors.Is(err, errCredential) || e != vault.ErrLocked.Error()+"\n" {
+	out, e, err := credRun(t, "host=github.com\npath=o/r\n", func(string) (forge.Token, error) { return forge.Token{}, vault.ErrLocked })
+	if !errors.Is(err, errCredential) || out != "quit=1\n" || e != vault.ErrLocked.Error()+"\n" {
 		t.Fatalf("err=%q %v", e, err)
+	}
+}
+
+// TestRealGitStopsOnHelperFailure runs real git against a helper that behaves
+// like a failing git-credential: git must stop with the helper's message and
+// never fall through to a username prompt.
+func TestRealGitStopsOnHelperFailure(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	helper := filepath.Join(dir, "helper.sh")
+	script := "#!/bin/sh\ncat >/dev/null\necho 'the box is locked: test' >&2\nprintf 'quit=1\\n'\nexit 1\n"
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "gitconfig")
+	if err := os.WriteFile(cfg, []byte("[credential]\n\thelper = "+helper+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := exec.Command(gitBin, "credential", "fill")
+	c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GIT_CONFIG_GLOBAL=" + cfg, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0"}
+	c.Stdin = strings.NewReader("protocol=https\nhost=github.com\npath=o/r\n\n")
+	var out, errb bytes.Buffer
+	c.Stdout, c.Stderr = &out, &errb
+	if err := c.Run(); err == nil {
+		t.Fatalf("git succeeded: %q", out.String())
+	}
+	if !strings.Contains(errb.String(), "the box is locked: test") || strings.Contains(errb.String(), "could not read Username") {
+		t.Fatalf("stderr = %q", errb.String())
 	}
 }
 

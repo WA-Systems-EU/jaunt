@@ -46,7 +46,7 @@ func TestEnsureUnlockedPushesOnlyWhenLocked(t *testing.T) {
 	if len(r.inputs) != 1 {
 		t.Fatalf("inputs = %d", len(r.inputs))
 	}
-	if got := r.cmds[len(r.cmds)-1]; got != "[sudo jauntctl secrets-load]" {
+	if got := r.cmds[len(r.cmds)-1]; got != "[sudo -n jauntctl secrets-load]" {
 		t.Fatalf("last cmd = %s", got)
 	}
 	var b secrets.Bundle
@@ -94,7 +94,7 @@ func TestPushBinaryUnlocksAfterInstall(t *testing.T) {
 	if strings.Join(r.order, ",") != strings.Join(want, ",") {
 		t.Fatalf("order = %v", r.order)
 	}
-	if r.cmds[0] != "["+installCmd+"]" || r.cmds[1] != markerCmd || r.cmds[2] != "[sudo jauntctl secrets-load]" {
+	if r.cmds[0] != "["+installCmd+"]" || r.cmds[1] != markerCmd || r.cmds[2] != "[sudo -n jauntctl secrets-load]" {
 		t.Fatalf("cmds = %v", r.cmds)
 	}
 }
@@ -145,5 +145,31 @@ func TestStatusTriesToUnlockWhenLocked(t *testing.T) {
 	}
 	if len(r.inputs) != 1 {
 		t.Fatalf("inputs = %d", len(r.inputs))
+	}
+}
+
+func TestEnsureUnlockedEmptyStoreWarnsAndDoesNotPush(t *testing.T) {
+	d, _, _, r, _, _ := newDeps(t)
+	withSecrets(t, &d)
+	r.locked = true
+	err := EnsureUnlocked(context.Background(), d)
+	want := "no secrets stored on this laptop (" + d.Secrets.Dir + "): copy them from your other client or run `jauntbox setup github`"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v", err)
+	}
+	if len(r.inputs) != 0 {
+		t.Fatalf("pushed: %d", len(r.inputs))
+	}
+}
+
+func TestPushSecretsEmptyStoreRefuses(t *testing.T) {
+	d, _, _, r, _, _ := newDeps(t)
+	withSecrets(t, &d)
+	err := PushSecrets(context.Background(), d)
+	if err == nil || !strings.Contains(err.Error(), "no secrets stored on this laptop") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(r.order) != 0 {
+		t.Fatalf("remote used: %v", r.order)
 	}
 }

@@ -223,7 +223,7 @@ func TestSetupGitHubCreatesAppOnce(t *testing.T) {
 		"✓ WA-Systems-EU/api (default branch trunk) ruleset created",
 		"token auto-expiry: yes (1 h)",
 		"workflow isolation: yes (no workflows permission)",
-		"next: `jauntbox unlock` (or any `jauntbox` command) pushes the App key to the box",
+		"next: run `jauntbox unlock` to push the App key to the box",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)

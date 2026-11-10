@@ -16,11 +16,14 @@ func PushSecrets(ctx context.Context, d Deps) error {
 	if err != nil {
 		return err
 	}
+	if len(b.Files) == 0 {
+		return noSecretsError(d.Secrets.Dir)
+	}
 	payload, err := json.Marshal(b)
 	if err != nil {
 		return fmt.Errorf("encode secrets: %w", err)
 	}
-	if _, err := d.Remote.RunInput(ctx, hostname(d.Cfg.User), payload, "sudo", "jauntctl", "secrets-load"); err != nil {
+	if _, err := d.Remote.RunInput(ctx, hostname(d.Cfg.User), payload, "sudo", "-n", "jauntctl", "secrets-load"); err != nil {
 		return fmt.Errorf("load secrets on the box: %w", err)
 	}
 	return nil
@@ -33,6 +36,12 @@ func EnsureUnlocked(ctx context.Context, d Deps) error {
 		return nil
 	}
 	return PushSecrets(ctx, d)
+}
+
+// noSecretsError explains why nothing is pushed: replacing the box's secrets
+// with an empty bundle would wipe a working box.
+func noSecretsError(dir string) error {
+	return fmt.Errorf("no secrets stored on this laptop (%s): copy them from your other client or run `jauntbox setup github`", dir)
 }
 
 // tryUnlock is EnsureUnlocked for commands whose main job must not fail

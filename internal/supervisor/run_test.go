@@ -433,6 +433,16 @@ func TestRevokeFailureDoesNotBlockDelete(t *testing.T) {
 	}
 }
 
+func TestPanickingRevokeDoesNotBlockDelete(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	e.s.Revoke = func(context.Context) error { panic("boom") }
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.run(t)
+	if e.deletes != 1 || e.sink.count("token.revoke_failed") != 1 {
+		t.Fatalf("deletes=%d %v", e.deletes, e.sink.kinds)
+	}
+}
+
 func TestKeepVerdictDoesNotRevoke(t *testing.T) {
 	e := newEnv(t, at(12, 0))
 	revoked := 0

@@ -110,6 +110,9 @@ Needs a scratch GitHub repo (with a few commits) in the org from `github.org`
 (`WA-Systems-EU` for the maintainer). Replace `o/r` with that repo and
 `<default branch>` with its real default branch name.
 
+After upgrading jauntbox, run `jauntbox` or `jauntbox up` once against an existing
+box before `jauntbox down`, so the box gets `jauntctl`.
+
 1. **App setup.** `jauntbox setup github` creates `jauntbox-<user>` under
    `WA-Systems-EU`. Install it on the scratch repo only. The ruleset
    `jauntbox: humans merge the default branch` is visible in the repo's settings.

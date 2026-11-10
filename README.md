@@ -85,13 +85,16 @@ jauntbox unlock                                # push secrets to the box: after 
 - **Locked state.** After a reboot (or before the first unlock) the box has no secrets
   in memory. `git push` then prints the locked message. Laptop commands that reach the
   box (`jauntbox`, `ssh`, `status`) unlock it automatically; a locked box shows the
-  locked message in `jauntbox status` only if that automatic unlock failed (for example
-  no secrets are stored). `jauntbox unlock` does it explicitly.
+  locked message in `jauntbox status` if that automatic unlock failed or this laptop has
+  no secrets stored. `jauntbox unlock` does it explicitly (and refuses to push an empty
+  set, so a secret-less client never wipes a working box).
 - Tokens are revoked before the box deletes itself; `token.revoked` events are written
   to `/home/.jauntbox/events.jsonl` on the volume.
 - Box-side commands answer to `jauntctl` (`supervise`, `stop`, `night-set`,
   `box-status`, `secrets-load`, `mint`, `repos`, `git-credential`). A `jauntbox`
   symlink to it remains on the box for old units.
+- **Upgrading.** After upgrading jauntbox, run `jauntbox` or `jauntbox up` once against
+  an existing box before `jauntbox down`, so the box gets `jauntctl`.
 
 ## Status
 
