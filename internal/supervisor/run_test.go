@@ -21,9 +21,19 @@ type fakeAgents struct{ n int }
 
 func (f *fakeAgents) Count(context.Context) (int, error) { return f.n, nil }
 
-type recSink struct{ kinds []string }
+type recSink struct {
+	kinds  []string
+	fields map[string]map[string]string
+}
 
-func (r *recSink) Emit(e events.Event) error { r.kinds = append(r.kinds, e.Kind); return nil }
+func (r *recSink) Emit(e events.Event) error {
+	r.kinds = append(r.kinds, e.Kind)
+	if r.fields == nil {
+		r.fields = map[string]map[string]string{}
+	}
+	r.fields[e.Kind] = e.Fields
+	return nil
+}
 func (r *recSink) count(k string) int {
 	n := 0
 	for _, x := range r.kinds {
@@ -394,5 +404,43 @@ func TestLastActiveIsRealLastInputNotPassTime(t *testing.T) {
 	st, _ = LoadState(e.s.Paths.State)
 	if !st.LastActive.Equal(at(12, 5)) {
 		t.Fatalf("LastActive with agents = %v", st.LastActive)
+	}
+}
+
+func TestDeleteRevokesTokensFirst(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	var calls []string
+	e.s.Revoke = func(context.Context) error { calls = append(calls, "revoke"); return nil }
+	e.s.Sync = func() { calls = append(calls, "sync") }
+	e.s.DeleteSelf = func(context.Context) error { calls = append(calls, "delete-self"); return nil }
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.run(t)
+	if got := strings.Join(calls, ","); got != "revoke,sync,delete-self" {
+		t.Fatalf("call order %q", got)
+	}
+}
+
+func TestRevokeFailureDoesNotBlockDelete(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	e.s.Revoke = func(context.Context) error { return errors.New("forge down") }
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.run(t)
+	if e.deletes != 1 || e.sink.count(events.BoxDeleted) != 1 {
+		t.Fatalf("deletes=%d %v", e.deletes, e.sink.kinds)
+	}
+	if e.sink.count("token.revoke_failed") != 1 || e.sink.fields["token.revoke_failed"]["error"] != "forge down" {
+		t.Fatalf("%v %v", e.sink.kinds, e.sink.fields)
+	}
+}
+
+func TestKeepVerdictDoesNotRevoke(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	revoked := 0
+	e.s.Revoke = func(context.Context) error { revoked++; return nil }
+	if v := e.run(t); v.Action != lifecycle.Keep {
+		t.Fatalf("got %+v", v)
+	}
+	if revoked != 0 {
+		t.Fatalf("revoked=%d", revoked)
 	}
 }

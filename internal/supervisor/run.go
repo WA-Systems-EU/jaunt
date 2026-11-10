@@ -14,6 +14,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/lifecycle"
+	"github.com/WA-Systems-EU/jaunt/internal/minter"
 	"github.com/WA-Systems-EU/jaunt/internal/provider/hetzner"
 )
 
@@ -32,19 +33,26 @@ type Supervisor struct {
 	Now        func() time.Time
 	DeleteSelf func(ctx context.Context) error
 	Sync       func()
+	// Revoke drops cached forge tokens before the box deletes itself; nil is a no-op.
+	Revoke func(ctx context.Context) error
 }
 
 // New wires the production supervisor for info.
 func New(info boxinfo.BoxInfo) *Supervisor {
 	p := DefaultPaths()
+	ev := events.JSONLFile(p.Events)
 	return &Supervisor{
 		Info:   info,
 		Paths:  p,
 		PtsDir: ptsDir,
 		Agents: DockerAgents{},
-		Events: events.JSONLFile(p.Events),
+		Events: ev,
 		Now:    time.Now,
 		Sync:   syscall.Sync,
+		Revoke: func(ctx context.Context) error {
+			_, err := minter.New(ev).RevokeAll(ctx)
+			return err
+		},
 		DeleteSelf: func(ctx context.Context) error {
 			tok, err := os.ReadFile(tokenPath)
 			if err != nil {
@@ -218,6 +226,14 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		return v, err
 	}
 	if v.Action == lifecycle.Delete {
+		if s.Revoke != nil {
+			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := s.Revoke(rctx)
+			cancel()
+			if err != nil {
+				s.emit("token.revoke_failed", map[string]string{"error": err.Error()})
+			}
+		}
 		s.Sync()
 		if err := s.DeleteSelf(ctx); err != nil {
 			s.emit("box.delete_failed", map[string]string{"reason": v.Reason, "error": err.Error()})
