@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# jaunt-repos — connect to GitHub, list repos already cloned under ~/src, and interactively
-# clone more. Meant to be run by the engineer on the box (manual command). Idempotent:
-# repos already present are shown and skipped, never re-cloned.
+# jaunt-repos — list repos already cloned under ~/src, list the repositories the jauntbox
+# GitHub App is installed on, and interactively clone more. Meant to be run by the engineer
+# on the box (manual command). Idempotent: repos already present are shown and skipped.
+# Listing goes through `jauntctl repos`; cloning works because the git credential helper
+# (`jauntctl git-credential`) mints a one-repo token on demand. No `gh` is used.
 set -euo pipefail
 
 WORKSPACE="${JAUNT_SRC:-$HOME/src}"
@@ -10,20 +12,12 @@ mkdir -p "$WORKSPACE"
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
 
-command -v gh >/dev/null 2>&1 || { echo "gh (GitHub CLI) is not installed." >&2; exit 1; }
-
-# --- 1. Ensure we are connected to GitHub ---------------------------------------------
-# On a headless box `gh auth login` uses the device flow: it prints a one-time code and a
-# URL for you to open in a browser on your own machine — no browser needed on the box.
-if ! gh auth status >/dev/null 2>&1; then
-  bold "GitHub: not authenticated — starting login (device flow)"
-  gh auth login --hostname github.com --git-protocol https
+if [ -f "$HOME/.config/gh/hosts.yml" ]; then
+  echo 'warning: an account-wide GitHub login (gh auth login) is stored on this volume; run "gh auth logout" and revoke it at https://github.com/settings/applications' >&2
 fi
-account="$(gh api user --jq .login 2>/dev/null || echo '?')"
-bold "GitHub: authenticated as ${account}"
 
-# --- 2. Show repositories already cloned in the workspace ------------------------------
-printf '\n'; bold "Already cloned in ${WORKSPACE}:"
+# --- 1. Show repositories already cloned in the workspace ------------------------------
+bold "Already cloned in ${WORKSPACE}:"
 existing=0
 while IFS= read -r gitdir; do
   repo_dir="$(dirname "$gitdir")"
@@ -34,39 +28,48 @@ while IFS= read -r gitdir; do
 done < <(find "$WORKSPACE" -maxdepth 3 -type d -name .git 2>/dev/null | sort)
 [ "$existing" -eq 0 ] && info "(none yet)"
 
-# --- 3. Offer to clone more -----------------------------------------------------------
-printf '\n'; read -rp "Clone more repositories? [y/N] " ans
-case "${ans:-}" in [yY]*) ;; *) bold "Nothing to do."; exit 0 ;; esac
-
-read -rp "Owner/org to list [${account}]: " owner
-owner="${owner:-$account}"
-
-bold "Fetching repositories for ${owner} ..."
-mapfile -t repos < <(gh repo list "$owner" --limit 200 \
-  --json nameWithOwner,description --jq '.[] | "\(.nameWithOwner)\t\(.description // "")"')
-if [ "${#repos[@]}" -eq 0 ]; then
-  info "No repositories found for ${owner}."; exit 0
+# --- 2. List the App's repositories not yet cloned --------------------------------------
+errfile="$(mktemp)"
+trap 'rm -f "$errfile"' EXIT
+if ! json="$(sudo -n jauntctl repos --json 2>"$errfile")"; then
+  cat "$errfile" >&2
+  exit 1
 fi
 
+# Each entry: name <TAB> owner <TAB> default_branch <TAB> clone_url
+candidates=()
+while IFS=$'\t' read -r name owner branch url; do
+  [ -d "${WORKSPACE}/${name}" ] && continue
+  candidates+=("${name}"$'\t'"${owner}"$'\t'"${branch}"$'\t'"${url}")
+done < <(printf '%s' "$json" | jq -r '.[] | [.name, .owner, .default_branch, .clone_url] | @tsv')
+
+printf '\n'
+if [ "${#candidates[@]}" -eq 0 ]; then
+  info "No more repositories to clone from the GitHub App."
+  exit 0
+fi
+
+bold "Repositories available through the GitHub App:"
 i=1
-for r in "${repos[@]}"; do
-  nwo="${r%%$'\t'*}"; desc="${r#*$'\t'}"
-  printf "  %3d) %-45s %s\n" "$i" "$nwo" "$desc"
+for c in "${candidates[@]}"; do
+  IFS=$'\t' read -r name owner branch _ <<<"$c"
+  printf "  %3d) %-45s %s\n" "$i" "${owner}/${name}" "(${branch})"
   i=$((i + 1))
 done
 
-printf '\n'; read -rp "Numbers to clone (space-separated, or 'all', blank to skip): " picks
-[ "${picks:-}" = "all" ] && picks="$(seq 1 "${#repos[@]}")"
+# --- 3. Clone the picks -----------------------------------------------------------------
+printf '\n'; read -rp "Numbers to clone (space-separated, or 'all', blank to skip): " picks || picks=""
+[ "${picks:-}" = "all" ] && picks="$(seq 1 "${#candidates[@]}")"
 
 for n in ${picks:-}; do
   case "$n" in '' | *[!0-9]*) continue ;; esac
   idx=$((n - 1))
-  { [ "$idx" -lt 0 ] || [ "$idx" -ge "${#repos[@]}" ]; } && continue
-  nwo="${repos[$idx]%%$'\t'*}"
-  dest="${WORKSPACE}/${nwo##*/}"
-  if [ -d "$dest" ]; then info "skip ${nwo} (already at ${dest})"; continue; fi
-  bold "Cloning ${nwo} -> ${dest}"
-  gh repo clone "$nwo" "$dest"
+  { [ "$idx" -lt 0 ] || [ "$idx" -ge "${#candidates[@]}" ]; } && continue
+  IFS=$'\t' read -r name owner _ url <<<"${candidates[$idx]}"
+  dest="${WORKSPACE}/${name}"
+  if [ -d "$dest" ]; then info "skip ${owner}/${name} (already at ${dest})"; continue; fi
+  bold "Cloning ${owner}/${name} -> ${dest}"
+  git clone "$url" "$dest"
 done
 
 printf '\n'; bold "Repositories in ${WORKSPACE}:"
