@@ -57,14 +57,15 @@ Not yet live-tested end to end: see [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMO
 
 The box never holds a long-lived credential on disk. Your secrets stay on the laptop
 in `~/.config/jauntbox/secrets/` (files mode 0600) and are pushed into the box's RAM
-(`/run/jauntbox/secrets`) every time a laptop command reaches the box.
+(`/run/jauntbox/secrets`) when the box doesn't hold them (a new or rebooted box). After
+`jauntbox secrets set`, run `jauntbox unlock` to push the new value.
 
 ```sh
 jauntbox setup github                          # once: create and install the GitHub App
 jauntbox setup github --check                  # later: report drift from the expected permissions
 jauntbox secrets set CLAUDE_CODE_OAUTH_TOKEN   # an agent credential (prompted, never echoed)
 jauntbox secrets list                          # names only, never values
-jauntbox unlock                                # push secrets to a box that was rebooted
+jauntbox unlock                                # push secrets to the box: after a reboot or after changing secrets
 ```
 
 - `setup github` runs the GitHub App manifest flow in your browser and creates
@@ -82,8 +83,10 @@ jauntbox unlock                                # push secrets to a box that was 
   lists the repos the App is installed on and clones them; it warns if it finds an old
   `gh auth login`, which you should remove.
 - **Locked state.** After a reboot (or before the first unlock) the box has no secrets
-  in memory. `git push` then prints the locked message and `jauntbox status` shows
-  `locked`. Any laptop command that reaches the box, or `jauntbox unlock`, fixes it.
+  in memory. `git push` then prints the locked message. Laptop commands that reach the
+  box (`jauntbox`, `ssh`, `status`) unlock it automatically; a locked box shows the
+  locked message in `jauntbox status` only if that automatic unlock failed (for example
+  no secrets are stored). `jauntbox unlock` does it explicitly.
 - Tokens are revoked before the box deletes itself; `token.revoked` events are written
   to `/home/.jauntbox/events.jsonl` on the volume.
 - Box-side commands answer to `jauntctl` (`supervise`, `stop`, `night-set`,

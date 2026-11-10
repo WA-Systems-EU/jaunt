@@ -120,9 +120,11 @@ Needs a scratch GitHub repo (with a few commits) in the org from `github.org`
    `git push origin HEAD:<default branch>` is **rejected** by the ruleset. Open a PR
    from `agent/smoke` and merge it in the web UI as the human: it **works** (admin
    bypass). Record the rejection message and anything unexpected in the listing.
-3. **Locked after reboot.** `sudo reboot` the box. `git push` prints the locked
-   message; `jauntbox status` shows locked. `jauntbox unlock` on the laptop, then
-   push works again. Record both outputs.
+3. **Locked after reboot.** `sudo reboot` the box. Reconnect with plain
+   `ssh <user>@jauntbox-<user>`, not `jauntbox ssh`, bare `jauntbox` or `jauntbox
+   status`: those unlock the box automatically first. Then `git push` prints the
+   locked message. Run `jauntbox unlock` on the laptop and push again: it works.
+   Record both outputs.
 4. **Permission drift.** Add the `workflows` permission by hand in the App settings.
    `jauntbox setup github --check` reports the drift. Minted tokens still lack
    `workflows`: `curl -H "Authorization: token $(sudo jauntctl mint o/r | jq -r .token)" https://api.github.com/installation/repositories`
@@ -130,9 +132,12 @@ Needs a scratch GitHub repo (with a few commits) in the org from `github.org`
    check output and the push rejection. Remove the permission afterwards.
 5. **Revocation on down.** Note a minted token (step 4), then `jauntbox down`. The
    events in `/home/.jauntbox/events.jsonl` on the volume (read them from the next
-   box, or by attaching the volume) show `token.revoked` for each minted token, and
-   the old token returns 401 from the GitHub API. Record the event count against the
-   number of mints and the HTTP status.
+   box, or by attaching the volume) show `token.revoked` for the tokens minted since
+   the step-3 reboot, and the old token returns 401 from the GitHub API. Tokens
+   minted before the reboot lived in the tmpfs cache, which the reboot wiped; they
+   are not revoked and simply expire. Cache hits emit no `token.minted`, so compare
+   the `token.revoked` count against the `token.minted` events since the last
+   reboot. Record both counts and the HTTP status.
 6. **Nothing on the volume.** `ls /home` and `grep -r ghs_ /home` find no token or
    key. Record the output (expected: nothing found).
 
