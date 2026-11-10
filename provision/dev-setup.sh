@@ -47,6 +47,8 @@ apt-get install -y --no-install-recommends \
 # Debian/Ubuntu ship these under alternate names; give them their conventional names.
 [ -x /usr/bin/fdfind ] && ln -sf /usr/bin/fdfind /usr/local/bin/fd
 [ -x /usr/bin/batcat ] && ln -sf /usr/bin/batcat /usr/local/bin/bat
+# cloud-init writes the repo picker to /opt/jaunt; put it on PATH as `jaunt-repos`.
+[ -x /opt/jaunt/jaunt-repos.sh ] && ln -sf /opt/jaunt/jaunt-repos.sh /usr/local/bin/jaunt-repos
 # Make zsh the engineer's login shell (matches the reference devbox + local dev shell). Done
 # here, after zsh is installed, rather than at useradd time.
 chsh -s "$(command -v zsh)" "$JAUNT_USER"
