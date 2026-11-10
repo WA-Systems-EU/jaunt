@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -189,5 +190,25 @@ func TestOrgs(t *testing.T) {
 	}
 	if c := (*calls)[0]; c.auth != "Bearer adm" || c.path != "/user/orgs" {
 		t.Fatalf("call %+v", c)
+	}
+}
+
+func TestRulesetsUnavailableOnFreePlan(t *testing.T) {
+	paywall := func(r *http.Request, _ string) (int, string) {
+		return 403, `{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature."}`
+	}
+	srv, _ := adminServer(t, paywall)
+	a := Admin{Token: "adm", APIURL: srv.URL}
+	if _, err := a.EnsureRuleset(context.Background(), "o", "r", nil); !errors.Is(err, ErrRulesetsUnavailable) {
+		t.Fatalf("EnsureRuleset err = %v", err)
+	}
+	if err := a.VerifyRuleset(context.Background(), "o", "r", nil); !errors.Is(err, ErrRulesetsUnavailable) {
+		t.Fatalf("VerifyRuleset err = %v", err)
+	}
+	other, _ := adminServer(t, func(r *http.Request, _ string) (int, string) {
+		return 403, `{"message":"Resource not accessible by integration"}`
+	})
+	if _, err := (Admin{Token: "adm", APIURL: other.URL}).EnsureRuleset(context.Background(), "o", "r", nil); err == nil || errors.Is(err, ErrRulesetsUnavailable) {
+		t.Fatalf("plain 403 err = %v", err)
 	}
 }

@@ -83,6 +83,11 @@ jauntbox unlock                                # push secrets to the box: after 
 - Rulesets: on each repo the default branch (plus any `github.protected_patterns`
   entries in your config) can only be updated or merged by repo admins, which is you.
   The App never bypasses the ruleset, so agents push branches and open PRs; you merge.
+  GitHub only runs rulesets on private repos for paid plans (Team for an organization,
+  Pro for a personal account). On GitHub Free, `setup github` protects what it can,
+  names the private repos it could not protect, and stops. `--allow-unprotected` (one
+  run) or `github.allow_unprotected: true` accepts that agents can push to those
+  repos' default branch; `setup github --check` keeps flagging them with ⚠.
 - On the box, `git` uses a credential helper that mints a token for one repository,
   valid for an hour and cached until 10 minutes before it expires. `jaunt-repos`
   lists the repos the App is installed on and clones them; it warns if it finds an old

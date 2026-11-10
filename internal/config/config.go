@@ -37,6 +37,9 @@ type Limits struct {
 type GitHub struct {
 	Org               string   `yaml:"org"`
 	ProtectedPatterns []string `yaml:"protected_patterns"`
+	// AllowUnprotected accepts repos GitHub will not protect (rulesets on a
+	// private repo need a paid plan): agents can then push to their default branch.
+	AllowUnprotected bool `yaml:"allow_unprotected"`
 }
 
 // Config is the client configuration file.

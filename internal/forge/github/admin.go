@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -103,12 +104,20 @@ func RulesetBody(patterns []string) map[string]any {
 	}
 }
 
+// ErrRulesetsUnavailable means GitHub will not run rulesets on this repo on
+// the owner's plan (a private repo on GitHub Free).
+var ErrRulesetsUnavailable = errors.New("GitHub does not offer rulesets for this private repository on the owner's plan")
+
 func (a Admin) findRuleset(ctx context.Context, owner, repo string) (int64, bool, error) {
 	var list []struct {
 		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	}
 	if err := a.do(ctx, "GET", fmt.Sprintf("/repos/%s/%s/rulesets", owner, repo), nil, &list); err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) && ae.Status == 403 && strings.Contains(ae.Message, "Upgrade to GitHub") {
+			return 0, false, fmt.Errorf("%w (%v)", ErrRulesetsUnavailable, err)
+		}
 		return 0, false, err
 	}
 	for _, r := range list {

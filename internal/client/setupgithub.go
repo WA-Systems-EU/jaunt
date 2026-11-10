@@ -35,6 +35,8 @@ type SetupGitHubOpts struct {
 	InstallWait time.Duration // how long to wait for the installation (default 10 min)
 	PollEvery   time.Duration // installation poll interval (default 5 s)
 	Listen      func() (net.Listener, error)
+	// AllowUnprotected is --allow-unprotected (github.allow_unprotected also enables it).
+	AllowUnprotected bool
 	// Owner is the account that will own a new App (--owner); "" means ask.
 	Owner string
 	// PickOwner asks the human to choose; nil when there is no terminal.
@@ -213,8 +215,14 @@ func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
 	if len(repos) == 0 {
 		fmt.Fprintf(out, "the app is installed on no repositories yet; add some at %s and re-run\n", app.InstallURL())
 	}
+	var unprotected []string
 	for _, r := range repos {
 		created, err := o.Admin.EnsureRuleset(ctx, r.Owner, r.Name, o.Cfg.GitHub.ProtectedPatterns)
+		if errors.Is(err, github.ErrRulesetsUnavailable) {
+			fmt.Fprintf(out, "⚠ %s (default branch %s) NOT protected: GitHub offers no rulesets for this private repo on the owner's plan\n", r.FullName(), r.DefaultBranch)
+			unprotected = append(unprotected, r.FullName())
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", r.FullName(), err)
 		}
@@ -223,6 +231,12 @@ func SetupGitHub(ctx context.Context, o SetupGitHubOpts) error {
 			verb = "created"
 		}
 		fmt.Fprintf(out, "✓ %s (default branch %s) ruleset %s\n", r.FullName(), r.DefaultBranch, verb)
+	}
+	if len(unprotected) > 0 {
+		if !o.allowUnprotected() {
+			return unprotectedErr(unprotected)
+		}
+		fmt.Fprintf(out, "WARNING: agents can push to the default branch of: %s (accepted by allow_unprotected)\n", strings.Join(unprotected, ", "))
 	}
 	fmt.Fprintln(out, "token auto-expiry: yes (1 h)")
 	fmt.Fprintln(out, "workflow isolation: yes (no workflows permission)")
@@ -254,7 +268,12 @@ func CheckGitHub(ctx context.Context, o SetupGitHubOpts) error {
 	}
 	var bad []string
 	for _, r := range repos {
-		if err := o.Admin.VerifyRuleset(ctx, r.Owner, r.Name, o.Cfg.GitHub.ProtectedPatterns); err != nil {
+		err := o.Admin.VerifyRuleset(ctx, r.Owner, r.Name, o.Cfg.GitHub.ProtectedPatterns)
+		if errors.Is(err, github.ErrRulesetsUnavailable) && o.allowUnprotected() {
+			fmt.Fprintf(out, "⚠ %s: NOT protected (no rulesets on the owner's plan; accepted by allow_unprotected)\n", r.FullName())
+			continue
+		}
+		if err != nil {
 			fmt.Fprintf(out, "✗ %s: %v\n", r.FullName(), err)
 			bad = append(bad, r.FullName())
 			continue
@@ -296,6 +315,18 @@ func (o SetupGitHubOpts) waitInstalled(ctx context.Context, app *github.App) (in
 		case <-time.After(every):
 		}
 	}
+}
+
+func (o SetupGitHubOpts) allowUnprotected() bool {
+	return o.AllowUnprotected || o.Cfg.GitHub.AllowUnprotected
+}
+
+// unprotectedErr explains repos GitHub will not protect and the ways out.
+func unprotectedErr(repos []string) error {
+	return fmt.Errorf("GitHub will not protect %s: rulesets on private repos need a paid plan, so agents could push to the default branch. "+
+		"Fix it by moving the owner to GitHub Team (organization) or Pro (personal account), making the repo public, or removing it from the App's installation; "+
+		"or accept the risk with `jauntbox setup github --allow-unprotected` (once) or `github.allow_unprotected: true` in the config, then re-run",
+		strings.Join(repos, ", "))
 }
 
 // wantedOwner is the owner asked for by --owner, else by github.org.

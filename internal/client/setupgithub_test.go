@@ -38,6 +38,7 @@ type ghFake struct {
 	rulesetCall int
 	nextID      int64
 	orgsFail    bool
+	paywalled   map[string]bool // owner/repo -> rulesets need a paid plan
 }
 
 func newGHFake(t *testing.T) (*ghFake, *httptest.Server) {
@@ -94,6 +95,11 @@ func (f *ghFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case rulesetPathRE.MatchString(p):
 		m := rulesetPathRE.FindStringSubmatch(p)
 		repo := m[1]
+		if f.paywalled[repo] {
+			w.WriteHeader(403)
+			fmt.Fprint(w, `{"message":"Upgrade to GitHub Pro or make this repository public to enable this feature."}`)
+			return
+		}
 		switch {
 		case r.Method == "GET" && m[2] == "":
 			if id, ok := f.rulesets[repo]; ok {
@@ -615,5 +621,74 @@ func TestSetupGitHubExistingAppOtherOwner(t *testing.T) {
 	err := SetupGitHub(context.Background(), o)
 	if err == nil || !strings.Contains(err.Error(), "already exists under WA-Systems-EU") || !strings.Contains(err.Error(), secrets.AppKeyFile) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func paywalledSetup(t *testing.T, mutate func(*SetupGitHubOpts)) (SetupGitHubOpts, *bytes.Buffer, error) {
+	t.Helper()
+	f, srv := newGHFake(t)
+	f.paywalled = map[string]bool{"WA-Systems-EU/api": true}
+	br := &browser{t: t, fake: f}
+	o, out := setupOpts(t, f, srv, br)
+	mutate(&o)
+	err := SetupGitHub(context.Background(), o)
+	return o, out, err
+}
+
+func TestSetupGitHubUnprotectedRefusedByDefault(t *testing.T) {
+	_, out, err := paywalledSetup(t, func(*SetupGitHubOpts) {})
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	for _, want := range []string{"WA-Systems-EU/api", "GitHub Team", "--allow-unprotected", "allow_unprotected"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+	got := out.String()
+	if !strings.Contains(got, "✓ WA-Systems-EU/web (default branch main) ruleset created") {
+		t.Errorf("protectable repo skipped:\n%s", got)
+	}
+	if strings.Contains(got, "next: run `jauntbox unlock`") {
+		t.Errorf("printed next step despite failure:\n%s", got)
+	}
+}
+
+func TestSetupGitHubUnprotectedAllowed(t *testing.T) {
+	for name, allow := range map[string]func(*SetupGitHubOpts){
+		"flag":   func(o *SetupGitHubOpts) { o.AllowUnprotected = true },
+		"config": func(o *SetupGitHubOpts) { o.Cfg.GitHub.AllowUnprotected = true },
+	} {
+		o, out, err := paywalledSetup(t, allow)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got := out.String()
+		for _, want := range []string{
+			"⚠ WA-Systems-EU/api (default branch trunk) NOT protected",
+			"agents can push to the default branch of: WA-Systems-EU/api",
+			"next: run `jauntbox unlock`",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: output lacks %q:\n%s", name, want, got)
+			}
+		}
+		out.Reset()
+		if err := CheckGitHub(context.Background(), o); err != nil {
+			t.Fatalf("%s: check: %v", name, err)
+		}
+		if !strings.Contains(out.String(), "⚠ WA-Systems-EU/api") {
+			t.Errorf("%s: check output:\n%s", name, out)
+		}
+	}
+}
+
+func TestCheckGitHubUnprotectedFails(t *testing.T) {
+	o, out, _ := paywalledSetup(t, func(o *SetupGitHubOpts) { o.AllowUnprotected = true })
+	o.AllowUnprotected = false
+	out.Reset()
+	err := CheckGitHub(context.Background(), o)
+	if err == nil || !strings.Contains(err.Error(), "WA-Systems-EU/api") {
+		t.Fatalf("err = %v\n%s", err, out)
 	}
 }

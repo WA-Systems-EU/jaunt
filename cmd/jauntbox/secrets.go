@@ -99,6 +99,7 @@ func setupCmd(cfgPath *string) *cobra.Command {
 	root := &cobra.Command{Use: "setup", Short: "Set up integrations"}
 	var check bool
 	var listen, owner string
+	var allowUnprotected bool
 	gh := &cobra.Command{
 		Use:   "github",
 		Short: "Create the GitHub App, wait for its installation and apply branch rulesets",
@@ -128,6 +129,8 @@ func setupCmd(cfgPath *string) *cobra.Command {
 				Out:         cmd.OutOrStdout(),
 				Listen:      func() (net.Listener, error) { return net.Listen("tcp", addr) },
 				Owner:       owner,
+
+				AllowUnprotected: allowUnprotected,
 			}
 			if term.IsTerminal(int(os.Stdin.Fd())) {
 				o.PickOwner = func(c []client.OwnerChoice, def int) (int, error) {
@@ -145,6 +148,7 @@ func setupCmd(cfgPath *string) *cobra.Command {
 		},
 	}
 	gh.Flags().BoolVar(&check, "check", false, "only verify the App permissions and rulesets; change nothing")
+	gh.Flags().BoolVar(&allowUnprotected, "allow-unprotected", false, "accept repos GitHub won't protect (private repos on a free plan): agents can push to their default branch")
 	gh.Flags().StringVar(&owner, "owner", "", "account that will own a new App: your login or one of your organizations (default: ask)")
 	gh.Flags().StringVar(&listen, "listen", "", `address for the browser callback: "tailnet" (this machine's Tailscale IP, for a browser on another device), an IP or IP:port; default loopback`)
 	root.AddCommand(gh)
