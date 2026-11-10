@@ -180,3 +180,17 @@ Ubuntu 26.04 stock image, `fsn1`, dedicated Hetzner project.
 | Hetzner firewall attached by id and by label selector | Accepted; listed exactly once on the server. |
 
 Shell history (`~/.zsh_history`) survives server changes.
+
+### 2026-11-10: Plan 02 checks (forge and secrets)
+
+App owner `WA-Systems-EU` (GitHub Free), installed on the private repo `WA-Systems-EU/thomas`.
+
+| Check | Result |
+|---|---|
+| Unlock on `up` | **Failed first**: "could not unlock the box", because no secrets were stored on the laptop yet (setup not run). Expected; the warning now names the cause. |
+| 1. App setup | **Three issues, all fixed.** The manifest flow only listened on loopback, unreachable from a browser on another device: `--listen tailnet` added (`5db48db`). With `github.org` unset the App was created under the personal account and could not be installed in the org: setup now asks for the owner (`3e659ca`). Rulesets returned 403 "Upgrade to GitHub Pro" on a private repo on GitHub Free: setup now names unprotectable repos and stops unless `--allow-unprotected` / `github.allow_unprotected` (`d0c2902`). After the fixes: App created under the org and installed; **no ruleset** on `thomas` (Free plan). Manifest accepted as written. |
+| 2. Push and merge rules | Not recorded yet. The default-branch rejection cannot be tested on `thomas` (unprotected); needs a public scratch repo or a paid plan. |
+| 3. Locked after reboot | Pass. |
+| 4. Permission drift | Not run yet. |
+| 5. Revocation on down | Not run yet. |
+| 6. Nothing on the volume | Not run yet. |
