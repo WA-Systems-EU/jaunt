@@ -22,6 +22,9 @@ const DefaultMetadataURL = "http://169.254.169.254/hetzner/v1/metadata/instance-
 // waitDeletedPoll is the WaitDeleted poll interval (var so tests are fast).
 var waitDeletedPoll = 2 * time.Second
 
+// waitDetachedPoll is the WaitVolumeDetached poll interval (var so tests are fast).
+var waitDetachedPoll = 2 * time.Second
+
 // Hetzner is the Hetzner Cloud provider.
 type Hetzner struct {
 	c *hcloud.Client
@@ -219,6 +222,43 @@ func (h *Hetzner) WaitDeleted(ctx context.Context, id int64) error {
 		case <-ctx.Done():
 			return fmt.Errorf("waiting for server %d to be deleted: %w", id, ctx.Err())
 		case <-time.After(waitDeletedPoll):
+		}
+	}
+}
+
+func (h *Hetzner) WaitVolumeDetached(ctx context.Context, id int64) error {
+	var attachedTo int64 // last server the volume was seen on
+	for {
+		v, _, err := h.c.Volume.GetByID(ctx, id)
+		if err != nil {
+			if ctx.Err() != nil && attachedTo != 0 {
+				return fmt.Errorf("waiting for volume %d to detach from server %d: %w", id, attachedTo, ctx.Err())
+			}
+			return fmt.Errorf("get volume %d: %w", id, err)
+		}
+		if v == nil {
+			return fmt.Errorf("volume %d not found", id)
+		}
+		if v.Server == nil {
+			return nil
+		}
+		attachedTo = v.Server.ID
+		srv, _, err := h.c.Server.GetByID(ctx, attachedTo)
+		if err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("waiting for volume %d to detach from server %d: %w", id, attachedTo, ctx.Err())
+			}
+			return fmt.Errorf("get server %d: %w", attachedTo, err)
+		}
+		// A missing or deleting server is the API lag we wait out; a live one
+		// will never release the volume by itself.
+		if srv != nil && srv.Status != hcloud.ServerStatusDeleting {
+			return fmt.Errorf("volume %d is attached to server %d (%s): %w", id, srv.ID, srv.Name, provider.ErrVolumeInUse)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for volume %d to detach from server %d: %w", id, v.Server.ID, ctx.Err())
+		case <-time.After(waitDetachedPoll):
 		}
 	}
 }

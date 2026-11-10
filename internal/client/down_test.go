@@ -119,10 +119,11 @@ func TestResizeOrder(t *testing.T) {
 	withBox(p)
 	var seq []string
 	p.seq, r.seq = &seq, &seq
+	p.volAttached, p.volDetachPolls = true, 3 // Hetzner lags after the server is gone
 	if err := Resize(context.Background(), d, "big"); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"run:sudo jauntbox stop", "waitdeleted", "create:" + d.Cfg.Profiles["big"].ServerType}
+	want := []string{"run:sudo jauntbox stop", "waitdeleted", "waitdetached", "create:" + d.Cfg.Profiles["big"].ServerType}
 	if strings.Join(seq, ",") != strings.Join(want, ",") {
 		t.Fatalf("seq = %v, want %v", seq, want)
 	}

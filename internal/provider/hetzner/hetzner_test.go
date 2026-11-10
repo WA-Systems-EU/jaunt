@@ -3,6 +3,7 @@ package hetzner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -275,7 +276,7 @@ func TestEnsureSSHKey(t *testing.T) {
 }
 
 func TestDeleteAndWaitDeleted(t *testing.T) {
-	waitDeletedPoll = time.Millisecond
+	setPoll(t, &waitDeletedPoll)
 	gets := 0
 	h, f := newFake(t, func(r rec, rw http.ResponseWriter) {
 		switch r.method {
@@ -304,12 +305,131 @@ func TestDeleteAndWaitDeleted(t *testing.T) {
 }
 
 func TestWaitDeletedContextBound(t *testing.T) {
-	waitDeletedPoll = time.Millisecond
+	setPoll(t, &waitDeletedPoll)
 	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) { w(rw, `{"server":{"id":9,"name":"x"}}`) })
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	if err := h.WaitDeleted(ctx, 9); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestWaitVolumeDetached(t *testing.T) {
+	setPoll(t, &waitDetachedPoll)
+	gets := 0
+	h, f := newFake(t, func(r rec, rw http.ResponseWriter) {
+		if r.path != "/volumes/33" {
+			rw.WriteHeader(404)
+			w(rw, `{"error":{"code":"not_found","message":"not found"}}`)
+			return
+		}
+		gets++
+		if gets < 3 {
+			w(rw, `{"volume":{"id":33,"name":"v","server":9}}`)
+			return
+		}
+		w(rw, `{"volume":{"id":33,"name":"v","server":null}}`)
+	})
+	if err := h.WaitVolumeDetached(context.Background(), 33); err != nil || gets != 3 {
+		t.Fatalf("err=%v gets=%d", err, gets)
+	}
+	if f.reqs[0].method != "GET" || f.reqs[0].path != "/volumes/33" {
+		t.Fatalf("req = %+v", f.reqs[0])
+	}
+}
+
+func TestWaitVolumeDetachedContextBound(t *testing.T) {
+	setPoll(t, &waitDetachedPoll)
+	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) {
+		if r.path == "/volumes/33" {
+			w(rw, `{"volume":{"id":33,"name":"v","server":9}}`)
+			return
+		}
+		rw.WriteHeader(404)
+		w(rw, `{"error":{"code":"not_found","message":"not found"}}`)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	err := h.WaitVolumeDetached(ctx, 33)
+	if err == nil || !strings.Contains(err.Error(), "33") || !strings.Contains(err.Error(), "9") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWaitVolumeDetachedNotFound(t *testing.T) {
+	setPoll(t, &waitDetachedPoll)
+	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) {
+		rw.WriteHeader(404)
+		w(rw, `{"error":{"code":"not_found","message":"not found"}}`)
+	})
+	if err := h.WaitVolumeDetached(context.Background(), 33); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func setPoll(t *testing.T, p *time.Duration) {
+	t.Helper()
+	old := *p
+	*p = time.Millisecond
+	t.Cleanup(func() { *p = old })
+}
+
+func TestWaitVolumeDetachedInUseFailsFast(t *testing.T) {
+	setPoll(t, &waitDetachedPoll)
+	h, f := newFake(t, func(r rec, rw http.ResponseWriter) {
+		if r.path == "/volumes/33" {
+			w(rw, `{"volume":{"id":33,"name":"v","server":9}}`)
+			return
+		}
+		w(rw, `{"server":{"id":9,"name":"other","status":"running"}}`)
+	})
+	err := h.WaitVolumeDetached(context.Background(), 33)
+	if !errors.Is(err, provider.ErrVolumeInUse) || !strings.Contains(err.Error(), "other") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(f.reqs) != 2 {
+		t.Fatalf("reqs = %d, want 2 (no polling)", len(f.reqs))
+	}
+}
+
+func TestWaitVolumeDetachedStaleServerKeepsPolling(t *testing.T) {
+	setPoll(t, &waitDetachedPoll)
+	vols := 0
+	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) {
+		if r.path == "/volumes/33" {
+			vols++
+			if vols < 3 {
+				w(rw, `{"volume":{"id":33,"name":"v","server":9}}`)
+				return
+			}
+			w(rw, `{"volume":{"id":33,"name":"v","server":null}}`)
+			return
+		}
+		rw.WriteHeader(404)
+		w(rw, `{"error":{"code":"not_found","message":"not found"}}`)
+	})
+	if err := h.WaitVolumeDetached(context.Background(), 33); err != nil || vols != 3 {
+		t.Fatalf("err=%v vols=%d", err, vols)
+	}
+}
+
+func TestWaitVolumeDetachedDeletingServerKeepsPolling(t *testing.T) {
+	setPoll(t, &waitDetachedPoll)
+	vols := 0
+	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) {
+		if r.path == "/volumes/33" {
+			vols++
+			if vols < 2 {
+				w(rw, `{"volume":{"id":33,"name":"v","server":9}}`)
+				return
+			}
+			w(rw, `{"volume":{"id":33,"name":"v","server":null}}`)
+			return
+		}
+		w(rw, `{"server":{"id":9,"name":"x","status":"deleting"}}`)
+	})
+	if err := h.WaitVolumeDetached(context.Background(), 33); err != nil || vols != 2 {
+		t.Fatalf("err=%v vols=%d", err, vols)
 	}
 }
 

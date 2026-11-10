@@ -330,3 +330,104 @@ func TestPushBinaryCopyTimeoutReportsLastError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestUpWaitsForVolumeDetachBeforeCreate(t *testing.T) {
+	d, p, m, _, _, _ := newDeps(t)
+	var seq []string
+	p.seq = &seq
+	p.volAttached, p.volDetachPolls = true, 2
+	res, err := Up(context.Background(), d, "small")
+	if err != nil || !res.Created {
+		t.Fatalf("up: %+v %v", res, err)
+	}
+	if len(seq) != 2 || seq[0] != "waitdetached" || !strings.HasPrefix(seq[1], "create:") {
+		t.Fatalf("seq = %v", seq)
+	}
+	if m.keys != 1 {
+		t.Fatalf("keys = %d", m.keys)
+	}
+}
+
+func TestUpVolumeNeverDetachesWastesNoAuthKey(t *testing.T) {
+	setDetachTimeout(t, 20*time.Millisecond)
+	d, p, m, _, _, spawns := newDeps(t)
+	p.volAttached, p.volNeverDetaches = true, true
+	_, err := Up(context.Background(), d, "small")
+	if err == nil || !strings.Contains(err.Error(), "still attached") || !strings.Contains(err.Error(), "jauntbox up") {
+		t.Fatalf("err = %v", err)
+	}
+	if m.keys != 0 || p.count("create") != 0 || *spawns != 0 {
+		t.Fatalf("keys=%d creates=%d spawns=%d", m.keys, p.count("create"), *spawns)
+	}
+}
+
+func TestUpExistingBoxDoesNotWaitForVolume(t *testing.T) {
+	d, p, _, _, _, _ := newDeps(t)
+	withBox(p)
+	if _, err := Up(context.Background(), d, "small"); err != nil {
+		t.Fatal(err)
+	}
+	if p.count("waitdetached") != 0 {
+		t.Fatal("waited for volume although the box exists")
+	}
+}
+
+func setDetachTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := volumeDetachTimeout
+	volumeDetachTimeout = d
+	t.Cleanup(func() { volumeDetachTimeout = old })
+}
+
+func TestUpWaitFailureReturnsRacedBox(t *testing.T) {
+	d, p, m, _, _, spawns := newDeps(t)
+	p.volAttached, p.volInUse = true, true // the winner's server holds the volume
+	p.racedBox = &provider.Box{ID: 77, Name: "jauntbox-alice"}
+	start := time.Now()
+	res, err := Up(context.Background(), d, "small")
+	if err != nil || res.Created || res.Box.ID != 77 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if time.Since(start) > time.Second || m.keys != 0 || p.count("create") != 0 || *spawns != 0 {
+		t.Fatalf("keys=%d creates=%d spawns=%d", m.keys, p.count("create"), *spawns)
+	}
+}
+
+func TestUpWaitErrorWording(t *testing.T) {
+	setDetachTimeout(t, 20*time.Millisecond)
+	t.Run("deadline", func(t *testing.T) {
+		d, p, _, _, _, _ := newDeps(t)
+		p.volNeverDetaches = true
+		_, err := Up(context.Background(), d, "small")
+		if err == nil || !strings.Contains(err.Error(), "still attached") || !strings.Contains(err.Error(), "re-run `jauntbox up`") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("in use", func(t *testing.T) {
+		d, p, m, _, _, _ := newDeps(t)
+		p.volInUse = true
+		_, err := Up(context.Background(), d, "small")
+		if !errors.Is(err, provider.ErrVolumeInUse) || !strings.Contains(err.Error(), "stranger") ||
+			!strings.Contains(err.Error(), "not a jauntbox box") || strings.Contains(err.Error(), "re-run") || m.keys != 0 {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		d, p, _, _, _, _ := newDeps(t)
+		p.volNeverDetaches = true
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := Up(ctx, d, "small")
+		if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "still attached") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("other", func(t *testing.T) {
+		d, p, _, _, _, _ := newDeps(t)
+		p.volWaitErr = errors.New("boom")
+		_, err := Up(context.Background(), d, "small")
+		if err == nil || !strings.Contains(err.Error(), "check volume attachment: boom") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}

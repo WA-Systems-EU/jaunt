@@ -3,8 +3,13 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrVolumeInUse means the volume is attached to a server that still exists,
+// so waiting will not detach it.
+var ErrVolumeInUse = errors.New("volume is attached to an existing server")
 
 // Box is a running (or starting) jauntbox server.
 type Box struct {
@@ -55,6 +60,11 @@ type Provider interface {
 	CreateBox(ctx context.Context, spec CreateBoxSpec) (Box, error)
 	DeleteBox(ctx context.Context, id int64) error
 	WaitDeleted(ctx context.Context, id int64) error
+	// WaitVolumeDetached returns once the volume is attached to no server. It
+	// respects ctx. The provider may keep reporting a volume as attached for a
+	// while after its server is gone; that lag is waited out. A volume attached
+	// to a live server fails fast with an error wrapping ErrVolumeInUse.
+	WaitVolumeDetached(ctx context.Context, id int64) error
 }
 
 // TypeLister lists server types.

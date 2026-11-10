@@ -3,6 +3,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"time"
@@ -16,6 +17,10 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
 )
+
+// volumeDetachTimeout bounds how long Up waits for the home volume to be
+// reported detached (var so tests are fast).
+var volumeDetachTimeout = 2 * time.Minute
 
 // Deps are the collaborators of the client commands.
 type Deps struct {
@@ -83,6 +88,28 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 	}
 	if existing != nil {
 		return UpResult{Box: *existing}, nil
+	}
+
+	// Hetzner can keep reporting the volume as attached for a few seconds after
+	// the old server is gone (e.g. `down` then `up`); creating now would fail.
+	wctx, cancel := context.WithTimeout(ctx, volumeDetachTimeout)
+	err = d.Prov.WaitVolumeDetached(wctx, vol.ID)
+	cancel()
+	if err != nil {
+		if again, ferr := d.Prov.FindBox(ctx, labels(user, "box")); ferr == nil && again != nil {
+			// Lost a race: another `jauntbox up` created the box and holds the volume.
+			return UpResult{Box: *again}, nil
+		}
+		switch {
+		case ctx.Err() != nil:
+			return UpResult{}, ctx.Err()
+		case errors.Is(err, provider.ErrVolumeInUse):
+			return UpResult{}, fmt.Errorf("home volume %s is attached to another server that is not a jauntbox box; detach it first: %w", name+"-home", err)
+		case errors.Is(err, context.DeadlineExceeded):
+			return UpResult{}, fmt.Errorf("volume %s is still attached to another server (wait a minute, then re-run `jauntbox up`): %w", name+"-home", err)
+		default:
+			return UpResult{}, fmt.Errorf("check volume attachment: %w", err)
+		}
 	}
 
 	tag := "tag:" + name

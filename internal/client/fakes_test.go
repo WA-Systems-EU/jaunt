@@ -34,6 +34,14 @@ type fakeProv struct {
 	deleted              []int64
 	waitErr              error // WaitDeleted fails while set
 	clearWaitErrOnDelete bool
+	// Volume attachment simulation: while volAttached, WaitVolumeDetached
+	// "polls" volDetachPolls times then detaches; volNeverDetaches blocks until
+	// ctx is done. CreateBox fails like Hetzner while the volume is attached.
+	volAttached      bool
+	volDetachPolls   int
+	volNeverDetaches bool
+	volInUse         bool  // wait fails fast with ErrVolumeInUse
+	volWaitErr       error // wait fails with this error
 }
 
 func (f *fakeProv) log(s string) {
@@ -79,6 +87,9 @@ func (f *fakeProv) CreateBox(_ context.Context, s provider.CreateBoxSpec) (provi
 	f.rec("create")
 	f.log("create:" + s.ServerType)
 	f.spec = s
+	if f.volAttached {
+		return provider.Box{}, errors.New("volume already attached (invalid_input)")
+	}
 	if f.failCreate {
 		f.box = f.racedBox
 		return provider.Box{}, errors.New("uniqueness_error")
@@ -153,3 +164,27 @@ func (r *fakeRemote) Copy(_ context.Context, host, local, remote string) error {
 }
 
 func writeFile(path, content string) error { return os.WriteFile(path, []byte(content), 0o644) }
+
+func (f *fakeProv) WaitVolumeDetached(ctx context.Context, id int64) error {
+	f.rec("waitdetached")
+	f.log("waitdetached")
+	fail := func(err error) error {
+		f.box = f.racedBox // a concurrent up may have created its box meanwhile
+		return err
+	}
+	if f.volWaitErr != nil {
+		return fail(f.volWaitErr)
+	}
+	if f.volInUse {
+		return fail(fmt.Errorf("volume %d is attached to server 5 (stranger): %w", id, provider.ErrVolumeInUse))
+	}
+	if f.volNeverDetaches {
+		<-ctx.Done()
+		return fail(ctx.Err())
+	}
+	for f.volAttached && f.volDetachPolls > 0 {
+		f.volDetachPolls--
+	}
+	f.volAttached = false
+	return nil
+}
