@@ -60,7 +60,8 @@ Live smoke checks and their results: [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SM
   start with `jauntctl agent` from a terminal (the editor's terminal is fine).
 - **Your services from the laptop:** what you publish with `docker compose` or
   `docker run -p` on the box is reachable at `http://jauntbox-<user>:<port>` over the
-  tailnet (database clients, the app in your browser), never from the internet.
+  tailnet (database clients, the app in your browser), never from the internet. To let agents reach them too, see *Your services, for agents*
+  under Agents.
 - **Agents' own servers** aren't published: reach them from the box by the container IP
   (`jauntctl agent list`), or from the laptop with `ssh -N -L 8080:<run IP>:8080 <user>@jauntbox-<user>`.
 
@@ -192,12 +193,37 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   itself is dropped too: anything arriving from a Docker bridge (`docker0`, `br-*`) at
   the host (`INPUT`) is dropped, so a container cannot reach the bridge gateway, the
   box's tailnet address, sshd or anything you run on the box (dev servers, databases,
-  your rootless Docker's published ports), on any of the box's addresses. Replies to
+  your rootless Docker's published ports), on any of the box's addresses. The only
+  exception is the TCP ports you list (see below). Replies to
   connections the box opens are let through, so you still reach a container by its IP
   (previews). The internet, GitHub and package registries stay reachable. The unit is enabled by the install step (best effort) and every
   `jauntctl agent` start re-applies the rules and refuses to start if it cannot.
   Containers you start yourself on the root daemon (`sudo docker run`) are covered once
   the guard has been applied (by an agent start or after a reboot).
+- **Your services, for agents.** An agent can reach the services you run on the box, on
+  the TCP ports you list and no others.
+  1. Start the services yourself with your rootless Docker: `docker compose up -d` in the
+     project, or any native service. They keep running across agent runs and you manage
+     them. Agents can't start, stop or see them.
+  2. Publish them on all interfaces: `ports: ["5432:5432"]`. A `127.0.0.1:5432:5432` bind
+     listens only on the box's loopback. Agent containers reach the box through their
+     bridge, never through loopback, so they are refused. `jauntctl agent` warns when a
+     listed port listens only on loopback, or when nothing listens on it. Rootless
+     Docker can only publish ports 1024 and up. Your laptop reaches the same port over
+     the tailnet as before.
+  3. List the ports. In the config, `agent.host_ports: [5432, 6379]` applies to every
+     run. It takes effect on the next box (`jauntbox down`, then `jauntbox up`), or edit
+     `box.json` on the box and run `sudo jauntctl agent-net`. For one run only, use
+     `jauntctl agent --host-port 5432` (repeat the flag, or write `--host-port 5432,6379`).
+     That port closes when the run ends.
+  4. In the app's config inside the container, use the host name `host.jauntbox`, for
+     example `postgres://app:app@host.jauntbox:5432/app` or `redis://host.jauntbox:6379`.
+  5. Everything else stays closed: every other port on the box, on any of its addresses,
+     and all of IPv6 to the box. Port 22 (sshd) can't be listed at all. `jauntctl agent
+     list` shows each run's ports in the `PORTS` column.
+  6. Data. A service's data lives in your Docker volumes and is shared by every run that
+     reaches it. An agent can change or drop it. If that matters, use a database per
+     project or a throwaway one.
 - **The checkout guard, and what it does not cover.** Inside the container
   `.git/config`, `.git/hooks`, `.git/commondir` and (if present) `.git/modules` are
   read-only, so the agent cannot plant hooks or config your own `git` would run.
@@ -268,12 +294,13 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   | Command | `docker`, `docker compose` | none: only `jauntctl agent` drives it |
   | Daemon | rootless, runs as you | the root daemon |
   | What runs there | your services, your experiments | agent containers, one network per run |
-  | Ports | published on the box, reachable from your laptop over the tailnet | not published |
+  | Ports | published on the box, reachable from your laptop over the tailnet | not published; they reach your services only on the ports you list (`host.jauntbox`) |
   | `docker ps` shows | your containers | nothing; use `jauntctl agent list` (or `sudo docker ps`) |
 
   Keeping agents off your daemon means an agent can't start, stop or inspect your
-  containers, and can't use a Docker socket to become root. The cost: agents don't reach
-  your services yet (Plan 04 opens the ports you list).
+  containers, and can't use a Docker socket to become root. The cost: agents reach
+  your services only through the host ports you list (see Your services, for agents),
+  not by container name, and they can't run Docker themselves.
 - **Metadata endpoint.** The unit `jauntbox-metadata-guard.service` drops traffic to
   `169.254.169.254` from any non-root process, so the Hetzner user data (which holds
   boot-time secrets) isn't readable by you or your containers. If `iptables` fails the
