@@ -74,9 +74,9 @@ PROFILE
   loginctl enable-linger "$user" \
     || { log "WARNING: rootless docker setup failed: enable-linger"; return 0; }
   # enable-linger creates /run/user/<uid> before user@<uid>.service and its bus exist;
-  # start the manager synchronously, then wait for the bus socket.
-  systemctl start "user@$uid.service" \
-    || { log "WARNING: rootless docker setup failed: systemctl start user@$uid.service"; return 0; }
+  # restart the manager synchronously (it may already run without dbus-user-session's bus), then wait for the bus socket.
+  systemctl restart "user@$uid.service" \
+    || { log "WARNING: rootless docker setup failed: systemctl restart user@$uid.service"; return 0; }
   for i in $(seq 1 30); do [ -S "$rdir/bus" ] && break; sleep 1; done
   [ -S "$rdir/bus" ] || { log "WARNING: rootless docker setup failed: $rdir/bus did not appear"; return 0; }
 

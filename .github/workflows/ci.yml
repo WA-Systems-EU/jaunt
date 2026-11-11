@@ -12,3 +12,5 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./... && go test ./...
       - run: sh internal/cloudinit/units/safety-net_test.sh
+      - run: bash provision/dev-setup_test.sh
+      - run: bash provision/jaunt-repos_test.sh

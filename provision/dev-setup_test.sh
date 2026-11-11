@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests the sudoers writer in dev-setup.sh with a stub visudo. Run: bash provision/dev-setup_test.sh
 set -u
+command -v python3 >/dev/null 2>&1 || { echo "dev-setup_test.sh needs python3 (it binds a unix socket for the stub bus); install it and re-run"; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -75,8 +76,8 @@ grep -q "^apparmor_parser -r $etc/apparmor.d/usr.bin.rootlesskit\$" "$STUB_LOG" 
 grep -q '^apt-get install .*uidmap.*dbus-user-session.*slirp4netns' "$STUB_LOG" || bad "base packages not installed"
 grep -q 'docker-ce-rootless-extras' "$STUB_LOG" || bad "rootless extras not installed"
 grep -q '^loginctl enable-linger alice$' "$STUB_LOG" || bad "enable-linger not called"
-grep -q '^systemctl start user@1001.service$' "$STUB_LOG" || bad "user@1001.service not started"
-[ "$(grep -n -e '^loginctl enable-linger' -e '^systemctl start user@' -e 'dockerd-rootless-setuptool' "$STUB_LOG" | head -3 | cut -d: -f2- | cut -d' ' -f1-2 | tr '\n' '|')" = "loginctl enable-linger|systemctl start|runuser -u|" ] || bad "wrong step order: $(cat "$STUB_LOG")"
+grep -q '^systemctl restart user@1001.service$' "$STUB_LOG" || bad "user@1001.service not started"
+[ "$(grep -n -e '^loginctl enable-linger' -e '^systemctl restart user@' -e 'dockerd-rootless-setuptool' "$STUB_LOG" | head -3 | cut -d: -f2- | cut -d' ' -f1-2 | tr '\n' '|')" = "loginctl enable-linger|systemctl restart|runuser -u|" ] || bad "wrong step order: $(cat "$STUB_LOG")"
 grep -q "^$ru docker context create rootless --docker host=unix:///run/user/1001/docker.sock\$" "$STUB_LOG" || bad "context create not run"
 grep -q "^$ru dockerd-rootless-setuptool.sh install\$" "$STUB_LOG" || bad "setuptool not run as the user: $(cat "$STUB_LOG")"
 grep -q "^$ru systemctl --user enable --now docker\$" "$STUB_LOG" || bad "systemctl --user enable not run"
