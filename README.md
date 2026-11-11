@@ -261,6 +261,18 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   must be 1024 and up. `sudo docker ...` reaches the root daemon and asks for your
   password. Rootless setup is best-effort: if it fails, the provisioning log says
   `WARNING: rootless docker setup failed: <step>`.
+- **Two Dockers, on purpose.** The box runs two Docker daemons that don't see each other:
+  | | Your Docker | The agents' Docker |
+  |---|---|---|
+  | Command | `docker`, `docker compose` | none: only `jauntctl agent` drives it |
+  | Daemon | rootless, runs as you | the root daemon |
+  | What runs there | your services, your experiments | agent containers, one network per run |
+  | Ports | published on the box, reachable from your laptop over the tailnet | not published |
+  | `docker ps` shows | your containers | nothing; use `jauntctl agent list` (or `sudo docker ps`) |
+
+  Keeping agents off your daemon means an agent can't start, stop or inspect your
+  containers, and can't use a Docker socket to become root. The cost: agents don't reach
+  your services yet (Plan 04 opens the ports you list).
 - **Metadata endpoint.** The unit `jauntbox-metadata-guard.service` drops traffic to
   `169.254.169.254` from any non-root process, so the Hetzner user data (which holds
   boot-time secrets) isn't readable by you or your containers. If `iptables` fails the
