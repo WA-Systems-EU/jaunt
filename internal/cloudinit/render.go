@@ -53,7 +53,7 @@ func Render(p Params) (string, error) {
 		mk("/etc/jauntbox/hcloud.token", "0600", []byte(p.HetznerToken)),
 		mk("/etc/jauntbox/ts.key", "0600", []byte(p.TailscaleAuthKey)),
 	}
-	for _, u := range []string{"jauntbox-supervise.service", "jauntbox-supervise.timer", "jauntbox-safety.service", "jauntbox-safety.timer", "jauntbox-metadata-guard.service"} {
+	for _, u := range []string{"jauntbox-supervise.service", "jauntbox-supervise.timer", "jauntbox-safety.service", "jauntbox-safety.timer", "jauntbox-metadata-guard.service", "jauntbox-agent-net.service"} {
 		b, err := unitsFS.ReadFile("units/" + u)
 		if err != nil {
 			return "", err

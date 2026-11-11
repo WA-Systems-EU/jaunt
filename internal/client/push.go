@@ -27,10 +27,15 @@ const DefaultPushWait = 15 * time.Minute
 func installCmd(user string) string {
 	// cd / first: git exits 128 when the cwd (/root over ssh) is unreadable for the user.
 	git := "runuser -u " + user + " -- git config --global "
-	return "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && " +
+	return "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && systemctl enable --now jauntbox-agent-net.service && " +
 		git + "--replace-all credential.https://github.com.helper '' && " +
 		git + "--add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && " +
-		git + "credential.https://github.com.useHttpPath true"
+		git + "credential.https://github.com.useHttpPath true && " +
+		// Never let a hostile repo's submodules or fsmonitor run code in the host user's git.
+		git + "diff.ignoreSubmodules all && " +
+		git + "status.submoduleSummary false && " +
+		git + "submodule.recurse false && " +
+		git + "core.fsmonitor false"
 }
 
 const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer"

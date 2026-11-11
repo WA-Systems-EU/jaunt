@@ -224,7 +224,7 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 		t.Fatalf("order = %v", r.order)
 	}
 	want := "[" + installCmd("alice") + "]"
-	if r.cmds[0] != want || installCmd("alice") != "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true" {
+	if r.cmds[0] != want || installCmd("alice") != "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && systemctl enable --now jauntbox-agent-net.service && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true && runuser -u alice -- git config --global diff.ignoreSubmodules all && runuser -u alice -- git config --global status.submoduleSummary false && runuser -u alice -- git config --global submodule.recurse false && runuser -u alice -- git config --global core.fsmonitor false" {
 		t.Fatalf("cmd = %q", r.cmds[0])
 	}
 	assertRemoteUnused(t, d)
@@ -469,7 +469,7 @@ func TestInstallCmdRunsAsRoot(t *testing.T) {
 		}
 		pos = i
 	}
-	if n := strings.Count(cmd, "git config"); n != strings.Count(cmd, "runuser -u alice -- git config") || n != 3 {
+	if n := strings.Count(cmd, "git config"); n != strings.Count(cmd, "runuser -u alice -- git config") || n != 7 {
 		t.Fatalf("every git config must run via runuser (%d): %q", n, cmd)
 	}
 }
@@ -542,5 +542,20 @@ func TestPushBinaryRootRefusedFailsFast(t *testing.T) {
 	}
 	if time.Since(start) > 5*time.Second || r.copies < 2 {
 		t.Fatalf("took %v, copies %d", time.Since(start), r.copies)
+	}
+}
+
+func TestInstallCmdSetsHostGitGuards(t *testing.T) {
+	cmd := installCmd("alice")
+	for _, p := range []string{
+		"systemctl enable --now jauntbox-agent-net.service",
+		"runuser -u alice -- git config --global diff.ignoreSubmodules all",
+		"runuser -u alice -- git config --global status.submoduleSummary false",
+		"runuser -u alice -- git config --global submodule.recurse false",
+		"runuser -u alice -- git config --global core.fsmonitor false",
+	} {
+		if !strings.Contains(cmd, p) {
+			t.Errorf("installCmd lacks %q: %s", p, cmd)
+		}
 	}
 }

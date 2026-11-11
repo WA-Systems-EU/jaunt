@@ -1,0 +1,12 @@
+[Unit]
+Description=jauntbox: block the metadata service and the tailnet from agent containers
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/jauntctl agent-net
+
+[Install]
+WantedBy=multi-user.target

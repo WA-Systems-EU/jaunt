@@ -251,3 +251,20 @@ func TestRenderFitsHetznerUserDataLimit(t *testing.T) {
 		t.Fatalf("user-data is %d bytes; Hetzner's limit is 32768 and we keep 4 KiB headroom", n)
 	}
 }
+
+func TestRenderInstallsAgentNetUnit(t *testing.T) {
+	_, d := render(t)
+	_, unit := content(t, d, "/etc/systemd/system/jauntbox-agent-net.service")
+	for _, want := range []string{
+		"Type=oneshot",
+		"After=docker.service",
+		"Requires=docker.service",
+		"ExecStart=/usr/local/bin/jauntctl agent-net",
+		"RemainAfterExit=yes",
+		"WantedBy=multi-user.target",
+	} {
+		if !strings.Contains(unit, want) {
+			t.Errorf("unit lacks %q:\n%s", want, unit)
+		}
+	}
+}

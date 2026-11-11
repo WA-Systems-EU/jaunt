@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/WA-Systems-EU/jaunt/internal/agentrun"
 	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/forge"
@@ -87,7 +89,21 @@ func boxOnlyCmds() []*cobra.Command {
 		},
 	}
 	cred.SilenceErrors = true
-	return []*cobra.Command{load, mint, repos, cred}
+	agentNet := &cobra.Command{
+		Use:    "agent-net",
+		Short:  "Block the metadata service and the tailnet from agent containers (box side, root)",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if os.Geteuid() != 0 {
+				return errors.New("run with sudo")
+			}
+			return agentrun.EnsureNetGuard(cmd.Context(), func(ctx context.Context, name string, args ...string) error {
+				return exec.CommandContext(ctx, name, args...).Run()
+			})
+		},
+	}
+	return []*cobra.Command{load, mint, repos, cred, agentNet}
 }
 
 var repoArgRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
