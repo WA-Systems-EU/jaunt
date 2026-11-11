@@ -34,10 +34,11 @@ write_sudoers() {
 # Docker daemon (the docker group is root-equivalent, so they are not in it). Best
 # effort: every step failing logs a WARNING and returns 0, so provisioning goes on and
 # `sudo docker` still works. <etc-dir> is /etc (tests point it at a temp dir);
-# JAUNT_RUN_USER_DIR overrides /run/user for the same reason.
+# JAUNT_RUN_USER_DIR overrides /run/user (test-only; production uses /run/user). The
+# optional 4th arg is the user's home (tests only; default from getent).
 setup_rootless_docker() {
-  local user=$1 uid=$2 etc=$3
-  local rdir="${JAUNT_RUN_USER_DIR:-/run/user}/$uid" home i
+  local user=$1 uid=$2 etc=$3 home=${4:-}
+  local rdir="${JAUNT_RUN_USER_DIR:-/run/user}/$uid" i
   local -a asuser=(runuser -u "$user" -- env "XDG_RUNTIME_DIR=/run/user/$uid" "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus")
 
   apt-get install -y --no-install-recommends uidmap dbus-user-session slirp4netns \
@@ -54,7 +55,8 @@ setup_rootless_docker() {
   done
 
   # Ubuntu 24.04 restricts unprivileged user namespaces; rootlesskit gets a profile
-  # that allows them (the sysctl stays on).
+  # that allows them (the sysctl stays on). Profile text is from Docker's rootless docs
+  # for Ubuntu 24.04.
   mkdir -p "$etc/apparmor.d" || { log "WARNING: rootless docker setup failed: apparmor dir"; return 0; }
   cat >"$etc/apparmor.d/usr.bin.rootlesskit" <<'PROFILE' \
     || { log "WARNING: rootless docker setup failed: apparmor profile"; return 0; }
@@ -71,17 +73,26 @@ PROFILE
 
   loginctl enable-linger "$user" \
     || { log "WARNING: rootless docker setup failed: enable-linger"; return 0; }
-  for i in $(seq 1 30); do [ -d "$rdir" ] && break; sleep 1; done
-  [ -d "$rdir" ] || { log "WARNING: rootless docker setup failed: $rdir did not appear"; return 0; }
+  # enable-linger creates /run/user/<uid> before user@<uid>.service and its bus exist;
+  # start the manager synchronously, then wait for the bus socket.
+  systemctl start "user@$uid.service" \
+    || { log "WARNING: rootless docker setup failed: systemctl start user@$uid.service"; return 0; }
+  for i in $(seq 1 30); do [ -S "$rdir/bus" ] && break; sleep 1; done
+  [ -S "$rdir/bus" ] || { log "WARNING: rootless docker setup failed: $rdir/bus did not appear"; return 0; }
 
-  home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6)
-  home=${home:-/home/$user}
+  if [ -z "$home" ]; then
+    home=$(getent passwd "$user" | cut -d: -f6) \
+      || { log "WARNING: rootless docker setup failed: home lookup"; return 0; }
+    home=${home:-/home/$user}
+  fi
   if [ ! -f "$home/.config/systemd/user/docker.service" ]; then
     "${asuser[@]}" dockerd-rootless-setuptool.sh install \
       || { log "WARNING: rootless docker setup failed: dockerd-rootless-setuptool.sh install"; return 0; }
   fi
   "${asuser[@]}" systemctl --user enable --now docker \
     || { log "WARNING: rootless docker setup failed: systemctl --user enable --now docker"; return 0; }
+  # A reused /home may have the unit but no ~/.docker; make sure the context exists.
+  "${asuser[@]}" docker context create rootless --docker "host=unix:///run/user/$uid/docker.sock" || true
   "${asuser[@]}" docker context use rootless \
     || { log "WARNING: rootless docker setup failed: docker context use rootless"; return 0; }
   return 0
