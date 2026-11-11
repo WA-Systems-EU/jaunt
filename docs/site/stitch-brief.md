@@ -91,7 +91,7 @@ background wash.
   fill. Mono or Inter-500 labels.
 - **Status pill:** small rounded chip with a green pulsing dot + `jauntbox-you · up`.
 - **Feature card:** hairline-bordered, line icon top, short bold title, one-sentence body.
-- **Badges:** small mono tags — `EU-sovereign`, `MIT`, `Hetzner`, `UpCloud`, `Tailscale`,
+- **Badges:** small mono tags — `EU-sovereign`, `AGPL-3.0`, `Hetzner`, `UpCloud`, `Tailscale`,
   `OpenTofu`.
 
 ---
@@ -103,7 +103,7 @@ background wash.
 3. **Blog post** (article template — the launch post lives here)
 
 Global: sticky slim nav (wordmark `jaunt` left; `How it works · Providers · Blog · GitHub`
-right; Day/Night toggle). Footer: WA Systems cross-link, MIT, GitHub, repo `WA-Systems-EU/jaunt`.
+right; Day/Night toggle). Footer: WA Systems cross-link, AGPL-3.0, GitHub, repo `WA-Systems-EU/jaunt`.
 
 ---
 
@@ -145,7 +145,7 @@ right; Day/Night toggle). Footer: WA Systems cross-link, MIT, GitHub, repo `WA-S
 > **Quick start:** a wide terminal card with the 30-second try (cd tofu/hetzner; cp tfvars;
 > tofu init; tofu apply -var box_on=true; ... tofu apply -var box_on=false).
 >
-> **Footer:** 'Built by WA Systems', links GitHub / MIT license / wa-systems.eu, small mono
+> **Footer:** 'Built by WA Systems', links GitHub / AGPL-3.0 license / wa-systems.eu, small mono
 > badges EU-sovereign, OpenTofu, Tailscale.
 >
 > Style: warm off-white OR deep near-black indigo background depending on theme; Space Grotesk

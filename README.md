@@ -17,7 +17,7 @@ is lost.
 - **Humans merge and deploy:** agents push branches and open PRs; your default branch —
   whatever it's called — is protected on the forge.
 - **Your laptop keeps the keys to production.** The box can't reach your servers.
-- **Cheap and EU by default:** Hetzner Cloud + Tailscale. Open source, MIT.
+- **Cheap and EU by default:** Hetzner Cloud + Tailscale. Open source, AGPL-3.0.
 
 ## The goal: one coffee
 
@@ -263,5 +263,13 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 
 The earlier OpenTofu implementation (and the team/fleet design built on it) lives in the
 `trunk` branch history; a fleet version comes later.
+
+## Licence
+
+Copyright (C) 2026 WA Systems. jauntbox is free software under the
+[GNU Affero General Public License v3.0](LICENSE) or (at your option) any later version
+(SPDX: `AGPL-3.0-or-later`). You can use, change and share it; if you distribute a
+changed version, or run one as a service for others, you must publish your changes under
+the same licence.
 
 Built by [WA Systems](https://wa-systems.eu).
