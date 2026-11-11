@@ -105,7 +105,10 @@ func Context() ([]byte, error) {
 }
 
 // Ensure builds the image unless its tag already exists.
-func Ensure(ctx context.Context, d Docker) error {
+func Ensure(ctx context.Context, d Docker) error { return EnsureNotify(ctx, d, nil) }
+
+// EnsureNotify is Ensure that calls building (when set) just before a build.
+func EnsureNotify(ctx context.Context, d Docker, building func()) error {
 	tag := Tag()
 	ok, err := d.ImageExists(ctx, tag)
 	if err != nil {
@@ -117,6 +120,9 @@ func Ensure(ctx context.Context, d Docker) error {
 	tarball, err := Context()
 	if err != nil {
 		return err
+	}
+	if building != nil {
+		building()
 	}
 	return d.Build(ctx, tag, tarball)
 }

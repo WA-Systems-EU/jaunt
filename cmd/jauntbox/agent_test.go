@@ -547,6 +547,10 @@ func TestStartRunJSONIsTheOnlyStdout(t *testing.T) {
 	if got.Dir != e.root || got.Prompt != "p" || got.Max != 2*time.Hour || !got.SkipPermissions {
 		t.Fatalf("opts %+v", got)
 	}
+	// progress notes (the first image build) go to stderr, not stdout
+	if got.Progress != io.Writer(e.errOut) {
+		t.Fatalf("progress writer %v, want the command's stderr", got.Progress)
+	}
 	dec := json.NewDecoder(bytes.NewReader(e.out.Bytes()))
 	dec.DisallowUnknownFields()
 	var r agentrun.Run
@@ -563,5 +567,30 @@ func TestStartRunJSONIsTheOnlyStdout(t *testing.T) {
 	}
 	if err := e.run(t, "start-run", "--dir", e.root, "--json"); err == nil || err.Error() != "boom" || e.out.Len() != 0 {
 		t.Fatalf("err=%v stdout=%q", err, e.out.String())
+	}
+}
+
+func TestAgentMaxBounds(t *testing.T) {
+	for _, v := range []string{"0", "-1h", "25h"} {
+		e := newAgentEnv(t, 1000, "ref: refs/heads/feat/x\n")
+		err := e.run(t, "--max", v)
+		if err == nil || !strings.Contains(err.Error(), "--max") || len(e.sudos) != 0 {
+			t.Errorf("agent --max %s: err=%v sudos=%v", v, err, e.sudos)
+		}
+		r := newAgentEnv(t, 0, "ref: refs/heads/feat/x\n")
+		called := false
+		r.d.startRun = func(context.Context, sudoUser, agentrun.StartOpts) (agentrun.Run, error) {
+			called = true
+			return agentrun.Run{}, nil
+		}
+		err = r.run(t, "start-run", "--dir", r.root, "--max", v, "--json")
+		if err == nil || !strings.Contains(err.Error(), "--max") || called {
+			t.Errorf("start-run --max %s: err=%v called=%v", v, err, called)
+		}
+	}
+	e := newAgentEnv(t, 1000, "ref: refs/heads/feat/x\n")
+	e.reply = agentrun.Run{ID: runID, Checkout: e.root, Branch: "feat/x", Mode: agentrun.ModeUnattended}
+	if err := e.run(t, "--unattended", "p", "--max", "24h"); err != nil {
+		t.Fatalf("24h refused: %v", err)
 	}
 }

@@ -63,10 +63,10 @@ type agentDeps struct {
 	lookupUser func() (sudoUser, error)
 	// startRun is the root part of `jauntctl agent` (Starter.Start).
 	startRun func(ctx context.Context, u sudoUser, o agentrun.StartOpts) (agentrun.Run, error)
-	events     events.Sink
-	adapter    agent.Adapter
-	now        func() time.Time
-	poll       time.Duration // logs --follow
+	events   events.Sink
+	adapter  agent.Adapter
+	now      func() time.Time
+	poll     time.Duration // logs --follow
 }
 
 func defaultAgentDeps() *agentDeps {
@@ -320,6 +320,11 @@ func agentCmd(d *agentDeps) *cobra.Command {
 			if d.euid() == 0 {
 				return errors.New("run `jauntctl agent` as yourself, not with sudo; it asks sudo for the root part itself")
 			}
+			if cmd.Flags().Changed("max") {
+				if err := agentrun.CheckMax(max); err != nil {
+					return err
+				}
+			}
 			wd, err := d.getwd()
 			if err != nil {
 				return err
@@ -394,6 +399,14 @@ func startRunCmd(d *agentDeps) *cobra.Command {
 			if o.Dir == "" {
 				return errors.New("--dir is required")
 			}
+			if cmd.Flags().Changed("max") {
+				if err := agentrun.CheckMax(o.Max); err != nil {
+					return err
+				}
+			}
+			// notes such as the first image build go to stderr: with
+			// --json, stdout carries the run only
+			o.Progress = cmd.ErrOrStderr()
 			ctx, stop := signalCtx(cmd)
 			defer stop()
 			run, err := d.startRun(ctx, u, o)

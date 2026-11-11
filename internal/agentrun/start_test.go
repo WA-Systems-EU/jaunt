@@ -398,6 +398,44 @@ func TestStartHappyPath(t *testing.T) {
 	}
 }
 
+func TestStartMaxBounds(t *testing.T) {
+	for _, m := range []time.Duration{-time.Hour, 24*time.Hour + time.Second} {
+		e := newTenv(t, "ref: refs/heads/feat/x\n")
+		_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Max: m})
+		if err == nil || !strings.Contains(err.Error(), "--max") || !strings.Contains(err.Error(), "24h") {
+			t.Errorf("max %v: err %v", m, err)
+		}
+		if len(e.d.calls) != 0 {
+			t.Errorf("max %v: docker called %v", m, e.d.calls)
+		}
+	}
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	if r, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Max: 24 * time.Hour}); err != nil || r.Max != 24*time.Hour {
+		t.Fatalf("24h: %v %v", r.Max, err)
+	}
+}
+
+func TestStartImageBuildNote(t *testing.T) {
+	const note = "building the agent image (first start, takes a few minutes)…\n"
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	var buf strings.Builder
+	if _, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Progress: &buf}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != note {
+		t.Fatalf("progress %q", buf.String())
+	}
+	e = newTenv(t, "ref: refs/heads/feat/x\n")
+	e.d.imageOK = true
+	buf.Reset()
+	if _, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Progress: &buf}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("note printed with the image present: %q", buf.String())
+	}
+}
+
 func TestStartMaxDuration(t *testing.T) {
 	for _, c := range []struct {
 		opt, def, want time.Duration

@@ -127,7 +127,8 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 ```
 
 - **First start.** The first `jauntctl agent` builds the agent image, which takes
-  minutes. Claude's credential is `CLAUDE_CODE_OAUTH_TOKEN`: run `claude setup-token`
+  minutes (it says so before it starts). `--max` takes a duration above 0 and at most
+  24h; without it the box's `agent.max_duration` (default 8h) applies. Claude's credential is `CLAUDE_CODE_OAUTH_TOKEN`: run `claude setup-token`
   on your laptop, then `jauntbox secrets set CLAUDE_CODE_OAUTH_TOKEN` and
   `jauntbox unlock`. Agents commit as you, so the box needs `git config --global
   user.name` and `user.email`; `start` refuses with the fix if they are missing.

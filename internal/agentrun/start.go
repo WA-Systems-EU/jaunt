@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,13 +35,28 @@ const (
 	readyFile    = "/tmp/jauntbox-ready"
 	initLogTail  = 20
 	agentHomeDst = "/home/agent"
+
+	// MaxRunMax bounds a run's --max (the same bound as the config's
+	// agent.max_duration).
+	MaxRunMax = 24 * time.Hour
 )
+
+// CheckMax validates a per-run --max.
+func CheckMax(d time.Duration) error {
+	if d <= 0 || d > MaxRunMax {
+		return fmt.Errorf("--max must be greater than 0 and at most 24h (got %s)", d)
+	}
+	return nil
+}
 
 // StartOpts are the per-run choices. Dir is the caller's working directory.
 type StartOpts struct {
 	Dir, Branch, Prompt string
 	Max                 time.Duration // 0: Starter.DefaultMax, else DefaultMax
 	SkipPermissions     bool
+	// Progress, when set, gets one-line notes for the user (stderr), such
+	// as the first image build.
+	Progress io.Writer
 }
 
 // Starter starts agent runs. It runs as root on behalf of the box user
@@ -262,6 +278,11 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	if o.Branch != "" && !validBranch(o.Branch) {
 		return run, fmt.Errorf("invalid branch name %q", o.Branch)
 	}
+	if o.Max != 0 {
+		if err := CheckMax(o.Max); err != nil {
+			return run, err
+		}
+	}
 
 	co, err := FindCheckout(o.Dir, s.home())
 	if err != nil {
@@ -334,7 +355,12 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	if err := EnsureNetGuard(ctx, s.Net); err != nil {
 		return run, fmt.Errorf("cannot block the metadata service, the tailnet and the host from agent containers, refusing to start: %w", err)
 	}
-	if err := agentimage.Ensure(ctx, s.Docker); err != nil {
+	building := func() {
+		if o.Progress != nil {
+			fmt.Fprintln(o.Progress, "building the agent image (first start, takes a few minutes)…")
+		}
+	}
+	if err := agentimage.EnsureNotify(ctx, s.Docker, building); err != nil {
 		return run, fmt.Errorf("agent image: %w", err)
 	}
 	tok, err := s.Mint(ctx, repo.FullName())
