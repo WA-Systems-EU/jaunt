@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/WA-Systems-EU/jaunt/internal/agentrun"
 	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
+	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/forge"
 	"github.com/WA-Systems-EU/jaunt/internal/minter"
@@ -97,10 +99,37 @@ func boxOnlyCmds() []*cobra.Command {
 			if os.Geteuid() != 0 {
 				return errors.New("run with sudo")
 			}
-			return agentrun.EnsureNetGuard(cmd.Context(), hostRunner)
+			return runAgentNet(cmd.Context(), agentrun.HostRunner, boxInfoPath)
 		},
 	}
 	return []*cobra.Command{load, mint, repos, cred, agentNet}
+}
+
+// boxInfoPath is where agent-net reads the box-wide host ports; tests point it
+// at a temp file.
+var boxInfoPath = boxinfo.Path
+
+// runAgentNet applies the network guard with the box-wide host ports from
+// box.json. A missing file means no ports; an unreadable or invalid one still
+// applies the guard with no ports, then returns the error.
+func runAgentNet(ctx context.Context, run agentrun.Runner, path string) error {
+	info, err := boxinfo.Read(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return agentrun.EnsureNetGuard(ctx, run, nil)
+		}
+		if gerr := agentrun.EnsureNetGuard(ctx, run, nil); gerr != nil {
+			return gerr
+		}
+		return err
+	}
+	if err := config.CheckHostPorts("agent.host_ports", info.Agent.HostPorts); err != nil {
+		if gerr := agentrun.EnsureNetGuard(ctx, run, nil); gerr != nil {
+			return gerr
+		}
+		return err
+	}
+	return agentrun.EnsureNetGuard(ctx, run, info.Agent.HostPorts)
 }
 
 var repoArgRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)

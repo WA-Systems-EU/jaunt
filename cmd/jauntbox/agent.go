@@ -149,20 +149,11 @@ func (d *agentDeps) starter(u sudoUser) (*agentrun.Starter, error) {
 	}
 	m := newMinter()
 	return &agentrun.Starter{
-		Docker: d.docker, Agent: d.adapter, Mint: m.Mint, Repos: m.Repos, Net: hostRunner,
+		Docker: d.docker, Agent: d.adapter, Mint: m.Mint, Repos: m.Repos, Net: agentrun.HostRunner,
 		Paths: d.paths, SecretsDir: vault.Dir, User: u.Name, Home: u.Home, UID: u.UID, GID: u.GID,
 		GitConfig: userGitConfig(u), Loc: loc, Events: d.events,
 		DefaultMax: time.Duration(info.Agent.MaxDuration),
 	}, nil
-}
-
-// hostRunner runs a host command (iptables) and folds its output into the error.
-func hostRunner(ctx context.Context, name string, args ...string) error {
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 // userGitConfig reads the box user's global git config as that user.

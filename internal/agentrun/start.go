@@ -358,7 +358,7 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 		return run, err
 	}
 
-	if err := EnsureNetGuard(ctx, s.Net); err != nil {
+	if err := EnsureNetGuard(ctx, s.Net, nil); err != nil {
 		return run, fmt.Errorf("cannot block the metadata service, the tailnet and the host from agent containers, refusing to start: %w", err)
 	}
 	building := func() {
