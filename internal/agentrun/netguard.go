@@ -82,8 +82,10 @@ func AllowRunPorts(ctx context.Context, run Runner, id string, ports []int) erro
 			continue
 		}
 		if err := run(ctx, "iptables", append([]string{"-w", "-A", runsChain}, rule...)...); err != nil {
+			// The rollback must run even when ctx is the reason for the failure.
+			rb := context.WithoutCancel(ctx)
 			for _, r := range added {
-				_ = run(ctx, "iptables", append([]string{"-w", "-D", runsChain}, r...)...)
+				_ = run(rb, "iptables", append([]string{"-w", "-D", runsChain}, r...)...)
 			}
 			return err
 		}

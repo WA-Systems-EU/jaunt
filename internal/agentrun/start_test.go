@@ -1174,3 +1174,18 @@ func TestStartPrintsListenWarnings(t *testing.T) {
 		t.Fatalf("progress %q", prog.String())
 	}
 }
+
+func TestStartListenWarningsWithoutTcp6(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	e.s.HostPorts = []int{5432}
+	d := realTemp(t)
+	writeFile(t, filepath.Join(d, "tcp"), tcpHeader+lineLoopback4)
+	e.s.ProcNet = d
+	var prog strings.Builder
+	if _, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Progress: &prog}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prog.String(), "warning: port 5432: listens only on 127.0.0.1") {
+		t.Fatalf("progress %q", prog.String())
+	}
+}

@@ -744,9 +744,10 @@ func (s *Starter) warnListen(w io.Writer, ports []int) {
 	if err != nil {
 		return
 	}
+	// tcp6 is missing when IPv6 is disabled: check IPv4 anyway.
 	tcp6, err := os.ReadFile(filepath.Join(dir, "tcp6"))
 	if err != nil {
-		return
+		tcp6 = nil
 	}
 	for _, m := range ListenWarnings(tcp, tcp6, ports) {
 		fmt.Fprintln(w, "warning: "+m)

@@ -515,3 +515,32 @@ func TestBridgeName(t *testing.T) {
 		t.Fatalf("not stable/distinct: %q %q", a, b)
 	}
 }
+
+func TestAllowRunPortsRollbackSurvivesCancel(t *testing.T) {
+	f := &fakeTables{}
+	if err := EnsureNetGuard(context.Background(), f.run, nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	n := 0
+	run := func(c context.Context, bin string, args ...string) error {
+		if len(args) > 1 && args[1] == "-A" {
+			n++
+			if n == 2 {
+				cancel()
+				return errors.New("interrupted")
+			}
+		}
+		if c.Err() != nil {
+			return c.Err()
+		}
+		return f.run(c, bin, args...)
+	}
+	if err := AllowRunPorts(ctx, run, "run-1", []int{5432, 6379}); err == nil {
+		t.Fatal("want error")
+	}
+	if r := f.chains["iptables JAUNTBOX-RUNS"]; len(r) != 0 {
+		t.Fatalf("rollback left rules: %q", r)
+	}
+}
