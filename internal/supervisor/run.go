@@ -57,8 +57,13 @@ const RevokeTimeout = 30 * time.Second
 // successful non-Delete pass (never earlier, so a failed pass still lets
 // the safety net act); such a pass spends at most the Tick budget, far
 // below the safety net's 900 s.
-func MaxPassBudget() time.Duration {
-	return agentrun.TickTimeout + agentrun.FinishAllTimeout + RevokeTimeout
+//
+// Each run's teardown has its own agentrun.TeardownTimeout outside those
+// deadlines, and a run can be torn down by both Tick and FinishAll, so the
+// budget adds 2 teardowns per run.
+func MaxPassBudget(runs int) time.Duration {
+	return agentrun.TickTimeout + agentrun.FinishAllTimeout + RevokeTimeout +
+		time.Duration(2*runs)*agentrun.TeardownTimeout
 }
 
 // New wires the production supervisor for info.

@@ -598,13 +598,14 @@ func TestWrapUpCancelCancelsRuns(t *testing.T) {
 	e.agents.n = 1
 	e.pts("0", time.Hour)
 	var calls []string
-	e.s.Runs = &fakeRuns{calls: &calls}
+	fr := &fakeRuns{calls: &calls}
+	e.s.Runs = fr
 	e.run(t) // StartWrapUp
 	e.now = e.now.Add(time.Minute)
 	e.pts("0", time.Minute)
 	e.run(t) // human back: cancelled
 	got := strings.Join(calls, ",")
-	if !strings.Contains(got, "cancel:") || strings.HasSuffix(got, "cancel:") {
+	if got != "tick,wrapup-all,tick,cancel:"+fr.reason {
 		t.Fatalf("calls %q", got)
 	}
 }
@@ -620,8 +621,9 @@ func TestSuperviseUnitTimeoutExceedsPassBudget(t *testing.T) {
 			fmt.Sscan(v, &secs)
 		}
 	}
-	if need := MaxPassBudget() + time.Minute; time.Duration(secs)*time.Second < need {
-		t.Fatalf("TimeoutStartSec=%d is below the worst-case pass budget %v + margin", secs, need)
+	// The 600 s limit covers 2 runs in the worst case (all timeouts hit).
+	if need := MaxPassBudget(2); time.Duration(secs)*time.Second < need {
+		t.Fatalf("TimeoutStartSec=%d is below the worst-case pass budget %v", secs, need)
 	}
 	if time.Duration(secs)*time.Second >= 900*time.Second {
 		t.Fatalf("TimeoutStartSec=%d must stay below the 900 s safety net", secs)

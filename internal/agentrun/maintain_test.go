@@ -238,6 +238,11 @@ func TestTickAndFinishAllShareOneDeadline(t *testing.T) {
 		if el := time.Since(start); el > 700*time.Millisecond {
 			t.Errorf("%s took %v: deadline not shared by the runs", name, el)
 		}
+		for _, id := range []string{stopID, id2} {
+			if r, _ := e.p.Load(id); name == "finishall" && r.FinishedAt.IsZero() {
+				t.Errorf("%s: run %s not finished", name, id)
+			}
+		}
 	}
 }
 
@@ -322,5 +327,58 @@ func TestWrapUpAllAndFinishAll(t *testing.T) {
 	}
 	if r, _ = e.p.Load(stopID); r.FinishedAt.IsZero() {
 		t.Fatal("not finished")
+	}
+}
+
+func TestTickSlowFallbackStillFinishesWithLiveTeardown(t *testing.T) {
+	old1, old3 := TickTimeout, FallbackTimeout
+	defer func() { TickTimeout, FallbackTimeout = old1, old3 }()
+	TickTimeout, FallbackTimeout = 200*time.Millisecond, 10*time.Second
+	e := newMT(t, running())
+	e.d.execHang = true
+	e.d.requireLive = true
+	if err := RequestWrapUp(e.p, stopID, "run-max", at); err != nil {
+		t.Fatal(err)
+	}
+	// a second run, earlier in the order, needs a token refresh and a wrap-up
+	id2 := "alpha-20261110-000000"
+	saveRun(t, e.p, Run{ID: id2, Repo: "acme/alpha", Mode: ModeInteractive, StartedAt: at.Add(-9 * time.Hour), Max: time.Hour})
+	os.MkdirAll(filepath.Join(e.p.RunsTmp, id2), 0o750)
+	os.WriteFile(filepath.Join(e.p.RunsTmp, id2, "token"), []byte("old"), 0o640)
+	e.d.states[ContainerName(id2)] = running()
+	e.tok = "new"
+	if err := e.m.Tick(context.Background(), at.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := e.p.Load(stopID)
+	if r.FinishedAt.IsZero() {
+		t.Fatal("run not finished after a timed-out fallback")
+	}
+	if e.d.deadCtxCalls != 0 {
+		t.Fatalf("%d docker calls ran on an expired context", e.d.deadCtxCalls)
+	}
+	var fb string
+	for _, x := range e.ev.ev {
+		if x.Kind == "agent.stopped" && x.Fields["run"] == stopID {
+			fb = x.Fields["fallback"]
+		}
+	}
+	if fb != "failed: timeout" {
+		t.Fatalf("fallback %q", fb)
+	}
+	// the other run still got its refresh and wrap-up
+	b, _ := os.ReadFile(filepath.Join(e.p.RunsTmp, id2, "token"))
+	r2, _ := e.p.Load(id2)
+	if string(b) != "new" || r2.WrapUpReason != "run-max" {
+		t.Fatalf("second run starved: token %q wrapup %q", b, r2.WrapUpReason)
+	}
+}
+
+func TestTickNoMintWithoutTokenFile(t *testing.T) {
+	e := newMT(t, running())
+	os.Remove(filepath.Join(e.p.RunsTmp, stopID, "token"))
+	e.m.Tick(context.Background(), at.Add(time.Minute))
+	if e.n != 0 {
+		t.Fatalf("minted %d times", e.n)
 	}
 }

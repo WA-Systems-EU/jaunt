@@ -37,9 +37,18 @@ type fakeDocker struct {
 	execOut    []byte           // output of exec jaunt-wrapup-fallback
 	execHang   bool             // exec jaunt-wrapup-fallback blocks until its context ends
 	stopKeeps  bool             // Stop leaves a states entry running
+	// requireLive counts Inspect/Stop/Remove/NetworkRemove calls made on a done context.
+	requireLive  bool
+	deadCtxCalls int
 }
 
 func (f *fakeDocker) rec(s string) { f.calls = append(f.calls, s) }
+
+func (f *fakeDocker) live(ctx context.Context) {
+	if f.requireLive && ctx.Err() != nil {
+		f.deadCtxCalls++
+	}
+}
 
 func (f *fakeDocker) ImageExists(_ context.Context, tag string) (bool, error) {
 	f.rec("ImageExists " + tag)
@@ -53,7 +62,8 @@ func (f *fakeDocker) NetworkCreate(_ context.Context, name string, labels map[st
 	f.rec(fmt.Sprintf("NetworkCreate %s %v", name, labels))
 	return nil
 }
-func (f *fakeDocker) NetworkRemove(_ context.Context, name string) error {
+func (f *fakeDocker) NetworkRemove(ctx context.Context, name string) error {
+	f.live(ctx)
 	f.rec("NetworkRemove " + name)
 	return nil
 }
@@ -103,7 +113,8 @@ func (f *fakeDocker) Exec(ctx context.Context, container, user string, args ...s
 	}
 	return nil, nil
 }
-func (f *fakeDocker) Inspect(_ context.Context, name string) (State, error) {
+func (f *fakeDocker) Inspect(ctx context.Context, name string) (State, error) {
+	f.live(ctx)
 	f.rec("Inspect " + name)
 	if st, ok := f.states[name]; ok {
 		return st, nil
@@ -120,12 +131,14 @@ func (f *fakeDocker) Logs(_ context.Context, name string, tail int) (string, err
 	f.rec("Logs " + name)
 	return "", nil
 }
-func (f *fakeDocker) Remove(_ context.Context, name string) error {
+func (f *fakeDocker) Remove(ctx context.Context, name string) error {
+	f.live(ctx)
 	f.rec("Remove " + name)
 	delete(f.present, name)
 	return nil
 }
-func (f *fakeDocker) Stop(_ context.Context, name string, _ time.Duration) error {
+func (f *fakeDocker) Stop(ctx context.Context, name string, _ time.Duration) error {
+	f.live(ctx)
 	f.rec("Stop " + name)
 	if st, ok := f.states[name]; ok && st.Running && !f.stopKeeps {
 		f.states[name] = State{Exists: true, ExitCode: 143}

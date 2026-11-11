@@ -90,20 +90,34 @@ func (m *Maintainer) Tick(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	// Cheap work (token refresh, wrap-up requests, finishing gone or exited
+	// containers) goes first for every run; the finishes that run a fallback
+	// come last, so a slow fallback cannot starve the other runs of it.
+	var late []func()
 	for _, r := range runs {
-		m.tickRun(ctx, now, r)
+		if f := m.tickRun(ctx, now, r); f != nil {
+			late = append(late, f)
+		}
+	}
+	for _, f := range late {
+		if ctx.Err() != nil {
+			break // out of time: the grace is still elapsed next pass
+		}
+		f()
 	}
 	return nil
 }
 
-func (m *Maintainer) tickRun(ctx context.Context, now time.Time, r Run) {
+// tickRun does the run's cheap work and returns the grace-elapsed finish, if
+// due, for the caller to run later.
+func (m *Maintainer) tickRun(ctx context.Context, now time.Time, r Run) func() {
 	fail := func(kind string, err error) {
 		m.emit(now, kind, map[string]string{"run": r.ID, "repo": r.Repo, "error": err.Error()})
 	}
 	st, err := m.Docker.Inspect(ctx, ContainerName(r.ID))
 	if err != nil {
 		fail(evTickFailed, err)
-		return
+		return nil
 	}
 	finish := func() error {
 		err := Finish(ctx, m.Docker, m.Paths, r.ID, m.Events, now)
@@ -116,24 +130,25 @@ func (m *Maintainer) tickRun(ctx context.Context, now time.Time, r Run) {
 		if finish() == nil && st.Exists && r.Mode == ModeUnattended {
 			m.emit(now, evFinished, map[string]string{"run": r.ID, "repo": r.Repo, "exit_code": strconv.Itoa(st.ExitCode)})
 		}
-		return
+		return nil
 	}
-	if err := m.refreshToken(ctx, now, r); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := m.refreshToken(ctx, now, r); err != nil {
 		fail(evTokenRefreshFailed, err)
 	}
 	if r.WrapUpAt.IsZero() {
 		if r.Max > 0 && !now.Before(r.StartedAt.Add(r.Max)) {
 			if err := RequestWrapUp(m.Paths, r.ID, wrapUpReasonRunMax, now); err != nil {
 				fail(evWrapUpFailed, err)
-				return
+				return nil
 			}
 			m.emit(now, evWrapUpStarted, map[string]string{"run": r.ID, "repo": r.Repo, "reason": wrapUpReasonRunMax})
 		}
-		return
+		return nil
 	}
 	if !now.Before(r.WrapUpAt.Add(m.Grace)) {
-		_ = finish()
+		return func() { _ = finish() }
 	}
+	return nil
 }
 
 // refreshToken mints a token for the run's repo and, when it differs from
@@ -141,21 +156,24 @@ func (m *Maintainer) tickRun(ctx context.Context, now time.Time, r Run) {
 // same directory). The file keeps the group of the current one (the box
 // user's, set by Start) and mode 0640, root-owned.
 func (m *Maintainer) refreshToken(ctx context.Context, now time.Time, r Run) error {
+	dir := filepath.Join(m.Paths.RunsTmp, r.ID)
+	path := filepath.Join(dir, "token")
+	fi, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil // no token file for this run: nothing to refresh, no mint
+	}
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
 	tok, err := m.Mint(ctx, r.Repo)
 	if err != nil {
 		return err
 	}
 	if tok.Value == "" || strings.ContainsAny(tok.Value, "\r\n\x00") {
 		return errors.New("the minted token is malformed")
-	}
-	dir := filepath.Join(m.Paths.RunsTmp, r.ID)
-	path := filepath.Join(dir, "token")
-	fi, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if !fi.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", path)
 	}
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == tok.Value {
 		return nil

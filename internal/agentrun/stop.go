@@ -55,6 +55,11 @@ func writeFlag(dir, name string, data []byte, mode os.FileMode) error {
 	return nil
 }
 
+// TeardownTimeout bounds the container teardown of one Finish. It runs on a
+// context detached from the caller's deadline, so a slow fallback that used
+// up that deadline cannot make the teardown fail.
+const TeardownTimeout = 30 * time.Second
+
 // Finish ends a run: while its container is running, the mechanical
 // fallback (`jaunt-wrapup-fallback <reason>`) runs inside it first (it
 // pushes, so it must run before tokens are revoked); an exited or missing
@@ -65,6 +70,11 @@ func writeFlag(dir, name string, data []byte, mode os.FileMode) error {
 // is recorded only when the container exited (a running one is inspected
 // again after the stop). Finishing a finished run does nothing.
 func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink, now time.Time) error {
+	// ctx bounds the fallback only (min(FallbackTimeout, what is left of
+	// it)); everything else runs detached with its own timeout.
+	fallbackCtx := ctx
+	ctx, cancelTeardown := context.WithTimeout(context.WithoutCancel(ctx), TeardownTimeout)
+	defer cancelTeardown()
 	r, err := p.Load(id)
 	if err != nil {
 		return err
@@ -84,7 +94,7 @@ func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink, n
 	fields := map[string]string{"run": r.ID, "repo": r.Repo, "reason": reason}
 
 	if st.Running {
-		fctx, cancel := context.WithTimeout(ctx, FallbackTimeout)
+		fctx, cancel := context.WithTimeout(fallbackCtx, FallbackTimeout)
 		out, err := d.Exec(fctx, name, "", "jaunt-wrapup-fallback", reason)
 		timedOut := errors.Is(fctx.Err(), context.DeadlineExceeded)
 		cancel()
