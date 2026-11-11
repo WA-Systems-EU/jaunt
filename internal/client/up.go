@@ -126,7 +126,7 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 	userData, err := cloudinit.Render(cloudinit.Params{
 		Box: boxinfo.BoxInfo{
 			User: user, Hostname: name, Profile: profile, Timezone: d.Cfg.Timezone,
-			UpAt: d.Now(), Limits: pol.Limits,
+			UpAt: d.Now(), Limits: pol.Limits, Agent: d.Cfg.Agent,
 		},
 		TailscaleAuthKey: authKey,
 		HetznerToken:     d.HetznerToken,

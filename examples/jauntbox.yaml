@@ -26,5 +26,8 @@ limits:
   human_active_window: 30m
   wrapup_grace: 5m
 
+agent:
+  max_duration: 8h                 # per-run cap on an agent container; > 0, <= 24h
+
 hetzner_token_env: HCLOUD_TOKEN
 tailscale_api_key_env: TAILSCALE_API_KEY

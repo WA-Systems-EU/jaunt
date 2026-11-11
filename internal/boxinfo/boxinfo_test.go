@@ -27,3 +27,18 @@ func TestWriteReadRoundTrip(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestBoxInfoCarriesAgent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "box.json")
+	in := BoxInfo{User: "alice", Agent: config.Agent{MaxDuration: config.Duration(6 * time.Hour)}}
+	if err := Write(p, in); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Read(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Agent.MaxDuration != config.Duration(6*time.Hour) {
+		t.Fatalf("got %v", time.Duration(out.Agent.MaxDuration))
+	}
+}

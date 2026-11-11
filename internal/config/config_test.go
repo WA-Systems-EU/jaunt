@@ -187,3 +187,25 @@ func TestGitHubProtectedPatternsRejected(t *testing.T) {
 		t.Fatalf("empty pattern err = %v", err)
 	}
 }
+
+func TestDefaultAgentMaxDuration(t *testing.T) {
+	if got := Default().Agent.MaxDuration; got != Duration(8*time.Hour) {
+		t.Fatalf("default = %v", time.Duration(got))
+	}
+	c, err := Load(writeCfg(t, minimal))
+	if err != nil || c.Agent.MaxDuration != Duration(8*time.Hour) {
+		t.Fatalf("loaded %v, %v", c.Agent.MaxDuration, err)
+	}
+}
+
+func TestAgentMaxDurationValidation(t *testing.T) {
+	for _, v := range []string{"0s", "25h"} {
+		_, err := Load(writeCfg(t, minimal+"agent:\n  max_duration: "+v+"\n"))
+		if err == nil || !strings.Contains(err.Error(), "agent.max_duration") {
+			t.Errorf("%s: err = %v", v, err)
+		}
+	}
+	if _, err := Load(writeCfg(t, minimal+"agent:\n  max_duration: 24h\n")); err != nil {
+		t.Errorf("24h rejected: %v", err)
+	}
+}

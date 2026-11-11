@@ -33,6 +33,11 @@ type Limits struct {
 	WrapUpGrace       Duration `yaml:"wrapup_grace" json:"wrapup_grace"`
 }
 
+// Agent configures agent runs on the box.
+type Agent struct {
+	MaxDuration Duration `yaml:"max_duration" json:"max_duration"`
+}
+
 // GitHub configures the forge integration.
 type GitHub struct {
 	Org               string   `yaml:"org"`
@@ -57,6 +62,7 @@ type Config struct {
 	HetznerTokenEnv    string             `yaml:"hetzner_token_env"`
 	TailscaleAPIKeyEnv string             `yaml:"tailscale_api_key_env"`
 	GitHub             GitHub             `yaml:"github"`
+	Agent              Agent              `yaml:"agent"`
 }
 
 // Default returns the built-in defaults. The server types are unverified
@@ -81,6 +87,7 @@ func Default() Config {
 			HumanActiveWindow: Duration(30 * time.Minute),
 			WrapUpGrace:       Duration(5 * time.Minute),
 		},
+		Agent:              Agent{MaxDuration: Duration(8 * time.Hour)},
 		HetznerTokenEnv:    "HCLOUD_TOKEN",
 		TailscaleAPIKeyEnv: "TAILSCALE_API_KEY",
 	}
@@ -147,6 +154,9 @@ func (c Config) Validate() error {
 	}
 	if !hhmmSpan.MatchString(c.Limits.NightHours) {
 		return fmt.Errorf("invalid night_hours %q (want HH:MM-HH:MM, e.g. \"22:00-07:00\")", c.Limits.NightHours)
+	}
+	if d := time.Duration(c.Agent.MaxDuration); d <= 0 || d > 24*time.Hour {
+		return fmt.Errorf("agent.max_duration must be greater than 0 and at most 24h (got %s)", d)
 	}
 	for _, p := range c.GitHub.ProtectedPatterns {
 		if p == "" {

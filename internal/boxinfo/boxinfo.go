@@ -21,6 +21,7 @@ type BoxInfo struct {
 	Timezone string        `json:"timezone"`
 	UpAt     time.Time     `json:"up_at"`
 	Limits   config.Limits `json:"limits"`
+	Agent    config.Agent  `json:"agent"`
 }
 
 // Read loads a BoxInfo from path.
