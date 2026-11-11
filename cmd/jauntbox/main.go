@@ -164,6 +164,7 @@ func newBoxCmd() *cobra.Command {
 	_ = root.PersistentFlags().MarkHidden("config")
 	root.AddCommand(boxCmds()...)
 	root.AddCommand(boxOnlyCmds()...)
+	root.AddCommand(agentCmd(defaultAgentDeps()))
 	return root
 }
 
@@ -449,13 +450,22 @@ func newClientCmd() *cobra.Command {
 		root.AddCommand(c)
 	}
 	root.AddCommand(clientOpsCmds(&cfgPath, loadDeps)...)
+	// Agents start on the box: point a laptop `jauntbox agent` there.
+	root.AddCommand(&cobra.Command{
+		Use:                "agent",
+		Hidden:             true,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("\"agent\" is a box command: run `jauntctl agent` on the box, in your repository's folder")
+		},
+	})
 	return root
 }
 
 func main() {
 	if err := rootFor(os.Args[0]).ExecuteContext(context.Background()); err != nil {
-		if errors.Is(err, errCredential) {
-			os.Exit(1) // git-credential already wrote its single stderr line
+		if errors.Is(err, errCredential) || errors.Is(err, errReported) {
+			os.Exit(1) // the error is already on stderr (git-credential's line, or the root part's)
 		}
 		fmt.Fprintf(os.Stderr, "%s: %v\n", filepath.Base(os.Args[0]), err)
 		os.Exit(1)
