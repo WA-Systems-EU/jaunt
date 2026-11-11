@@ -1,0 +1,14 @@
+[Unit]
+Description=jauntbox: only root may reach the Hetzner metadata service
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target ssh.service tailscaled.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -C OUTPUT -d 169.254.169.254/32 -m owner ! --uid-owner 0 -j DROP 2>/dev/null || iptables -I OUTPUT 1 -d 169.254.169.254/32 -m owner ! --uid-owner 0 -j DROP'
+
+[Install]
+WantedBy=sysinit.target

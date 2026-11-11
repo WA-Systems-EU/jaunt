@@ -29,6 +29,8 @@ runcmd:
   # (the supervise timer is enabled later by `jauntbox`)
   - systemctl daemon-reload
   - systemctl enable --now jauntbox-safety.timer
+  # only root may reach the metadata service (before the network comes up for users)
+  - systemctl enable --now jauntbox-metadata-guard.service
   - mkdir -p /var/lib/jauntbox
   # wait for the data volume (Hetzner attaches it asynchronously)
   - for i in $(seq 1 60); do [ -b {{.VolumeDevice}} ] && break; sleep 2; done

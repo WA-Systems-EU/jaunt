@@ -206,3 +206,24 @@ func TestRenderPinsTailscaledStateViaDefaultsFile(t *testing.T) {
 		t.Errorf("redundant Environment=FLAGS still in drop-in:\n%s", dropin)
 	}
 }
+
+func TestRenderInstallsMetadataGuard(t *testing.T) {
+	_, d := render(t)
+	_, unit := content(t, d, "/etc/systemd/system/jauntbox-metadata-guard.service")
+	want := `ExecStart=/bin/sh -c 'iptables -C OUTPUT -d 169.254.169.254/32 -m owner ! --uid-owner 0 -j DROP 2>/dev/null || iptables -I OUTPUT 1 -d 169.254.169.254/32 -m owner ! --uid-owner 0 -j DROP'`
+	if !strings.Contains(unit, want) {
+		t.Fatalf("unit missing exact ExecStart:\n%s", unit)
+	}
+	enable, up := -1, -1
+	for i, c := range d.Runcmd {
+		if c == "systemctl enable --now jauntbox-metadata-guard.service" {
+			enable = i
+		}
+		if strings.HasPrefix(c, "tailscale up") {
+			up = i
+		}
+	}
+	if enable < 0 || up < 0 || enable > up {
+		t.Fatalf("guard enable (%d) must precede tailscale up (%d)", enable, up)
+	}
+}
