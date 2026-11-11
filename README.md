@@ -25,31 +25,46 @@ From installing jauntbox to typing in a shell on your first box should take abou
 long as a cup of coffee — no files to edit, no infrastructure to learn.
 
 ```sh
-jauntbox init            # detects your user, SSH key and timezone; asks for two API tokens
+jauntbox init            # a short form: detects your user and SSH key, asks for two API tokens
 jauntbox                 # brings the box up if needed and attaches your persistent session
 ```
 
 ## Quick start
 
 Needs a Hetzner Cloud project token (`HCLOUD_TOKEN`) and a Tailscale API key
-(`TAILSCALE_API_KEY`). `jauntbox init` detects your settings, checks both tokens, picks
-server types, writes `~/.config/jauntbox/config.yaml` (never the tokens) and prints the
+(`TAILSCALE_API_KEY`). `jauntbox init` is a form in your terminal (arrow keys, Esc to go back, Ctrl-C to quit
+and write nothing). It detects your settings, lets you search for a timezone, checks both
+tokens on the spot, offers locations and server types with monthly prices, writes `~/.config/jauntbox/config.yaml` (never the tokens) and prints the
 Tailscale policy snippet. It can save the tokens to `~/.config/jauntbox/env` (mode 0600),
 which jauntbox reads automatically when the variables are unset; or it prints the two
-`export` lines for your shell profile. Prefer editing by hand? Copy
+`export` lines for your shell profile. A last screen lets you review what it will save.
+Without a terminal (a pipe) or with `--plain`, it asks the same questions line by line. Prefer editing by hand? Copy
 `examples/jauntbox.yaml` to `~/.config/jauntbox/config.yaml`.
 
 ```sh
 jauntbox init                       # once: config, token checks, prints the ACL snippet
 jauntbox acl-snippet                # reprint the snippet for your tailnet policy
-jauntbox up small                   # returns at once; the box is ready a few minutes later
-jauntbox status                     # box, tailnet presence, deadline and verdict
-jauntbox                            # up + wait + attach (reconnects after network drops)
+jauntbox up small                   # live steps until the box is ready (--detach returns at once)
+jauntbox status                     # a short summary; --json prints the raw status
+jauntbox                            # up (same steps) + attach (reconnects after network drops)
 jauntbox ssh                        # a plain shell on the box
 jauntbox night --until 07:00        # let agents keep the box overnight
-jauntbox resize big                 # swap to another profile; /home persists
+jauntbox resize big                 # swap to another profile and wait for it; /home persists
 jauntbox down                       # wrap up and delete the box (the volume stays; waits up to wrapup_grace + 14 min)
 ```
+
+`jauntbox up` stays in the foreground and shows each step with its time. A new box goes
+through Policy and limits, SSH key/firewall/volume, Server created, Joined the tailnet,
+Box reachable, Install supervisor, Unlock secrets and Dev tools installed, then ends on
+`Ready in 2m31s.` with the time the box deletes itself and the `ssh` command. If the box
+is already past its deadline it says so. `down`, `resize` and bare `jauntbox` show steps
+too. Press Ctrl-C once the server exists and the box keeps getting ready in the background
+(log: `push.log`); a second Ctrl-C quits. `--detach` returns as soon as the box exists.
+`--wait` is still accepted and does nothing.
+
+Output is plain (same symbols, no colour or animation) when it is not going to a terminal,
+when `NO_COLOR` is set to a non-empty value, when `TERM=dumb`, or with the global `--plain`
+flag. The steps go to stderr; `jauntbox status --json` writes only JSON to stdout.
 
 Live smoke checks and their results: [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).
 
@@ -320,10 +335,12 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 
 ## Status
 
-**Beta.** Plans 01 (walking skeleton), 02 (GitHub and secrets), 03a (privilege split) and
-03 (agent containers) are built and merged; Plan 03's live smoke is partly done. Plan 04
-(agents reach the services you start with `docker compose`, and agent previews in
-your laptop browser) is next.
+**Beta.** Plans 01 (walking skeleton), 02 (GitHub and secrets), 03a (privilege split),
+03 (agent containers), 04 (agents reach the services you start with `docker compose`) and
+06 (terminal UI) are built and merged. Plan 03's live smoke is partly done; Plans 04 and 06
+have not been smoke-tested yet. Plan 05 (provider layer) is written, not built. Release
+work (version stamping, GoReleaser binaries, a Homebrew tap, semver 0.x) is planned; until
+then you build from source.
 
 - Design: [`docs/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/specs/2026-11-09-jauntbox-single-machine-design.md)
 - Plans: [`docs/plans/`](docs/plans/)

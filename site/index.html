@@ -75,11 +75,11 @@
           <a href="https://github.com/WA-Systems-EU/jaunt" class="rounded-md border border-line px-5 py-3 font-semibold hover:border-ink">GitHub</a>
         </div>
         <div class="mt-8 rounded-lg bg-surface border border-line overflow-x-auto">
-          <pre class="font-mono text-sm px-4 py-3 leading-7"><span class="text-muted">$</span> jauntbox up small --wait
-<span class="text-muted">→</span> server <span class="text-route">cpx42</span> in fsn1, Ubuntu 26.04
-<span class="text-muted">→</span> volume <span class="text-route">jauntbox-sam-home</span> mounted at /home
-<span class="text-muted">→</span> joined your tailnet · no public ports
-<span style="color: var(--ok)">✓</span> ready
+          <pre class="font-mono text-sm px-4 py-3 leading-7"><span class="text-muted">$</span> jauntbox up small
+<span style="color: var(--ok)">✓</span> Server created
+<span style="color: var(--ok)">✓</span> Joined the tailnet
+<span style="color: var(--ok)">✓</span> Dev tools installed
+<span style="color: var(--ok)">●</span> Ready in 2m31s.
 <span class="text-muted">$</span> jauntbox
 <span class="text-muted">→</span> herdr session attached</pre>
         </div>
@@ -261,7 +261,7 @@
         </div>
         <div class="min-w-0 border-t border-line pt-4">
           <dt class="font-semibold">Poke services on the box itself: dev databases, sshd</dt>
-          <dd class="text-muted text-[15px] mt-1">Traffic from agent networks to the host is dropped.</dd>
+          <dd class="text-muted text-[15px] mt-1">Traffic from agent networks to the host is dropped, except the TCP ports you list (<code class="font-mono text-[13px] text-ink">host.jauntbox</code>), and never port 22.</dd>
         </div>
         <div class="min-w-0 border-t border-line pt-4">
           <dt class="font-semibold">Steal your other repos</dt>
@@ -351,6 +351,7 @@
           <li class="min-w-0 border-t border-line pt-4"><span class="font-semibold">Interactive or unattended.</span> <span class="text-muted">Work alongside the agent, or hand it a one-line prompt and watch the log.</span></li>
           <li class="min-w-0 border-t border-line pt-4"><span class="font-semibold">Several repos at once.</span> <span class="text-muted">One run, container and token per checkout under <code class="font-mono text-[13px] text-ink">~/src</code>.</span></li>
           <li class="min-w-0 border-t border-line pt-4"><span class="font-semibold">Your branch, live.</span> <span class="text-muted">The container mounts your checkout, so you see changes as they happen. Agents push branches, never merge.</span></li>
+          <li class="min-w-0 border-t border-line pt-4"><span class="font-semibold">Your services.</span> <span class="text-muted">Start Postgres with <code class="font-mono text-[13px] text-ink">docker compose</code> and list its port (<code class="font-mono text-[13px] text-ink">agent.host_ports</code> or <code class="font-mono text-[13px] text-ink">--host-port</code>). Agents use <code class="font-mono text-[13px] text-ink">host.jauntbox:5432</code>.</span></li>
           <li class="min-w-0 border-t border-line pt-4"><span class="font-semibold">Wrap-up before the box goes.</span> <span class="text-muted">The agent writes <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code> and pushes it, so the next run picks up where it stopped.</span></li>
         </ul>
         <p class="mt-6"><a href="docs.html#agents" class="font-semibold text-route hover:underline">Agents in the docs &rarr;</a></p>
@@ -371,7 +372,7 @@
           <span class="absolute left-[11px] top-7 bottom-0 w-[2px] route-line lg:hidden" aria-hidden="true"></span>
           <span class="absolute left-0 top-0 lg:static flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">1</span>
           <h3 class="lg:mt-4 font-display text-2xl font-extrabold uppercase">Pack</h3>
-          <p class="text-muted text-[15px] mt-1"><code class="font-mono text-[13px]">jauntbox init</code> once, then pick a size: <code class="font-mono text-[13px]">small</code>, <code class="font-mono text-[13px]">big</code> or <code class="font-mono text-[13px]">huge</code>.</p>
+          <p class="text-muted text-[15px] mt-1"><code class="font-mono text-[13px]">jauntbox init</code> once (a short form in your terminal), then pick a size: <code class="font-mono text-[13px]">small</code>, <code class="font-mono text-[13px]">big</code> or <code class="font-mono text-[13px]">huge</code>.</p>
         </li>
         <li class="relative pl-10 lg:pl-0 pb-10 lg:pb-0">
           <span class="absolute left-[11px] top-7 bottom-0 w-[2px] route-line lg:hidden" aria-hidden="true"></span>
@@ -409,7 +410,7 @@
         <dl class="grid sm:grid-cols-2 lg:grid-cols-5">
           <div class="min-w-0 px-5 py-5 border-t border-line first:border-t-0 sm:[&:nth-child(2)]:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0">
             <dt class="font-mono text-[15px] font-bold text-route">jauntbox up small</dt>
-            <dd class="text-muted text-[15px] mt-1">Start a small box.</dd>
+            <dd class="text-muted text-[15px] mt-1">Start a small box. It shows live steps until the box is ready; <code class="font-mono text-[13px]">--detach</code> returns at once.</dd>
           </div>
           <div class="min-w-0 px-5 py-5 border-t border-line first:border-t-0 sm:[&:nth-child(2)]:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0">
             <dt class="font-mono text-[15px] font-bold text-route">jauntbox resize big</dt>
@@ -500,7 +501,9 @@
           <li class="rounded-lg border border-line px-4 py-3 flex items-center justify-between gap-3"><span>Secrets and GitHub</span><span class="stamp lt st-live">Done</span></li>
           <li class="rounded-lg border border-line px-4 py-3 flex items-center justify-between gap-3"><span>Privilege split</span><span class="stamp lt st-live">Done</span></li>
           <li class="rounded-lg border border-line px-4 py-3 flex items-center justify-between gap-3"><span>Agents in containers</span><span class="stamp lt st-live">Done</span></li>
-          <li class="sm:col-span-2 rounded-lg border-2 px-4 py-3 flex items-center justify-between gap-3" style="border-color: var(--tag)"><span>Your services, reachable by agents</span><span class="stamp lt st-next">Next</span></li>
+          <li class="rounded-lg border border-line px-4 py-3 flex items-center justify-between gap-3"><span>Your services, reachable by agents</span><span class="stamp lt st-live">Done</span></li>
+          <li class="rounded-lg border border-line px-4 py-3 flex items-center justify-between gap-3"><span>Terminal UI</span><span class="stamp lt st-live">Done</span></li>
+          <li class="sm:col-span-2 rounded-lg border border-dashed border-line px-4 py-3 flex items-center justify-between gap-3"><span>Provider layer</span><span class="stamp lt st-next">Planned</span></li>
         </ul>
       </div>
     </div>
@@ -640,7 +643,7 @@
           <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> git clone https://github.com/WA-Systems-EU/jaunt &amp;&amp; cd jaunt
 <span style="color:#7f8fa3">$</span> go build -o ~/bin/jauntbox ./cmd/jauntbox
 <span style="color:#7f8fa3">$</span> jauntbox init
-<span style="color:#7f8fa3">$</span> jauntbox up small --wait
+<span style="color:#7f8fa3">$</span> jauntbox up small
 <span style="color:#7f8fa3">$</span> jauntbox</pre>
         </div>
       </div>

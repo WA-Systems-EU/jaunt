@@ -19,7 +19,7 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    `jauntbox acl-snippet`) into Access controls in the Tailscale admin console, remove or
    narrow the default allow-all rule, and save.
 
-3. **Bring the box up.** `jauntbox up small --wait`. Then:
+3. **Bring the box up.** `jauntbox up small` (it stays in the foreground until the box is ready). Then:
    - `jauntbox ssh` works.
    - `systemctl list-timers` on the box shows `jauntbox-supervise` and
      `jauntbox-safety`.
@@ -27,7 +27,7 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    - `ps -o args -C tailscaled` on the box shows `--state=/home/.jaunt/tailscaled.state`
      (the volume path, not `/var/lib/tailscale`).
 
-4. **Status.** `jauntbox status` shows the box, `on tailnet: true`, and the
+4. **Status.** `jauntbox status` shows the box, the tailnet mark and the
    deadline and verdict from the supervisor.
 
 5. **Self-deletion keeps the volume.** On the box set `max_uptime: 15m` by editing
@@ -59,7 +59,7 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    old box deleted, new one created, `/home` intact, and the box's MagicDNS name
    is still `jauntbox-<user>` (no `-1` suffix: node identity survived).
 
-9. **Safety net.** `jauntbox up` without `--wait`, kill the background push helper
+9. **Safety net.** `jauntbox up --detach`, kill the background push helper
    (`pkill -f internal-push`) immediately after `up` returns, and leave it. The box deletes itself roughly 45-55
    minutes later. **Confirm the volume is still there afterwards** (a safety-net
    deletion must delete only the server).
@@ -226,6 +226,25 @@ says otherwise. Fill in the result column.
 | 7. Republish Postgres as `127.0.0.1:5432:5432`, then `jauntctl agent` in another checkout: the loopback warning is printed and the agent can't connect (record whether the warning is visible for an interactive start too, where Claude's screen opens right after, as well as for `--unattended`); restore `5432:5432`. With the service stopped, the nothing-listens warning is printed | |
 | 8. From the laptop: `psql -h jauntbox-<user> -p 5432 ...` still connects while agents run | |
 | 9. `sudo systemctl restart docker` with a run active: the run reads `gone` / finished in `jauntctl agent list`, its `JAUNTBOX-RUNS` rules are gone, and a new `jauntctl agent` reaches 5432. After `sudo reboot`, `sudo iptables -S INPUT` again shows row 1's order before any agent start | |
+
+## Plan 06 checks (terminal UI)
+
+Run in a real terminal (stderr is a terminal) unless a row says otherwise. Fill in the
+result column.
+
+| Check | Result |
+|---|---|
+| 1. `jauntbox up small` on a new box shows each step (Policy and limits, SSH key/firewall/volume, Server created, Joined the tailnet, Box reachable, Install supervisor, Unlock secrets, Dev tools installed) with its time, and ends on `Ready in …` with the deletion time and the `ssh` line | |
+| 2. `jauntbox up small \| cat` (box already up, then on a new box) prints plain lines only: no escape bytes, no spinner, one line per finished step | |
+| 3. Ctrl-C during Provisioning prints the note naming `push.log`; `jauntbox status` a few minutes later shows the box ready. A second Ctrl-C during the foreground wait quits | |
+| 4. `jauntbox down` shows its steps and ends cleanly; `jauntbox down` again says "no box running" | |
+| 5. `jauntbox resize big` shows its steps and returns only when the new box is ready | |
+| 6. `jauntbox status` prints the short summary (box, state, server type, created, tailnet, secrets, verdict and deadline); `jauntbox status --json \| jq .` parses | |
+| 7. `jauntbox init --config /tmp/t.yaml` walks the form (arrow keys, Esc back, timezone search, token checks, locations, server types with prices, review screen) and writes the config, env file and ssh block you chose; Ctrl-C in the form writes nothing | |
+| 8. `jauntbox init --config /tmp/t2.yaml < /dev/null` (or with `--plain`) asks line by line; the files match what the form wrote for the same answers | |
+| 9. Bare `jauntbox` with no box shows the same steps as `up`, then attaches the herdr session | |
+| 10. `NO_COLOR=1 jauntbox status` and `jauntbox --plain up` print no colour or animation | |
+| 11. `jauntbox up --detach` returns once the server exists; `jauntbox status` later shows the box ready | |
 
 ## What "good" looks like
 
