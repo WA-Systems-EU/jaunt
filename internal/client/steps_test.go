@@ -97,12 +97,12 @@ func TestPushBinaryRecordsSteps(t *testing.T) {
 	}
 	assertEvents(t, r,
 		"start Joined the tailnet", "detail Joined the tailnet: jauntbox-alice", "done Joined the tailnet",
-		"start Provisioning", "done Provisioning",
+		"start Box reachable", "done Box reachable",
 		"start Install supervisor", "done Install supervisor",
 		"start Unlock secrets", "done Unlock secrets")
 }
 
-func TestPushBinaryTimeoutFailsProvisioning(t *testing.T) {
+func TestPushBinaryTimeoutFailsBoxReachable(t *testing.T) {
 	fastPoll(t)
 	d, _, _, _, _, _ := newDeps(t)
 	r := withRec(&d)
@@ -112,7 +112,7 @@ func TestPushBinaryTimeoutFailsProvisioning(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error")
 	}
-	want := "fail Provisioning: " + err.Error()
+	want := "fail Box reachable: " + err.Error()
 	if !contains(r.Events, want) {
 		t.Fatalf("no %q in %v", want, r.Events)
 	}
@@ -152,7 +152,7 @@ func TestRootSSHRetryIsAWarning(t *testing.T) {
 	}
 	n := 0
 	for _, e := range rec.Events {
-		if strings.HasPrefix(e, "warn Provisioning: ") {
+		if strings.HasPrefix(e, "warn Box reachable: ") {
 			n++
 		}
 	}
@@ -309,7 +309,7 @@ func TestResizeWaitsForNewBox(t *testing.T) {
 		}
 		return -1
 	}
-	order := []string{"start Ask the box to wrap up", "start Box deleted", "start Server created", "start Joined the tailnet", "start Provisioning", "start Install supervisor", "start Unlock secrets"}
+	order := []string{"start Ask the box to wrap up", "start Box deleted", "start Server created", "start Joined the tailnet", "start Box reachable", "start Install supervisor", "start Unlock secrets", "start Dev tools installed"}
 	last := -1
 	for _, e := range order {
 		i := idx(e)
@@ -340,7 +340,7 @@ func TestAttachRecordsStepsAndPrintsNothingElse(t *testing.T) {
 		"start SSH key, firewall, volume", "done SSH key, firewall, volume",
 		"start Box found", "detail Box found: jauntbox-alice (running)", "done Box found",
 		"start Box online", "done Box online",
-		"start Box provisioned", "done Box provisioned",
+		"start Dev tools installed", "done Dev tools installed",
 		"start Install supervisor", "skip Install supervisor: already running",
 		"start Unlock secrets", "done Unlock secrets")
 }
@@ -363,7 +363,7 @@ func TestResizeFailureModes(t *testing.T) {
 		if *spawns != 0 {
 			t.Fatalf("spawned %d", *spawns)
 		}
-		if !contains(rec.Events, "fail Provisioning: "+err.Error()) {
+		if !contains(rec.Events, "fail Box reachable: "+err.Error()) {
 			t.Fatalf("events = %v", rec.Events)
 		}
 	})
@@ -457,4 +457,161 @@ func TestStatusSurfacesUnlockError(t *testing.T) {
 			t.Fatalf("%+v", rep)
 		}
 	})
+}
+
+// sshDown is a transport failure (ssh exits 255); notInstalledErr is the check
+// command itself exiting non-zero.
+func sshDown(t *testing.T) error         { return exitErr(t, 255) }
+func notInstalledErr(t *testing.T) error { return exitErr(t, 1) }
+
+func TestSupervisorCheckRetriesSSHFailure(t *testing.T) {
+	d, p, r := attachFixture(t)
+	withBox(p)
+	rec := withRec(&d)
+	r.checkFails, r.checkErr = 2, sshDown(t)
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r.cmds {
+		if strings.HasPrefix(c, "copy:") {
+			t.Fatalf("re-pushed after a transient ssh failure: %v", r.cmds)
+		}
+	}
+	assertEvents(t, rec, "start Install supervisor", "skip Install supervisor: already running",
+		"start Unlock secrets", "done Unlock secrets")
+}
+
+func TestSupervisorCheckGivesUpAfterThreeSSHFailures(t *testing.T) {
+	d, _, r := attachFixture(t)
+	r.checkFails, r.checkErr = 1<<30, sshDown(t)
+	rec := withRec(&d)
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, c := range r.cmds {
+		if c == supervisorCheck {
+			n++
+		}
+	}
+	if n != 3 || !contains(rec.Events, "start Install supervisor") || !contains(rec.Events, "done Install supervisor") {
+		t.Fatalf("checks=%d events=%v", n, rec.Events)
+	}
+}
+
+func TestSupervisorCheckNotInstalledDecidesAtOnce(t *testing.T) {
+	d, _, r := attachFixture(t)
+	r.noSupervisor = true
+	rec := withRec(&d)
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, c := range r.cmds {
+		if c == supervisorCheck {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("checked %d times, want 1", n)
+	}
+	// One step only: no tailnet join, no "Box reachable".
+	assertEvents(t, rec, "start Install supervisor", "done Install supervisor",
+		"start Unlock secrets", "done Unlock secrets")
+}
+
+func TestRePushRetriesAndWarningsGoOnInstallStep(t *testing.T) {
+	oldP, oldR := pollInterval, rootSSHWait
+	pollInterval, rootSSHWait = time.Millisecond, 20*time.Millisecond
+	defer func() { pollInterval, rootSSHWait = oldP, oldR }()
+	d, _, r := attachFixture(t)
+	r.noSupervisor = true
+	rec := withRec(&d)
+	d.Root = &rootRefusedRemote{}
+	err := EnsureSupervisor(context.Background(), d)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if len(rec.Events) < 3 || rec.Events[0] != "start Install supervisor" ||
+		!strings.HasPrefix(rec.Events[1], "warn Install supervisor: ") ||
+		rec.Events[2] != "fail Install supervisor: "+err.Error() {
+		t.Fatalf("events = %v", rec.Events)
+	}
+	for _, e := range rec.Events {
+		if strings.Contains(e, "Box reachable") || strings.Contains(e, "Joined the tailnet") {
+			t.Fatalf("unexpected %q", e)
+		}
+	}
+}
+
+func TestAttachExistingBoxSupervisorCheckBlipNoRePush(t *testing.T) {
+	d, p, r := attachFixture(t)
+	withBox(p)
+	rec := withRec(&d)
+	r.checkFails, r.checkErr = 1, sshDown(t)
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { return 0, nil },
+		func(string) (string, error) { return "", errors.New("none") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(rec.Events, "start Joined the tailnet") || contains(rec.Events, "start Box reachable") {
+		t.Fatalf("repeated steps: %v", rec.Events)
+	}
+	if !contains(rec.Events, "skip Install supervisor: already running") {
+		t.Fatalf("events = %v", rec.Events)
+	}
+}
+
+func TestAttachExistingBoxReallyNotInstalled(t *testing.T) {
+	d, p, r := attachFixture(t)
+	withBox(p)
+	rec := withRec(&d)
+	r.noSupervisor = true
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { return 0, nil },
+		func(string) (string, error) { return "", errors.New("none") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := -1
+	for k, e := range rec.Events {
+		if e == "done Dev tools installed" {
+			i = k
+		}
+	}
+	if i < 0 {
+		t.Fatalf("no dev tools step: %v", rec.Events)
+	}
+	assertEvents(t, &ui.Recorder{Events: rec.Events[i+1:]}, "start Install supervisor", "done Install supervisor",
+		"start Unlock secrets", "done Unlock secrets")
+	if contains(rec.Events, "start Joined the tailnet") || contains(rec.Events, "start Box reachable") {
+		t.Fatalf("repeated steps: %v", rec.Events)
+	}
+}
+
+func TestReadyExistingStepOrder(t *testing.T) {
+	d, p, _ := attachFixture(t)
+	withBox(p)
+	rec := withRec(&d)
+	if err := ReadyExisting(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	assertEvents(t, rec, "start Box online", "done Box online",
+		"start Dev tools installed", "done Dev tools installed",
+		"start Install supervisor", "skip Install supervisor: already running",
+		"start Unlock secrets", "done Unlock secrets")
+}
+
+func TestResizeEndsWithDevTools(t *testing.T) {
+	fastPoll(t)
+	d, p, _, _, _, _ := newDeps(t)
+	withBox(p)
+	rec := withRec(&d)
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	if err := Resize(context.Background(), d, "big"); err != nil {
+		t.Fatal(err)
+	}
+	n := len(rec.Events)
+	if n < 2 || rec.Events[n-2] != "start Dev tools installed" || rec.Events[n-1] != "done Dev tools installed" {
+		t.Fatalf("tail = %v", rec.Events[max(0, n-4):])
+	}
 }

@@ -374,9 +374,9 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 			steps.Plan("Policy and limits", "SSH key, firewall, volume")
 			d.AfterUp = func(created bool) {
 				if created {
-					steps.Plan("Joined the tailnet", "Provisioning", "Install supervisor", "Unlock secrets", "Box provisioned")
+					steps.Plan("Joined the tailnet", "Box reachable", "Install supervisor", "Unlock secrets", "Dev tools installed")
 				} else {
-					steps.Plan("Box online", "Box provisioned")
+					steps.Plan("Box online", "Dev tools installed")
 				}
 			}
 			// Nothing may print under a live block: finish the stream before

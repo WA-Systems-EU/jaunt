@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/WA-Systems-EU/jaunt/internal/ui"
@@ -43,26 +44,64 @@ func installCmd(user string) string {
 
 const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer"
 
+// Supervisor check retries: a box that has only just come online may refuse
+// the first ssh, which must not be mistaken for a missing supervisor. Vars so
+// tests run instantly.
+var (
+	checkAttempts = 3
+	checkGap      = 2 * time.Second
+)
+
 // EnsureSupervisor makes sure an existing box runs the supervisor: if the
 // binary or the enabled timer is missing (an interrupted first attach, or the
 // box was created from another machine) it pushes the binary in the foreground.
-// Without it the safety net would delete the box under a working human.
+// Without it the safety net would delete the box under a working human. The
+// box has already been seen online and provisioned, so the push is one step.
 func EnsureSupervisor(ctx context.Context, d Deps) error {
-	if supervisorInstalled(ctx, d) {
+	ok, err := supervisorInstalled(ctx, d)
+	if err != nil {
+		return err
+	}
+	if ok {
 		tryUnlock(ctx, d)
 		return nil
 	}
-	return PushBinary(ctx, d, DefaultPushWait) // unlocks after installing
+	bin, err := BoxBinaryPath(d.Cfg)
+	if err != nil {
+		return err
+	}
+	install := d.steps().Start("Install supervisor")
+	return copyAndInstall(ctx, d, bin, time.Now().Add(DefaultPushWait), DefaultPushWait, nil, install)
+}
+
+// notInstalled reports whether err is the remote check command itself failing
+// (it ran and exited non-zero). ssh exits 255 for transport failures, and
+// anything that is not an exit status (a start failure, a cancelled context)
+// says nothing about the box, so those are retried.
+func notInstalled(err error) bool {
+	var ee *exec.ExitError
+	return errors.As(err, &ee) && ee.ExitCode() != exitSSHFailure
 }
 
 // supervisorInstalled reports whether the box already runs the supervisor,
-// recording the "Install supervisor" step as skipped when it does.
-func supervisorInstalled(ctx context.Context, d Deps) bool {
-	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck); err != nil {
-		return false
+// recording the "Install supervisor" step as skipped when it does. A failing
+// ssh is retried a few times; a clean "not installed" answer decides at once.
+func supervisorInstalled(ctx context.Context, d Deps) (bool, error) {
+	for attempt := 1; ; attempt++ {
+		_, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck)
+		if err == nil {
+			d.steps().Start("Install supervisor").Skip("already running")
+			return true, nil
+		}
+		if notInstalled(err) || attempt >= checkAttempts {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(checkGap):
+		}
 	}
-	d.steps().Start("Install supervisor").Skip("already running")
-	return true
 }
 
 // InstallSupervisor is the existing-box counterpart of what Up does on create:
@@ -73,7 +112,11 @@ func InstallSupervisor(ctx context.Context, d Deps, wait bool) error {
 		return EnsureSupervisor(ctx, d)
 	}
 	// Already installed: do not re-push over a running supervisor, but still unlock.
-	if supervisorInstalled(ctx, d) {
+	ok, err := supervisorInstalled(ctx, d)
+	if err != nil {
+		return err
+	}
+	if ok {
 		tryUnlock(ctx, d)
 		return nil
 	}
@@ -141,17 +184,25 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 	}
 	joined.Done()
 
-	// Right after the tailnet join dev-setup.sh may not have created the box user
-	// yet, so the runuser steps fail until then: retry those to the same deadline.
-	// A refused root ssh login is different (stale tailnet policy): it gets its
-	// own short budget and the first error is a warning while it retries.
-	prov := steps.Start("Provisioning")
-	var install ui.Step // started once the binary copy has worked
+	return copyAndInstall(ctx, d, bin, deadline, wait, steps.Start("Box reachable"), nil)
+}
+
+// copyAndInstall copies the binary to the box and installs the supervisor,
+// retrying until deadline. Right after the tailnet join dev-setup.sh may not
+// have created the box user yet, so the runuser steps fail until then. A
+// refused root ssh login is different (stale tailnet policy): it gets its own
+// short budget and the first error is a warning while it retries.
+//
+// reach is the "Box reachable" step, open until the copy works (nil when the
+// box is already known to be reachable); install is the "Install supervisor"
+// step, passed open for a re-push or started after the copy otherwise.
+func copyAndInstall(ctx context.Context, d Deps, bin string, deadline time.Time, wait time.Duration, reach, install ui.Step) error {
+	host := hostname(d.Cfg.User)
 	fail := func(err error) error {
 		if install != nil {
 			install.Fail(err, "")
 		} else {
-			prov.Fail(err, "")
+			reach.Fail(err, "")
 		}
 		return err
 	}
@@ -162,8 +213,8 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 			err = fmt.Errorf("copy binary: %w", err)
 		} else {
 			if install == nil {
-				prov.Done()
-				install = steps.Start("Install supervisor")
+				reach.Done()
+				install = d.steps().Start("Install supervisor")
 			}
 			if _, rerr := rootRun(ctx, d, installCmd(d.Cfg.User)); rerr != nil {
 				err = fmt.Errorf("install binary: %w", rerr)
@@ -176,10 +227,11 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 		if errors.Is(err, ErrRootSSH) {
 			if rootSince.IsZero() {
 				rootSince = time.Now()
+				msg := fmt.Sprintf("%v; retrying for up to %s", err, rootSSHWait)
 				if install != nil {
-					install.Warn(fmt.Sprintf("%v; retrying for up to %s", err, rootSSHWait))
+					install.Warn(msg)
 				} else {
-					prov.Warn(fmt.Sprintf("%v; retrying for up to %s", err, rootSSHWait))
+					reach.Warn(msg)
 				}
 			}
 			if time.Since(rootSince) > rootSSHWait {

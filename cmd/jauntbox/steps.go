@@ -186,10 +186,13 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 				steps.warned.Store(true)
 			}
 			if res.Created {
-				steps.Plan("Joined the tailnet", "Provisioning", "Install supervisor", "Unlock secrets")
-				err = client.PushBinary(ctx, d, client.DefaultPushWait)
+				steps.Plan("Joined the tailnet", "Box reachable", "Install supervisor", "Unlock secrets", "Dev tools installed")
+				if err = client.PushBinary(ctx, d, client.DefaultPushWait); err == nil {
+					err = client.WaitDevTools(ctx, d)
+				}
 			} else {
-				err = client.InstallSupervisor(ctx, d, true)
+				steps.Plan("Box online", "Dev tools installed")
+				err = client.ReadyExisting(ctx, d)
 			}
 			if err != nil {
 				return handOff(ctx, cmd, spawn, steps, res, err)

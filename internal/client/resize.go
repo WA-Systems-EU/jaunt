@@ -31,5 +31,8 @@ func Resize(ctx context.Context, d Deps, profile string) error {
 	if err := PushBinary(ctx, d, resizePushWait); err != nil {
 		return err
 	}
+	if err := WaitDevTools(ctx, d); err != nil {
+		return err
+	}
 	return upErr
 }

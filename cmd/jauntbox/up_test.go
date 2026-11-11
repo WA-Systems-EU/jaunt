@@ -525,3 +525,54 @@ func TestPlainFlagForcesPlain(t *testing.T) {
 		t.Fatal("no --plain flag")
 	}
 }
+
+func stepEvents(rec *ui.Recorder) []string {
+	var out []string
+	for _, e := range rec.Events {
+		if strings.HasPrefix(e, "start ") {
+			out = append(out, strings.TrimPrefix(e, "start "))
+		}
+	}
+	return out
+}
+
+func TestUpNewBoxStepsEndWithDevTools(t *testing.T) {
+	f := newFx(t)
+	rec := withRecorder(t)
+	if _, _, err := f.run(context.Background(), "up"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(stepEvents(rec), " | ")
+	want := "Joined the tailnet | Box reachable | Install supervisor | Unlock secrets | Dev tools installed"
+	if !strings.HasSuffix(got, want) {
+		t.Fatalf("steps = %s", got)
+	}
+	di, ei := -1, -1
+	for i, e := range rec.Events {
+		if e == "done Dev tools installed" {
+			di = i
+		}
+		if strings.HasPrefix(e, "end ok") {
+			ei = i
+		}
+	}
+	if di < 0 || ei != di+1 {
+		t.Fatalf("Ready must directly follow the dev tools: %v", rec.Events)
+	}
+	if strings.Contains(got, "Provisioning") || strings.Contains(got, "Box provisioned") {
+		t.Fatalf("old labels: %s", got)
+	}
+}
+
+func TestUpExistingBoxWaitsForDevTools(t *testing.T) {
+	f := newFx(t)
+	f.prov.box = &provider.Box{ID: 5, Name: "jauntbox-alice", Status: "running"}
+	rec := withRecorder(t)
+	if _, _, err := f.run(context.Background(), "up"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(stepEvents(rec), " | ")
+	if !strings.HasSuffix(got, "Box found | Box online | Dev tools installed | Install supervisor | Unlock secrets") {
+		t.Fatalf("steps = %s", got)
+	}
+}

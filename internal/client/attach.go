@@ -122,7 +122,7 @@ func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 func waitProvisioned(ctx context.Context, d Deps, host string) error {
 	herdr := "/home/" + d.Cfg.User + "/.local/bin/herdr"
 	deadline := nowFn().Add(provisionWait)
-	st := d.steps().Start("Box provisioned")
+	st := d.steps().Start("Dev tools installed")
 	for {
 		if _, err := d.Remote.Run(ctx, host, "test", "-x", herdr); err == nil {
 			st.Done()
@@ -137,6 +137,25 @@ func waitProvisioned(ctx context.Context, d Deps, host string) error {
 			return err
 		}
 	}
+}
+
+// WaitDevTools waits until the dev tools are installed on the box (the last
+// thing cloud-init does), so "ready" means ready to work.
+func WaitDevTools(ctx context.Context, d Deps) error {
+	return waitProvisioned(ctx, d, hostname(d.Cfg.User))
+}
+
+// ReadyExisting is what an existing box needs before it is ready: online, dev
+// tools installed, supervisor running, secrets unlocked.
+func ReadyExisting(ctx context.Context, d Deps) error {
+	host := hostname(d.Cfg.User)
+	if err := waitOnline(ctx, d, host); err != nil {
+		return err
+	}
+	if err := waitProvisioned(ctx, d, host); err != nil {
+		return err
+	}
+	return EnsureSupervisor(ctx, d)
 }
 
 func waitOnline(ctx context.Context, d Deps, host string) error {

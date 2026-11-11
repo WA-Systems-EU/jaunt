@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,12 +14,20 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/session"
 )
 
+// errNotInstalled is what ssh reports when the remote command exits 1.
+var errNotInstalled = func() error {
+	err := exec.Command("sh", "-c", "exit 1").Run()
+	return fmt.Errorf("ssh x: %w: out", err)
+}()
+
 type scriptRemote struct {
 	cmds             []string
 	src              string // output for the ls call
 	list             string // output for the workspace list call
 	tests, testFails int    // `test -x herdr` calls; first testFails fail
-	noSupervisor     bool   // the supervisor check fails
+	noSupervisor     bool   // the supervisor check exits non-zero (not installed)
+	checkFails       int    // the first checkFails supervisor checks fail with checkErr
+	checkErr         error
 }
 
 func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
@@ -25,8 +35,12 @@ func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte,
 	r.cmds = append(r.cmds, line)
 	switch {
 	case strings.Contains(line, "is-enabled"):
+		if r.checkFails > 0 {
+			r.checkFails--
+			return nil, r.checkErr
+		}
 		if r.noSupervisor {
-			return nil, errors.New("exit 1")
+			return nil, errNotInstalled
 		}
 		return nil, nil
 	case args[0] == "test" && args[1] == "-x":
@@ -65,7 +79,9 @@ func attachFixture(t *testing.T) (Deps, *fakeProv, *scriptRemote) {
 	oldExe, oldOut, oldSleep := osExecutable, attachOut, sleepFn
 	oldProv := provisionPoll
 	provisionPoll = time.Millisecond
-	t.Cleanup(func() { provisionPoll = oldProv })
+	oldGap := checkGap
+	checkGap = time.Millisecond
+	t.Cleanup(func() { provisionPoll, checkGap = oldProv, oldGap })
 	osExecutable = func() (string, error) { return "/bin/true", nil }
 	attachOut = io.Discard
 	sleepFn = func(context.Context, time.Duration) error { return nil }
