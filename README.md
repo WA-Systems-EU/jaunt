@@ -53,6 +53,17 @@ jauntbox down                       # wrap up and delete the box (the volume sta
 
 Live smoke checks and their results: [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).
 
+### Your editor and your services
+
+- **VS Code Remote-SSH** (or any ssh-based remote editor) works as is: connect to
+  `<user>@jauntbox-<user>` over Tailscale SSH and open a folder under `~/src`. Agents still
+  start with `jauntctl agent` from a terminal (the editor's terminal is fine).
+- **Your services from the laptop:** what you publish with `docker compose` or
+  `docker run -p` on the box is reachable at `http://jauntbox-<user>:<port>` over the
+  tailnet (database clients, the app in your browser), never from the internet.
+- **Agents' own servers** aren't published: reach them from the box by the container IP
+  (`jauntctl agent list`), or from the laptop with `ssh -N -L 8080:<run IP>:8080 <user>@jauntbox-<user>`.
+
 ## GitHub and secrets
 
 The box never holds a long-lived credential on disk. Your secrets stay on the laptop
