@@ -272,4 +272,8 @@ Copyright (C) 2026 WA Systems. jauntbox is free software under the
 changed version, or run one as a service for others, you must publish your changes under
 the same licence.
 
+WA Systems builds an enterprise edition and a hosted control plane on top of jauntbox, in a
+separate repository. Contributions need a signed contributor licence agreement: see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 Built by [WA Systems](https://wa-systems.eu).
