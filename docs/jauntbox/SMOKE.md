@@ -224,3 +224,23 @@ App owner `WA-Systems-EU` (GitHub Free), installed on the private repo `WA-Syste
 | 5. Revocation on down | Pass: 2 `token.minted` since the step-3 reboot, 2 `token.revoked` just before the delete; the pre-reboot token was not revoked (cache wiped, expires on its own), as expected. Old token: HTTP 401. Found along the way: one NUL-filled line in `events.jsonl` and no `box.deleted` events, because `box.deleted` was written after the self-delete call; fixed in `26996b0` (written and synced first, every event fsynced). Read the log with `grep -a`. |
 | 6. Nothing on the volume | Pass: no `ghs_` token and no private key under `/home`. |
 | `box.deleted` recorded by a fixed box (`26996b0`) | Not recorded yet. |
+
+### 2026-11-11: Plan 03a checks (privilege split)
+
+Box created from `06b5592`, `small` profile.
+
+| Check | Result |
+|---|---|
+| `up` before the fix | **Failed first** with Hetzner "invalid input in field 'user_data'": the rendered user-data was 35 KB, over Hetzner's 32 KiB limit. Fixed in `06b5592` (cloud-init files gzipped, about 18 KB now, size test added). |
+| 20. New box with root refused by the policy | Pass: the background push stopped after about a minute and named `jauntbox acl-snippet`. |
+| 1. Policy updated with `acl-snippet` (includes `root`) | Pass. |
+| 2. Install over root ssh | Pass after the policy update (`jauntbox internal-push` on the running box). |
+| 3–6. Sudo split | Pass. |
+| 7–12. Rootless docker, `docker run`, `docker compose up`, host mount and metadata denied, root daemon via `sudo` | Pass. |
+| 13. Metadata blocked for the user, reachable with `sudo` | Pass. |
+| 15. Metadata rule back after a reboot | Pass. |
+| 17. No rootless docker warning in the provisioning log | Pass. |
+| 18. No `docker` group | Pass. |
+| 19. Root daemon socket denied | Pass. |
+| 14. Supervisor deletes the box at `down` | Not run (unchanged by 03a apart from root ssh; skipped). |
+| 16. `down` with root refused | Not run (skipped). |
