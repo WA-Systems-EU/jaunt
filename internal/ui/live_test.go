@@ -301,3 +301,39 @@ func appendText(lines []string, t string) []string {
 	}
 	return append(lines, strings.Split(strings.TrimSuffix(t, "\n"), "\n")...)
 }
+
+func TestLiveMultilineErrorSplitsLines(t *testing.T) {
+	buf := &lockedBuf{}
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	tick := make(chan time.Time)
+	s := newLive(buf, clk.now, tick, func() int { return 40 }, nil)
+	s.Plan("A", "B")
+	st := s.Start("B")
+	st.Detail("x\ty\nz")
+	sendTick(tick)
+	sendTick(tick) // the second send returns only after the first redraw
+	if !strings.Contains(stripANSI(buf.String()), " B 0.0s x y z\n") {
+		t.Errorf("detail not one line: %q", stripANSI(buf.String()))
+	}
+	st.Fail(errors.New("l1\nl2\r\nl3\twide"), "")
+	sendTick(tick)
+	s.Close()
+	out := buf.String()
+	if got := screen(out); !strings.Contains(got, "✕ B 0.0s x y z\n  l1\n  l2\n  l3 wide\n") {
+		t.Errorf("screen = %q", got)
+	}
+	re := regexp.MustCompile(`(?:\x1b\[(\d+)A)?\x1b\[J`)
+	idx := re.FindAllStringSubmatchIndex(out, -1)
+	for k := 1; k < len(idx); k++ {
+		frame := out[idx[k-1][1]:idx[k][0]]
+		if idx[k][2] < 0 {
+			continue
+		}
+		if got, _ := strconv.Atoi(out[idx[k][2]:idx[k][3]]); got != strings.Count(frame, "\n") {
+			t.Errorf("cursor-up %d, frame had %d lines", got, strings.Count(frame, "\n"))
+		}
+		if strings.ContainsAny(frame, "\r\t") {
+			t.Errorf("control char in block frame %q", frame)
+		}
+	}
+}

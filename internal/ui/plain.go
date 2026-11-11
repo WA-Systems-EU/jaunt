@@ -56,7 +56,7 @@ func (p *plain) End(ok bool, summary string, lines ...string) {
 	if ok {
 		fmt.Fprintf(&b, "● %s\n", summary)
 	}
-	for _, l := range lines {
+	for _, l := range splitLines(lines) {
 		fmt.Fprintf(&b, "  %s\n", l)
 	}
 	p.printf("%s", b.String())
@@ -120,10 +120,8 @@ func (s *plainStep) writeLocked(sym string, withDuration bool, extra string, msg
 		b.WriteString(" " + extra)
 	}
 	b.WriteString("\n")
-	for _, m := range msgs {
-		if m != "" {
-			fmt.Fprintf(&b, "  %s\n", m)
-		}
+	for _, m := range splitLines(msgs) {
+		fmt.Fprintf(&b, "  %s\n", m)
 	}
 	fmt.Fprint(s.p.w, b.String())
 }

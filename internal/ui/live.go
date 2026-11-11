@@ -14,6 +14,21 @@ import (
 	"golang.org/x/term"
 )
 
+var ctrlToSpace = strings.NewReplacer("\r", " ", "\t", " ")
+var detailClean = strings.NewReplacer("\r", " ", "\t", " ", "\n", " ")
+
+// splitLines splits each message on newlines, dropping empty messages.
+func splitLines(msgs []string) []string {
+	var out []string
+	for _, m := range msgs {
+		if m == "" {
+			continue
+		}
+		out = append(out, strings.Split(strings.ReplaceAll(m, "\r\n", "\n"), "\n")...)
+	}
+	return out
+}
+
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type itemState int
@@ -153,6 +168,7 @@ func (l *live) redrawLocked() {
 		maxw = l.width() - 1
 	}
 	fit := func(ln string) string {
+		ln = ctrlToSpace.Replace(ln)
 		if maxw > 0 {
 			return ansi.Truncate(ln, maxw, "…")
 		}
@@ -244,7 +260,7 @@ func (l *live) End(ok bool, summary string, lines ...string) {
 	if ok {
 		out = append(out, l.teal.Render("●")+" "+summary)
 	}
-	for _, ln := range lines {
+	for _, ln := range splitLines(lines) {
 		out = append(out, "  "+l.dim.Render(ln))
 	}
 	if len(out) > 0 {
@@ -302,10 +318,8 @@ func (l *live) finishLocked(it *item, sym string, withDur bool, extra string, ms
 		head += " " + l.dim.Render(extra)
 	}
 	it.lines = []string{head}
-	for _, m := range msgs {
-		if m != "" {
-			it.lines = append(it.lines, "  "+m)
-		}
+	for _, m := range splitLines(msgs) {
+		it.lines = append(it.lines, "  "+m)
 	}
 }
 
@@ -317,7 +331,7 @@ type liveStep struct {
 func (s *liveStep) Detail(d string) {
 	s.l.mu.Lock()
 	defer s.l.mu.Unlock()
-	s.it.detail = d
+	s.it.detail = detailClean.Replace(d)
 }
 
 func (s *liveStep) Warn(msg string) {

@@ -29,10 +29,22 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-type fakeClock struct{ t time.Time }
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
 
-func (c *fakeClock) now() time.Time      { return c.t }
-func (c *fakeClock) adv(d time.Duration) { c.t = c.t.Add(d) }
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *fakeClock) adv(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
 
 func runPlain(buf *bytes.Buffer) {
 	clk := &fakeClock{t: time.Unix(1000, 0)}
@@ -279,5 +291,15 @@ func TestPlainCloseThreeOpen(t *testing.T) {
 	s.Close()
 	if buf.String() != want {
 		t.Errorf("later calls printed: %q", buf.String())
+	}
+}
+
+func TestPlainMultilineFailIndented(t *testing.T) {
+	var buf bytes.Buffer
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	s := NewPlain(&buf, clk.now)
+	s.Start("x").Fail(errors.New("one\ntwo"), "hint")
+	if want := "✕ x 0.0s\n  one\n  two\n  hint\n"; buf.String() != want {
+		t.Errorf("got %q want %q", buf.String(), want)
 	}
 }
