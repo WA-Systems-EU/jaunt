@@ -51,7 +51,7 @@ jauntbox resize big                 # swap to another profile; /home persists
 jauntbox down                       # wrap up and delete the box (the volume stays; waits up to wrapup_grace + 14 min)
 ```
 
-Not yet live-tested end to end: see [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).
+Live smoke checks and their results: [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).
 
 ## GitHub and secrets
 
@@ -256,13 +256,15 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 
 ## Status
 
-**Under construction** on the `feat/remote-workspace` branch.
+**Beta.** Plans 01 (walking skeleton), 02 (GitHub and secrets), 03a (privilege split) and
+03 (agent containers) are built and merged; Plan 03's live smoke is partly done. Plan 04
+(services beside the agent, project images) is next.
 
 - Design: [`docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md)
-- Plan 01 (walking skeleton): [`docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md`](docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md)
+- Plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
 
 The earlier OpenTofu implementation (and the team/fleet design built on it) lives in the
-`trunk` branch history; a fleet version comes later.
+git history; a fleet version comes later.
 
 ## Licence
 
