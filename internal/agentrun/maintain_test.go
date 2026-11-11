@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -427,5 +428,127 @@ func TestTickSkipsLateFinishWithoutBudget(t *testing.T) {
 	}
 	if r, _ := e.p.Load(due[0]); r.FinishedAt.IsZero() {
 		t.Fatalf("run %s not finished on the next tick", due[0])
+	}
+}
+
+// prune fixtures: n finished runs, run i finishing i days before `at`.
+func finishedRun(t *testing.T, p Paths, id string, daysAgo int) {
+	t.Helper()
+	fin := at.Add(-time.Duration(daysAgo) * 24 * time.Hour)
+	saveRun(t, p, Run{ID: id, Repo: "acme/widget", Mode: ModeInteractive, StartedAt: fin.Add(-time.Hour), FinishedAt: fin})
+	if err := os.MkdirAll(filepath.Join(p.RunsVol, id, "log"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runDirExists(p Paths, id string) bool {
+	_, err := os.Lstat(filepath.Join(p.RunsVol, id))
+	return err == nil
+}
+
+func pruneEnv(t *testing.T) (*Maintainer, Paths, *sinkRec) {
+	p := testPaths(t)
+	ev := &sinkRec{}
+	return &Maintainer{Docker: &fakeDocker{states: map[string]State{}}, Paths: p, Events: ev, Grace: time.Minute}, p, ev
+}
+
+func TestTickPrunesOldFinishedRunsKeepingNewest(t *testing.T) {
+	m, p, ev := pruneEnv(t)
+	// 25 recent finished runs (1..25 days) and 3 old ones (40, 50, 60 days)
+	for i := 1; i <= 25; i++ {
+		finishedRun(t, p, "r"+strconv.Itoa(i)+"-20260101-000000", i)
+	}
+	for _, d := range []int{40, 50, 60} {
+		finishedRun(t, p, "old"+strconv.Itoa(d)+"-20260101-000000", d)
+	}
+	activeRun(t, p) // unfinished, even though started long ago
+	if err := m.Tick(context.Background(), at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []int{40, 50, 60} {
+		if runDirExists(p, "old"+strconv.Itoa(d)+"-20260101-000000") {
+			t.Errorf("old%d kept", d)
+		}
+	}
+	// recent ones are within retention for the first 25 days... day 31+ none here
+	for i := 1; i <= 25; i++ {
+		if !runDirExists(p, "r"+strconv.Itoa(i)+"-20260101-000000") {
+			t.Errorf("r%d pruned", i)
+		}
+	}
+	if !runDirExists(p, stopID) {
+		t.Error("unfinished run pruned")
+	}
+	var got string
+	for _, x := range ev.ev {
+		if x.Kind == "agent.pruned" {
+			got = x.Fields["count"]
+		}
+	}
+	if got != "3" {
+		t.Fatalf("agent.pruned count %q, events %v", got, ev.ev)
+	}
+}
+
+func TestTickPruneKeepsTwentyNewestRegardlessOfAge(t *testing.T) {
+	m, p, ev := pruneEnv(t)
+	for i := 0; i < 25; i++ { // all older than 30 days: 100..124 days ago
+		finishedRun(t, p, "r"+strconv.Itoa(i)+"-20260101-000000", 100+i)
+	}
+	if err := m.Tick(context.Background(), at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 25; i++ {
+		want := i < RunKeepMin // the 20 most recently finished are ids 0..19
+		if got := runDirExists(p, "r"+strconv.Itoa(i)+"-20260101-000000"); got != want {
+			t.Errorf("r%d exists=%v, want %v", i, got, want)
+		}
+	}
+	n := 0
+	for _, x := range ev.ev {
+		if x.Kind == "agent.pruned" {
+			n++
+			if x.Fields["count"] != "5" {
+				t.Errorf("count %v", x.Fields)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("pruned events %d", n)
+	}
+}
+
+func TestTickPruneQuietWhenNothingToPrune(t *testing.T) {
+	m, p, ev := pruneEnv(t)
+	finishedRun(t, p, "a-20260101-000000", 100)
+	if err := m.Tick(context.Background(), at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !runDirExists(p, "a-20260101-000000") || len(ev.ev) != 0 {
+		t.Fatalf("events %v", ev.ev)
+	}
+}
+
+func TestPruneDoesNotFollowSymlinks(t *testing.T) {
+	m, p, _ := pruneEnv(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "keep"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < RunKeepMin; i++ {
+		finishedRun(t, p, "n"+strconv.Itoa(i)+"-20260101-000000", 1)
+	}
+	finishedRun(t, p, "old-20260101-000000", 90)
+	if err := os.Symlink(outside, filepath.Join(p.RunsVol, "old-20260101-000000", "log", "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Tick(context.Background(), at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if runDirExists(p, "old-20260101-000000") {
+		t.Fatal("old run kept")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
+		t.Fatalf("symlink target touched: %v", err)
 	}
 }

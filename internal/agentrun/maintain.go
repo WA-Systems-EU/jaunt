@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,6 +26,7 @@ const (
 	evRunCorrupt         = "agent.run_corrupt"
 	evFinishFailed       = "agent.finish_failed"
 	evWrapUpFailed       = "agent.wrapup_failed"
+	evPruned             = "agent.pruned"
 	wrapUpReasonRunMax   = "run-max"
 	tokenFileMode        = 0o640
 )
@@ -45,6 +47,14 @@ var (
 	TickTimeout      = 2 * time.Minute
 	FinishAllTimeout = 5 * time.Minute
 	MinFinishBudget  = 60 * time.Second
+)
+
+// RunRetention is how long a finished run's record and logs are kept, and
+// RunKeepMin the number of most recently finished runs kept whatever their
+// age, so `agent list` never goes empty on a quiet box.
+const (
+	RunRetention = 30 * 24 * time.Hour
+	RunKeepMin   = 20
 )
 
 // BoxReasonPrefix marks wrap-ups requested for the whole box, so cancelling
@@ -115,7 +125,45 @@ func (m *Maintainer) Tick(ctx context.Context, now time.Time) error {
 		}
 		f()
 	}
+	m.prune(now)
 	return nil
+}
+
+// prune removes the record and logs of finished runs whose FinishedAt is
+// older than RunRetention, except the RunKeepMin most recently finished.
+// Unfinished runs are never touched. The path is built from an id that Scan
+// validated (a single path component equal to the run.json's own id) under
+// RunsVol, whose parents are root's, and os.RemoveAll unlinks a symlink
+// instead of following it; the log subdirectory is the user's, so a link
+// planted there is removed, not entered. Failures are best effort and retried
+// next pass.
+func (m *Maintainer) prune(now time.Time) {
+	runs, _, err := m.Paths.Scan()
+	if err != nil {
+		return
+	}
+	var done []Run
+	for _, r := range runs {
+		if !r.FinishedAt.IsZero() {
+			done = append(done, r)
+		}
+	}
+	if len(done) <= RunKeepMin {
+		return
+	}
+	sort.SliceStable(done, func(i, j int) bool { return done[i].FinishedAt.After(done[j].FinishedAt) })
+	n := 0
+	for _, r := range done[RunKeepMin:] {
+		if now.Sub(r.FinishedAt) <= RunRetention {
+			continue
+		}
+		if os.RemoveAll(m.Paths.runDir(r.ID)) == nil {
+			n++
+		}
+	}
+	if n > 0 {
+		m.emit(now, evPruned, map[string]string{"count": strconv.Itoa(n)})
+	}
 }
 
 // tickRun does the run's cheap work and returns the grace-elapsed finish, if
