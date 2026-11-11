@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.x (cobra), Docker CLI via `os/exec`, iptables/ip6tables `DOCKER-USER`, POSIX sh + jq scripts in the image, Claude Code managed settings hooks.
 
-**Spec:** `docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md` (§4 trust zones, §6 agents, §7 activity/teardown).
+**Spec:** `docs/specs/2026-11-09-jauntbox-single-machine-design.md` (§4 trust zones, §6 agents, §7 activity/teardown).
 
 ## Global Constraints
 
@@ -21,7 +21,7 @@
 - Teardown order: wrap-up agents → revoke forge tokens → stop containers → sync → self-delete (spec §7 Teardown). The mechanical fallback pushes, so it runs before revoke.
 - Box-side root commands are `jauntctl` subcommands; laptop commands are `jauntbox` (Plan 02 Task 0).
 - **03a has landed.** Every Docker call runs inside root `jauntctl`. `jauntctl agent attach` re-execs through `sudo -n jauntctl agent attach …` (allowed by the sudoers line) and runs `docker exec` as root with `--user <uid>:<gid>`. The four host git guard settings go into `installCmd` through `runuser -u <user> --`. Agent containers never mount `/run/user/<uid>` or the box user's rootless Docker socket (the box user's own rootless daemon is separate from the root daemon the agents use). The next bullet is the original statement of what 03a does.
-- **Plan 03a lands first** (`docs/superpowers/plans/2026-11-10-jauntbox-03a-privilege-split.md`): the box user is not in the `docker` group and has passwordless sudo only for `jauntctl mint|repos|box-status|agent`; every Docker call happens inside root `jauntctl`; `jauntctl agent attach` re-execs through `sudo -n` and runs `docker exec` as root; `installCmd` runs as root over root ssh, with user git settings through `runuser -u <user> --`. Passwordless `jauntctl agent *` makes root act on user-chosen paths, so: root creates files in a checkout as the user (`runuser`, or `O_NOFOLLOW` plus an ownership check); the checkout path must resolve under `/home/<SUDO_USER>`; `attach` and `stop` accept only containers labelled `jauntbox.agent=1` that belong to that user.
+- **Plan 03a lands first** (`docs/plans/2026-11-10-jauntbox-03a-privilege-split.md`): the box user is not in the `docker` group and has passwordless sudo only for `jauntctl mint|repos|box-status|agent`; every Docker call happens inside root `jauntctl`; `jauntctl agent attach` re-execs through `sudo -n` and runs `docker exec` as root; `installCmd` runs as root over root ssh, with user git settings through `runuser -u <user> --`. Passwordless `jauntctl agent *` makes root act on user-chosen paths, so: root creates files in a checkout as the user (`runuser`, or `O_NOFOLLOW` plus an ownership check); the checkout path must resolve under `/home/<SUDO_USER>`; `attach` and `stop` accept only containers labelled `jauntbox.agent=1` that belong to that user.
 - Tests never call real Docker, iptables, GitHub, Hetzner or Tailscale: fakes behind interfaces, shell scripts tested with stubs.
 - Commits: plain conventional messages, no attribution trailers.
 - Exact values used across tasks:

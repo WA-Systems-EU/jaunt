@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 · cobra · GitHub REST API through a small `net/http` client (no go-github, same style as `internal/mesh/tailscale.go`) · RS256 JWT with `crypto/rsa` (no JWT library) · `ssh` stdin for secret delivery · bash for `jaunt-repos`.
 
-**Spec:** `docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md` (§4 trust zones, §5 forge access, §7 secret delivery and the locked state, §9 setup). Plan 01: `docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md`. Plan 03 (agents, containers, wrap-up, per-container minter socket, metadata block) and the rich terminal UI (its own plan, after a design discussion) are out of scope.
+**Spec:** `docs/specs/2026-11-09-jauntbox-single-machine-design.md` (§4 trust zones, §5 forge access, §7 secret delivery and the locked state, §9 setup). Plan 01: `docs/plans/2026-11-09-jauntbox-01-walking-skeleton.md`. Plan 03 (agents, containers, wrap-up, per-container minter socket, metadata block) and the rich terminal UI (its own plan, after a design discussion) are out of scope.
 
 ## Starting point
 

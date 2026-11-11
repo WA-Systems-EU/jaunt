@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go (cobra), OpenSSH via Tailscale SSH, sudoers, iptables owner match, systemd, POSIX sh.
 
-**Spec:** `docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md` §4 (trust zones). This plan narrows the spec's "Known accepted exposure" (passwordless sudo and the `docker` group for the box user); the spec stays the authority elsewhere.
+**Spec:** `docs/specs/2026-11-09-jauntbox-single-machine-design.md` §4 (trust zones). This plan narrows the spec's "Known accepted exposure" (passwordless sudo and the `docker` group for the box user); the spec stays the authority elsewhere.
 
 ## Global Constraints
 
@@ -139,7 +139,7 @@ Added 2026-11-11 (Thomas: "we need to be able to run docker run and docker compo
 ### Task 5: Docs, smoke checks, Plan 03 alignment
 
 **Files:**
-- Modify: `README.md`, `docs/jauntbox/SMOKE.md`, `docs/superpowers/plans/2026-11-10-jauntbox-03-agent-containers.md`
+- Modify: `README.md`, `docs/jauntbox/SMOKE.md`, `docs/plans/2026-11-10-jauntbox-03-agent-containers.md`
 
 - [ ] **Step 1: README:** a "Root and sudo on the box" section: root comes from the laptop for jauntbox's own commands; `sudo` asks for `BOX_SUDO_PASSWORD`; passwordless only for the listed `jauntctl` commands; no `docker` group: `docker` and `docker compose` work without sudo against your own rootless daemon (ports above 1024; `sudo docker …` reaches the root daemon); update the tailnet policy with `jauntbox acl-snippet` (now includes `root`); the accepted weakness from ruling 2.
 - [ ] **Step 2: SMOKE "Plan 03a"**, recording each output: policy updated, `jauntbox up` works over root ssh; as the box user `sudo -n true` fails, `sudo -n jauntctl repos` works, `sudo -n jauntctl stop` is refused; `sudo true` asks for the password and accepts `BOX_SUDO_PASSWORD`; `docker info` shows `rootless`, `docker run --rm hello-world` and a small `docker compose up` work, `docker run --rm -v /:/host alpine cat /host/etc/shadow` is denied, `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails from a rootless container, `sudo docker ps` reaches the root daemon; `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails as the box user and works with `sudo`; the supervisor still deletes the box at `down`; after a reboot the metadata rule is back (`sudo iptables -S OUTPUT`).

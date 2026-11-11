@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 · `github.com/spf13/cobra` · `gopkg.in/yaml.v3` · `github.com/hetznercloud/hcloud-go/v2/hcloud` · Tailscale REST API v2 through a small `net/http` client (no SDK) · `ssh`/`scp` binaries through `os/exec` · cloud-init.
 
-**Spec:** `docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md`. Plans 02 (secrets + GitHub forge) and 03 (agents + wrap-up) follow this one. Anything they own is out of scope here.
+**Spec:** `docs/specs/2026-11-09-jauntbox-single-machine-design.md`. Plans 02 (secrets + GitHub forge) and 03 (agents + wrap-up) follow this one. Anything they own is out of scope here.
 
 ## Starting point
 

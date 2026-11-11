@@ -285,8 +285,8 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 (agents reach the services you start with `docker compose`, and agent previews in
 your laptop browser) is next.
 
-- Design: [`docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md)
-- Plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
+- Design: [`docs/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/specs/2026-11-09-jauntbox-single-machine-design.md)
+- Plans: [`docs/plans/`](docs/plans/)
 
 The earlier OpenTofu implementation (and the team/fleet design built on it) lives in the
 git history; a fleet version comes later.
