@@ -828,7 +828,7 @@ func TestStartReadyTimeoutCleansUp(t *testing.T) {
 	e := newTenv(t, "ref: refs/heads/feat/x\n")
 	e.d.neverReady = true
 	_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root})
-	if err == nil || !strings.Contains(err.Error(), "not ready") || !strings.Contains(err.Error(), "cached") || !strings.Contains(err.Error(), "init log") {
+	if err == nil || !strings.Contains(err.Error(), "not ready") || !strings.Contains(err.Error(), "cached") || !strings.Contains(err.Error(), "init.log") {
 		t.Fatalf("err %v", err)
 	}
 	checkCleanedUp(t, e)

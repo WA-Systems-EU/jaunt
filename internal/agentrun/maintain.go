@@ -152,17 +152,17 @@ func (m *Maintainer) prune(now time.Time) {
 		return
 	}
 	sort.SliceStable(done, func(i, j int) bool { return done[i].FinishedAt.After(done[j].FinishedAt) })
-	n := 0
+	var gone []string
 	for _, r := range done[RunKeepMin:] {
 		if now.Sub(r.FinishedAt) <= RunRetention {
 			continue
 		}
 		if os.RemoveAll(m.Paths.runDir(r.ID)) == nil {
-			n++
+			gone = append(gone, r.ID)
 		}
 	}
-	if n > 0 {
-		m.emit(now, evPruned, map[string]string{"count": strconv.Itoa(n)})
+	if n := len(gone); n > 0 {
+		m.emit(now, evPruned, map[string]string{"count": strconv.Itoa(n), "runs": strings.Join(gone, ",")})
 	}
 }
 

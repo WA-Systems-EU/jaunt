@@ -174,7 +174,8 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 - **Unattended.** The prompt can be any length up to 64 KiB, several lines
   included. `jauntctl agent logs --follow` watches the run. `logs` reads any of your
   own runs, finished or not; without an id it shows the newest run of the current
-  checkout.
+  checkout. Finished runs (record and log) are removed 30 days after they finish;
+  the 20 most recent are always kept.
 - **What a container holds.** Only the checkout (`/work`), a read-only per-run state
   directory (its token and wrap-up flag), the repo's agent home on the volume
   (`/home/agent`: Claude's config and transcripts, the `mise` cache) and the run's log

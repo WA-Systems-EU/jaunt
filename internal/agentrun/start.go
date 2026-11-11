@@ -520,7 +520,11 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 
 	if err := s.waitReady(ctx, name, mode); err != nil {
 		tail := s.initLogTail(filepath.Join(logDir, "init.log"))
-		return Run{}, fmt.Errorf("the agent container did not start: %w\nlast lines of %s:\n%s", err, filepath.Join(logDir, "init.log"), tail)
+		il := filepath.Join(logDir, "init.log")
+		if strings.TrimSpace(tail) == "" {
+			return Run{}, fmt.Errorf("the agent container did not start: %w\n%s was empty or not written yet", err, il)
+		}
+		return Run{}, fmt.Errorf("the agent container did not start: %w\nlast lines of %s:\n%s", err, il, tail)
 	}
 
 	if err := s.Paths.Save(run); err != nil {
@@ -581,7 +585,7 @@ func (s *Starter) waitReady(ctx context.Context, name, mode string) error {
 			return fmt.Errorf("the container stopped (exit %d) before it was ready", st.ExitCode)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("the container was not ready after %s (the init log tail is below; mise installs are cached, so trying again picks up where this one stopped)", wait)
+			return fmt.Errorf("the container was not ready after %s; mise installs are cached, so trying again picks up where this one stopped", wait)
 		}
 		select {
 		case <-ctx.Done():

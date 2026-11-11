@@ -21,5 +21,6 @@ func (ClaudeCode) InteractiveCmd(resume, continueSession, skipPermissions bool) 
 	return argv
 }
 
-// UnattendedCmd runs the in-image wrapper, which reads JAUNT_PROMPT.
+// UnattendedCmd runs the in-image wrapper, which reads the prompt from
+// /run/jauntbox-run/prompt and gives it to claude on stdin.
 func (ClaudeCode) UnattendedCmd() []string { return []string{"jaunt-unattended"} }

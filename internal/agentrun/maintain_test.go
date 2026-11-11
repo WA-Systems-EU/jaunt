@@ -461,7 +461,7 @@ func TestTickPrunesOldFinishedRunsKeepingNewest(t *testing.T) {
 	for _, d := range []int{40, 50, 60} {
 		finishedRun(t, p, "old"+strconv.Itoa(d)+"-20260101-000000", d)
 	}
-	activeRun(t, p) // unfinished, even though started long ago
+	activeRun(t, p)
 	if err := m.Tick(context.Background(), at.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -476,8 +476,11 @@ func TestTickPrunesOldFinishedRunsKeepingNewest(t *testing.T) {
 			t.Errorf("r%d pruned", i)
 		}
 	}
+	// the active run is finished by Tick's first phase (no container), which
+	// is why it survives here: it was finished just now. See the next test
+	// for an unfinished run with a live container.
 	if !runDirExists(p, stopID) {
-		t.Error("unfinished run pruned")
+		t.Error("just-finished run pruned")
 	}
 	var got string
 	for _, x := range ev.ev {
@@ -510,6 +513,9 @@ func TestTickPruneKeepsTwentyNewestRegardlessOfAge(t *testing.T) {
 			n++
 			if x.Fields["count"] != "5" {
 				t.Errorf("count %v", x.Fields)
+			}
+			if got := strings.Count(x.Fields["runs"], ",") + 1; got != 5 || !strings.Contains(x.Fields["runs"], "r24-20260101-000000") {
+				t.Errorf("runs %q", x.Fields["runs"])
 			}
 		}
 	}
@@ -550,5 +556,25 @@ func TestPruneDoesNotFollowSymlinks(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
 		t.Fatalf("symlink target touched: %v", err)
+	}
+}
+
+func TestPruneNeverTouchesUnfinishedRun(t *testing.T) {
+	m, p, _ := pruneEnv(t)
+	id := "live-20260101-000000"
+	saveRun(t, p, Run{ID: id, Repo: "acme/widget", Mode: ModeInteractive, StartedAt: at.Add(-100 * 24 * time.Hour)})
+	m.Docker.(*fakeDocker).states[ContainerName(id)] = State{Exists: true, Running: true}
+	for i := 0; i < RunKeepMin+5; i++ {
+		finishedRun(t, p, "old"+strconv.Itoa(i)+"-20260101-000000", 60+i)
+	}
+	if err := m.Tick(context.Background(), at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	r, err := p.Load(id)
+	if err != nil || !r.FinishedAt.IsZero() {
+		t.Fatalf("unfinished run: %+v, %v", r, err)
+	}
+	if runDirExists(p, "old24-20260101-000000") {
+		t.Fatal("old finished run kept")
 	}
 }
