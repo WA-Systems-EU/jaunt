@@ -1,0 +1,30 @@
+<!doctype html>
+<!-- Source for site/og.png (1200x630). Render:
+chromium --headless=new --no-sandbox --hide-scrollbars --window-size=1200,630 --screenshot=site/og.png docs/site/og-source.html
+Self-contained on purpose: no CDN; display font falls back to a system narrow sans if Big Shoulders Display is installed locally it is used. -->
+<html><head><meta charset="utf-8">
+<style>
+  html,body{margin:0;width:1200px;height:630px;overflow:hidden}
+  body{background:#101a27;color:#e5ecf2;font-family:"Public Sans","Helvetica Neue",Arial,sans-serif;position:relative}
+  .grid{position:absolute;inset:0;background-image:linear-gradient(to right,rgba(243,211,107,.06) 1px,transparent 1px),linear-gradient(to bottom,rgba(243,211,107,.06) 1px,transparent 1px);background-size:60px 60px}
+  .route{position:absolute;left:84px;top:96px;width:2px;height:438px;background-image:linear-gradient(to bottom,#4fc2b9 50%,transparent 50%);background-size:2px 12px}
+  .wrap{position:absolute;left:130px;top:70px;right:80px}
+  .eyebrow{font-family:"JetBrains Mono","DejaVu Sans Mono",monospace;font-size:22px;letter-spacing:.2em;text-transform:uppercase;color:#4fc2b9}
+  h1{font-family:"Big Shoulders Display","Nimbus Sans Narrow","Arial Narrow",Impact,sans-serif;font-stretch:condensed;font-weight:800;font-size:200px;line-height:1;margin:14px 0 0;color:#f3d36b;letter-spacing:-.01em}
+  p{font-size:36px;line-height:1.35;margin:26px 0 0;max-width:980px;color:#e5ecf2}
+  .tag{position:absolute;right:80px;top:70px;background:#f0b928;color:#2a1f00;font-family:"JetBrains Mono","DejaVu Sans Mono",monospace;font-weight:700;font-size:22px;padding:12px 26px 12px 40px;clip-path:polygon(18px 0,100% 0,100% 100%,18px 100%,0 50%)}
+  .url{position:absolute;left:130px;bottom:44px;font-family:"JetBrains Mono","DejaVu Sans Mono",monospace;font-size:24px;color:#9aaabb}
+  .bar{position:absolute;left:0;right:0;bottom:0;height:12px;background:#f0b928}
+  .dot{position:absolute;left:77px;width:16px;height:16px;border-radius:50%;background:#4fc2b9}
+</style></head><body>
+<div class="grid"></div><div class="route"></div>
+<div class="dot" style="top:88px"></div><div class="dot" style="top:526px;background:#f0b928"></div>
+<div class="tag">self-deleting</div>
+<div class="wrap">
+  <div class="eyebrow">Cloud dev box</div>
+  <h1>jauntbox</h1>
+  <p>A personal, self-deleting cloud dev box on your tailnet, where your code, secrets and sandboxed coding agents live instead of on your laptop.</p>
+</div>
+<div class="url">www.jauntbox.eu</div>
+<div class="bar"></div>
+</body></html>
