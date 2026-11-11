@@ -31,8 +31,9 @@ type Hetzner struct {
 }
 
 var (
-	_ provider.Provider   = (*Hetzner)(nil)
-	_ provider.TypeLister = (*Hetzner)(nil)
+	_ provider.Provider     = (*Hetzner)(nil)
+	_ provider.TypeLister   = (*Hetzner)(nil)
+	_ provider.VolumeFinder = (*Hetzner)(nil)
 )
 
 // New builds a provider. Tests pass hcloud.WithEndpoint(srv.URL).
@@ -161,6 +162,22 @@ func (h *Hetzner) EnsureVolume(ctx context.Context, name string, sizeGB int, loc
 		return provider.Volume{}, fmt.Errorf("volume %q: %w", name, err)
 	}
 	return volumeOf(res.Volume), nil
+}
+
+// FindVolume reports the location of the volume called name, if there is one.
+func (h *Hetzner) FindVolume(ctx context.Context, name string) (string, bool, error) {
+	vols, err := h.c.Volume.AllWithOpts(ctx, hcloud.VolumeListOpts{Name: name})
+	if err != nil {
+		return "", false, fmt.Errorf("list volumes: %w", err)
+	}
+	if len(vols) == 0 {
+		return "", false, nil
+	}
+	loc := ""
+	if vols[0].Location != nil {
+		loc = vols[0].Location.Name
+	}
+	return loc, true, nil
 }
 
 func boxOf(s *hcloud.Server) provider.Box {

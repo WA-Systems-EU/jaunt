@@ -546,3 +546,27 @@ func TestSelfIDIgnoresProxy(t *testing.T) {
 		t.Fatalf("metadata request went through the proxy (%d hits)", hits)
 	}
 }
+
+func TestHetznerFindVolume(t *testing.T) {
+	exists := true
+	h, _ := newFake(t, func(r rec, rw http.ResponseWriter) {
+		if r.method == "GET" && r.path == "/volumes" {
+			if exists {
+				w(rw, `{"volumes":[`+strings.Replace(volJSON, "%s", "nbg1", 1)+`]}`)
+			} else {
+				w(rw, `{"volumes":[]}`)
+			}
+			return
+		}
+		rw.WriteHeader(404)
+	})
+	loc, found, err := h.FindVolume(context.Background(), "jauntbox-alice-home")
+	if err != nil || !found || loc != "nbg1" {
+		t.Fatalf("loc=%q found=%v err=%v", loc, found, err)
+	}
+	exists = false
+	loc, found, err = h.FindVolume(context.Background(), "jauntbox-alice-home")
+	if err != nil || found || loc != "" {
+		t.Fatalf("loc=%q found=%v err=%v", loc, found, err)
+	}
+}

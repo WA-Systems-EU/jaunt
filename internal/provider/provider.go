@@ -71,3 +71,10 @@ type Provider interface {
 type TypeLister interface {
 	ServerTypes(ctx context.Context) ([]ServerType, error)
 }
+
+// VolumeFinder is an optional provider interface: it reports where a volume
+// of this name already exists, so init can propose that location (volumes
+// cannot move).
+type VolumeFinder interface {
+	FindVolume(ctx context.Context, name string) (location string, found bool, err error)
+}

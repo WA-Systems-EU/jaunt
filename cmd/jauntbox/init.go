@@ -15,6 +15,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/mesh"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 	"github.com/WA-Systems-EU/jaunt/internal/provider/hetzner"
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
 )
 
 // termPrompter is the interactive terminal Prompter; secrets are read without echo.
@@ -79,13 +80,22 @@ func initCmd(cfgPath *string) *cobra.Command {
 			home, _ := os.UserHomeDir()
 			det := client.Detect(home, os.Getenv, client.LocalZone)
 			lister := func(token string) provider.TypeLister { return hetzner.New(token) }
+			finder := func(token string) provider.VolumeFinder { return hetzner.New(token) }
 			meshCheck := func(key string) error {
 				// One devices call: success means the key is accepted.
 				_, err := mesh.NewTailscale(key, "", nil).DeviceOnline(context.Background(), "jauntbox-init-check")
 				return err
 			}
+			opts := []client.InitOption{client.WithOutput(cmd.OutOrStdout()), client.WithSSHConfig(filepath.Join(home, ".ssh", "config"))}
+			// The form needs a terminal on both sides; anything else gets the
+			// line-by-line wizard.
+			if ui.Live(os.Stdout, plainFlag(cmd), os.Getenv, isTerminal) && isTerminal(int(os.Stdin.Fd())) {
+				opts = append(opts, client.WithSteps(newSteps(cmd, false)))
+				_, err := client.InitForm(cmd.Context(), det, lister, finder, meshCheck, *cfgPath, opts...)
+				return err
+			}
 			p := termPrompter{in: bufio.NewReader(os.Stdin)}
-			_, err := client.Init(cmd.Context(), p, det, lister, meshCheck, *cfgPath, client.WithOutput(cmd.OutOrStdout()), client.WithSSHConfig(filepath.Join(home, ".ssh", "config")))
+			_, err := client.Init(cmd.Context(), p, det, lister, meshCheck, *cfgPath, opts...)
 			return err
 		},
 	}

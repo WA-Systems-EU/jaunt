@@ -17,6 +17,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/mesh"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
 )
 
 // Prompter is the interactive surface of the init wizard.
@@ -114,11 +115,12 @@ func PickProfiles(types []provider.ServerType, location string) (map[string]conf
 	return out, nil
 }
 
-// InitOption tunes Init.
+// InitOption tunes Init, InitForm and ApplyInit.
 type InitOption func(*initOpts)
 type initOpts struct {
 	out       io.Writer
 	sshConfig string
+	steps     ui.Steps
 }
 
 // WithSSHConfig makes Init offer to append the host-key block to this ssh
@@ -127,6 +129,18 @@ func WithSSHConfig(path string) InitOption { return func(o *initOpts) { o.sshCon
 
 // WithOutput sets where Init prints instructions (default os.Stdout).
 func WithOutput(w io.Writer) InitOption { return func(o *initOpts) { o.out = w } }
+
+// WithSteps sets where ApplyInit reports its writes (default: plain lines on
+// the output writer).
+func WithSteps(s ui.Steps) InitOption { return func(o *initOpts) { o.steps = s } }
+
+func newInitOpts(opts []InitOption) initOpts {
+	o := initOpts{out: os.Stdout}
+	for _, f := range opts {
+		f(&o)
+	}
+	return o
+}
 
 // EnvFilePath is the token env file that sits next to the config file.
 func EnvFilePath(configPath string) string { return filepath.Join(filepath.Dir(configPath), "env") }
@@ -139,8 +153,7 @@ func askSecret(p Prompter, question string, check func(string) error, what strin
 			return "", err
 		}
 		s = strings.TrimSpace(s)
-		if !safeToken.MatchString(s) {
-			last = errors.New("it must be non-empty and contain only letters, digits, '_' and '-' (copy just the token)")
+		if last = validToken(s); last != nil {
 			continue
 		}
 		if last = check(s); last == nil {
@@ -150,12 +163,57 @@ func askSecret(p Prompter, question string, check func(string) error, what strin
 	return "", fmt.Errorf("%s rejected: %w", what, last)
 }
 
-// Init runs the setup wizard and writes the config (never the tokens) to path.
-func Init(ctx context.Context, p Prompter, det Detected, lister func(token string) provider.TypeLister, meshCheck func(apiKey string) error, path string, opts ...InitOption) (config.Config, error) {
-	o := initOpts{out: os.Stdout}
-	for _, f := range opts {
-		f(&o)
+// validToken checks the shape of a pasted API token.
+func validToken(s string) error {
+	if !safeToken.MatchString(s) {
+		return errors.New("it must be non-empty and contain only letters, digits, '_' and '-' (copy just the token)")
 	}
+	return nil
+}
+
+// validUserName is the user-name rule shared by both init front-ends.
+func validUserName(v string) error {
+	if v == "" || cleanUser(v) != v {
+		return fmt.Errorf("user must be lowercase letters, digits and dashes, up to 40 characters (got %q)", v)
+	}
+	return nil
+}
+
+// validTimezone is the timezone rule shared by both init front-ends.
+func validTimezone(v string) error {
+	if v == "" {
+		return errors.New("a timezone is required")
+	}
+	if _, e := time.LoadLocation(v); e != nil {
+		return fmt.Errorf("unknown timezone %q (use an IANA name such as Europe/Paris)", v)
+	}
+	return nil
+}
+
+// InitAnswers is everything init needs to write, whichever front-end asked.
+type InitAnswers struct {
+	User, SSHPublicKey, Timezone, Location string
+	HetznerToken, TailscaleKey             string
+	Profiles                               map[string]config.Profile
+	SaveEnv, AddSSHConfig                  bool
+}
+
+// configFrom builds and validates the config the answers describe.
+func configFrom(a InitAnswers) (config.Config, error) {
+	cfg := config.Default()
+	cfg.User, cfg.SSHPublicKey, cfg.Timezone = a.User, a.SSHPublicKey, a.Timezone
+	if a.Location != "" {
+		cfg.Location = a.Location
+	}
+	cfg.Profiles = a.Profiles
+	return cfg, cfg.Validate()
+}
+
+// Init runs the line-by-line setup wizard (the plain front-end of init) and
+// then writes everything through ApplyInit. Nothing is written before the last
+// question is answered.
+func Init(ctx context.Context, p Prompter, det Detected, lister func(token string) provider.TypeLister, meshCheck func(apiKey string) error, path string, opts ...InitOption) (config.Config, error) {
+	o := newInitOpts(opts)
 	if _, err := os.Stat(path); err == nil {
 		ok, err := p.Confirm(fmt.Sprintf("%s already exists. Overwrite it?", path), false)
 		if err != nil {
@@ -165,102 +223,123 @@ func Init(ctx context.Context, p Prompter, det Detected, lister func(token strin
 			return config.Config{}, fmt.Errorf("%s left unchanged (delete it or answer yes to start over)", path)
 		}
 	}
-	cfg := config.Default()
+	a := InitAnswers{Location: config.Default().Location}
 	var err error
-	if cfg.User, err = askValid(p, o.out, "User name (names every resource; lowercase letters, digits, dashes)", det.User, func(v string) error {
-		if v == "" || cleanUser(v) != v {
-			return fmt.Errorf("user must be lowercase letters, digits and dashes, up to 40 characters (got %q)", v)
-		}
-		return nil
-	}); err != nil {
-		return cfg, err
+	if a.User, err = askValid(p, o.out, "User name (names every resource; lowercase letters, digits, dashes)", det.User, validUserName); err != nil {
+		return config.Config{}, err
 	}
 	keyQ := "SSH public key (paste the line from ~/.ssh/*.pub)"
 	if det.SSHPublicKey == "" {
 		keyQ = "SSH public key: none found; in another terminal run `ssh-keygen -t ed25519`, then paste the contents of ~/.ssh/id_ed25519.pub"
 	}
-	if cfg.SSHPublicKey, err = askValid(p, o.out, keyQ, det.SSHPublicKey, validSSHKey); err != nil {
-		return cfg, err
+	if a.SSHPublicKey, err = askValid(p, o.out, keyQ, det.SSHPublicKey, validSSHKey); err != nil {
+		return config.Config{}, err
 	}
-	if cfg.Timezone, err = askValid(p, o.out, "Timezone (IANA name such as Europe/Paris; all limit times use it)", det.Timezone, func(v string) error {
-		if v == "" {
-			return errors.New("a timezone is required")
-		}
-		if _, e := time.LoadLocation(v); e != nil {
-			return fmt.Errorf("unknown timezone %q (use an IANA name such as Europe/Paris)", v)
-		}
-		return nil
-	}); err != nil {
-		return cfg, err
+	if a.Timezone, err = askValid(p, o.out, "Timezone (IANA name such as Europe/Paris; all limit times use it)", det.Timezone, validTimezone); err != nil {
+		return config.Config{}, err
 	}
 	var types []provider.ServerType
-	hz, err := askSecret(p, "Hetzner Cloud API token (from a dedicated project, with Read & Write permission; input hidden)", func(tok string) error {
+	if a.HetznerToken, err = askSecret(p, "Hetzner Cloud API token (from a dedicated project, with Read & Write permission; input hidden)", func(tok string) error {
 		var e error
 		types, e = lister(tok).ServerTypes(ctx)
 		return e
-	}, "Hetzner token")
+	}, "Hetzner token"); err != nil {
+		return config.Config{}, err
+	}
+	if a.TailscaleKey, err = askSecret(p, "Tailscale API key (input hidden)", meshCheck, "Tailscale API key"); err != nil {
+		return config.Config{}, err
+	}
+	if a.Profiles, err = PickProfiles(types, a.Location); err != nil {
+		return config.Config{}, err
+	}
+	cfg, err := configFrom(a)
 	if err != nil {
 		return cfg, err
 	}
-	ts, err := askSecret(p, "Tailscale API key (input hidden)", meshCheck, "Tailscale API key")
-	if err != nil {
-		return cfg, err
-	}
-	if cfg.Profiles, err = PickProfiles(types, cfg.Location); err != nil {
-		return cfg, err
-	}
-	if err := cfg.Validate(); err != nil {
-		return cfg, err
-	}
-	b, err := yaml.Marshal(cfg)
-	if err != nil {
-		return cfg, err
-	}
-	if err := writeFile0600(path, b); err != nil {
-		return cfg, err
-	}
-	fmt.Fprintf(o.out, "\nWrote %s (profiles: small=%s, big=%s, huge=%s).\n", path,
-		cfg.Profiles["small"].ServerType, cfg.Profiles["big"].ServerType, cfg.Profiles["huge"].ServerType)
-
 	envPath := EnvFilePath(path)
-	save, err := p.Confirm(fmt.Sprintf("Save the tokens to the env file %s (mode 0600)?", envPath), true)
-	if err != nil {
+	if a.SaveEnv, err = p.Confirm(fmt.Sprintf("Save the tokens to the env file %s (mode 0600)?", envPath), true); err != nil {
 		return cfg, err
-	}
-	hzLine := fmt.Sprintf("export %s='%s'", cfg.HetznerTokenEnv, hz)
-	tsLine := fmt.Sprintf("export %s='%s'", cfg.TailscaleAPIKeyEnv, ts)
-	if save {
-		if err := writeFile0600(envPath, []byte(hzLine+"\n"+tsLine+"\n")); err != nil {
-			return cfg, err
-		}
-		fmt.Fprintf(o.out, "Saved. jauntbox reads it automatically; to use the tokens in your shell too: source %s\n", envPath)
-	} else {
-		fmt.Fprintf(o.out, "Add these to your shell profile (they were not written anywhere):\n  %s\n  %s\n", hzLine, tsLine)
 	}
 	if o.sshConfig != "" {
-		ok, err := p.Confirm(fmt.Sprintf("Add a jauntbox-%s block to %s (lets `herdr --remote` skip host-key prompts; the box is authenticated by Tailscale)?", cfg.User, o.sshConfig), true)
-		if err != nil {
+		if a.AddSSHConfig, err = p.Confirm(fmt.Sprintf("Add a jauntbox-%s block to %s (lets `herdr --remote` skip host-key prompts; the box is authenticated by Tailscale)?", cfg.User, o.sshConfig), true); err != nil {
 			return cfg, err
 		}
-		if ok {
+	}
+	return ApplyInit(path, a, opts...)
+}
+
+// ApplyInit writes the config (never the tokens), the env file when SaveEnv,
+// and the ssh config block when AddSSHConfig, reporting each as a step. It then
+// prints the one step only the user can do: the Tailscale policy.
+func ApplyInit(path string, a InitAnswers, opts ...InitOption) (config.Config, error) {
+	o := newInitOpts(opts)
+	cfg, err := configFrom(a)
+	if err != nil {
+		return cfg, err
+	}
+	steps := o.steps
+	if steps == nil {
+		steps = ui.NewPlain(o.out, time.Now)
+	}
+	defer steps.Close()
+	fail := func(s ui.Step, err error) (config.Config, error) {
+		s.Fail(err, "")
+		return cfg, err
+	}
+
+	st := steps.Start("Write config")
+	b, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fail(st, err)
+	}
+	if err := writeFile0600(path, b); err != nil {
+		return fail(st, err)
+	}
+	st.Detail(fmt.Sprintf("%s (profiles: small=%s, big=%s, huge=%s)", path,
+		cfg.Profiles["small"].ServerType, cfg.Profiles["big"].ServerType, cfg.Profiles["huge"].ServerType))
+	st.Done()
+
+	envPath := EnvFilePath(path)
+	hzLine := fmt.Sprintf("export %s='%s'", cfg.HetznerTokenEnv, a.HetznerToken)
+	tsLine := fmt.Sprintf("export %s='%s'", cfg.TailscaleAPIKeyEnv, a.TailscaleKey)
+	st = steps.Start("Write env file")
+	if a.SaveEnv {
+		if err := writeFile0600(envPath, []byte(hzLine+"\n"+tsLine+"\n")); err != nil {
+			return fail(st, err)
+		}
+		st.Detail(envPath)
+		st.Done()
+		steps.Note(fmt.Sprintf("jauntbox reads it automatically; to use the tokens in your shell too: source %s", envPath))
+	} else {
+		st.Skip("not saved")
+		steps.Note(fmt.Sprintf("Add these to your shell profile (they were not written anywhere):\n  %s\n  %s", hzLine, tsLine))
+	}
+
+	if o.sshConfig != "" {
+		st = steps.Start("Add ssh config")
+		if !a.AddSSHConfig {
+			st.Skip("left unchanged")
+			steps.Note(fmt.Sprintf("Add this to %s yourself:\n\n%s", o.sshConfig, SSHConfigBlock(cfg.User)))
+		} else {
 			added, warn, err := EnsureSSHConfig(o.sshConfig, cfg.User)
 			if err != nil {
-				return cfg, err
+				return fail(st, err)
 			}
-			if warn != "" {
-				fmt.Fprintf(o.out, "warning: %s\n", warn)
+			switch {
+			case warn != "":
+				st.Warn(warn)
+				st.Done()
+			case added:
+				st.Detail(fmt.Sprintf("added the jauntbox-%s block to %s", cfg.User, o.sshConfig))
+				st.Done()
+			default:
+				st.Skip(fmt.Sprintf("%s already has a Host jauntbox-%s entry; left unchanged", o.sshConfig, cfg.User))
 			}
-			if added {
-				fmt.Fprintf(o.out, "Added the jauntbox-%s block to %s.\n", cfg.User, o.sshConfig)
-			} else {
-				fmt.Fprintf(o.out, "%s already has a Host jauntbox-%s entry; left unchanged.\n", o.sshConfig, cfg.User)
-			}
-		} else {
-			fmt.Fprintf(o.out, "Add this to %s yourself:\n\n%s\n", o.sshConfig, SSHConfigBlock(cfg.User))
 		}
 	}
+	steps.Close()
 	fmt.Fprintf(o.out, "\nOne more step, once: in the Tailscale admin console go to Access controls and merge this\ninto the policy. Also REMOVE or narrow the default allow-all rule, or the box can reach\neverything on your tailnet.\n\n%s\n\n", mesh.ACLSnippet(cfg.User))
-	fmt.Fprintln(o.out, "Then:\n  jauntbox up small\n  jauntbox ssh")
+	fmt.Fprintln(o.out, "Ready. Next: jauntbox setup github, then jauntbox up")
 	return cfg, nil
 }
 

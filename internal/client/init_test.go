@@ -168,7 +168,7 @@ func TestInitWritesConfigWithoutSecrets(t *testing.T) {
 	if err != nil || vals["HCLOUD_TOKEN"] != "hz-SECRET-1" || vals["TAILSCALE_API_KEY"] != "ts-SECRET-2" {
 		t.Errorf("ReadEnvFile = %v, %v", vals, err)
 	}
-	for _, want := range []string{"source " + envPath, "Access controls", "tag:jauntbox-thomas", "jauntbox up small", "jauntbox ssh"} {
+	for _, want := range []string{"source " + envPath, "Access controls", "tag:jauntbox-thomas", "Ready. Next: jauntbox setup github, then jauntbox up"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
@@ -280,5 +280,79 @@ func TestValidSSHKeyAcceptsSecurityKeys(t *testing.T) {
 		if validSSHKey(k) == nil {
 			t.Errorf("%q accepted", k)
 		}
+	}
+}
+
+func applyAnswers(env, ssh bool) InitAnswers {
+	return InitAnswers{
+		User: "thomas", SSHPublicKey: "ssh-ed25519 AAAA me@x", Timezone: "Europe/Paris", Location: "fsn1",
+		HetznerToken: "hz-SECRET-1", TailscaleKey: "ts-SECRET-2",
+		Profiles: map[string]config.Profile{"small": {ServerType: "cpx42", Arch: "amd64"}, "big": {ServerType: "ccx33", Arch: "amd64"}, "huge": {ServerType: "ccx43", Arch: "amd64"}},
+		SaveEnv:  env, AddSSHConfig: ssh,
+	}
+}
+
+func readAll(t *testing.T, paths ...string) []string {
+	t.Helper()
+	var out []string
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			out = append(out, "<missing>")
+			continue
+		}
+		out = append(out, string(b))
+	}
+	return out
+}
+
+func TestInitPlainAndFormWriteSameFiles(t *testing.T) {
+	// plain path: the line-by-line wizard with these answers
+	dirA := t.TempDir()
+	pathA := filepath.Join(dirA, "jb", "config.yaml")
+	sshA := filepath.Join(dirA, "ssh", "config")
+	p := &scripted{secrets: map[string][]string{"Hetzner": {"hz-SECRET-1"}, "Tailscale": {"ts-SECRET-2"}}}
+	if _, err := Init(context.Background(), p, testDet, okLister, func(string) error { return nil }, pathA, WithOutput(&bytes.Buffer{}), WithSSHConfig(sshA)); err != nil {
+		t.Fatal(err)
+	}
+	// form path: the same answers handed straight to ApplyInit
+	dirB := t.TempDir()
+	pathB := filepath.Join(dirB, "jb", "config.yaml")
+	sshB := filepath.Join(dirB, "ssh", "config")
+	a := applyAnswers(true, true)
+	if _, err := ApplyInit(pathB, a, WithOutput(&bytes.Buffer{}), WithSSHConfig(sshB)); err != nil {
+		t.Fatal(err)
+	}
+	ga := readAll(t, pathA, EnvFilePath(pathA), sshA)
+	gb := readAll(t, pathB, EnvFilePath(pathB), sshB)
+	for i := range ga {
+		if ga[i] != gb[i] || ga[i] == "<missing>" {
+			t.Errorf("file %d differs or is missing:\nplain: %q\nform:  %q", i, ga[i], gb[i])
+		}
+	}
+}
+
+func TestApplyInitRespectsChoices(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	sshPath := filepath.Join(dir, "ssh_config")
+	must(t, os.WriteFile(sshPath, []byte("Host other\n"), 0o600))
+	var out bytes.Buffer
+	if _, err := ApplyInit(path, applyAnswers(false, false), WithOutput(&out), WithSSHConfig(sshPath)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(EnvFilePath(path)); err == nil {
+		t.Error("env file written with SaveEnv=false")
+	}
+	if b, _ := os.ReadFile(sshPath); string(b) != "Host other\n" {
+		t.Errorf("ssh config touched: %q", b)
+	}
+	for _, want := range []string{"export HCLOUD_TOKEN='hz-SECRET-1'", "export TAILSCALE_API_KEY='ts-SECRET-2'", "not saved", "left unchanged", "Access controls", "Ready. Next: jauntbox setup github, then jauntbox up"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "SECRET") && !strings.Contains(out.String(), "export HCLOUD_TOKEN") {
+		t.Error("tokens leaked outside the export lines")
 	}
 }
