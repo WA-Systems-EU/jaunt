@@ -72,7 +72,7 @@
   <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
   <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">3</span>
   <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Initialise</h2>
-<p class="mt-4 text-[15.5px] leading-7"><code class="font-mono text-[13px] text-ink">jauntbox init</code> is a form in your terminal: arrow keys to move, Esc to go back, Ctrl-C to quit and write nothing. It detects your user and SSH key, lets you search for a timezone, asks for the two API tokens and checks each one on the spot, offers locations and server types with monthly prices, and writes <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/config.yaml</code> (never the tokens). It can save the tokens to <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/env</code> (mode 0600), which jauntbox reads when the variables are unset; or it prints two <code class="font-mono text-[13px] text-ink">export</code> lines for your shell profile. A last screen lets you review what it will save before it does. In a pipe, without a terminal, or with <code class="font-mono text-[13px] text-ink">--plain</code>, it asks the same questions line by line.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox init</pre></div><p class="mt-4 text-[15.5px] leading-7">Prefer editing by hand? Copy <code class="font-mono text-[13px] text-ink">examples/jauntbox.yaml</code> to <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/config.yaml</code>. See <a href="docs.html#config" class="text-route hover:underline">the configuration reference</a>.</p>
+<p class="mt-4 text-[15.5px] leading-7"><code class="font-mono text-[13px] text-ink">jauntbox init</code> is a form in your terminal: arrow keys to move, Enter to go on, type / to filter the timezones, Ctrl-C to quit and write nothing. It detects your user and SSH key, lets you search for a timezone, asks for the two API tokens and checks each one on the spot, offers locations and server types with monthly prices, and writes <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/config.yaml</code> (never the tokens). It can save the tokens to <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/env</code> (mode 0600), which jauntbox reads when the variables are unset; or it prints two <code class="font-mono text-[13px] text-ink">export</code> lines for your shell profile. A last screen lets you review what it will save before it does. In a pipe, without a terminal, or with <code class="font-mono text-[13px] text-ink">--plain</code>, with <code class="font-mono text-[13px] text-ink">NO_COLOR</code> set or with <code class="font-mono text-[13px] text-ink">TERM=dumb</code>, it asks the same questions line by line.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox init</pre></div><p class="mt-4 text-[15.5px] leading-7">Prefer editing by hand? Copy <code class="font-mono text-[13px] text-ink">examples/jauntbox.yaml</code> to <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/config.yaml</code>. See <a href="docs.html#config" class="text-route hover:underline">the configuration reference</a>.</p>
 </li>
 <li class="relative pl-12 pb-12 last:pb-0">
   <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
@@ -93,14 +93,15 @@
   <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">6</span>
   <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Start a box</h2>
 <p class="mt-4 text-[15.5px] leading-7"><code class="font-mono text-[13px] text-ink">up</code> stays in the foreground and shows each step with its time, until the box is ready. A new box takes a few minutes. It ends like this:</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox up small
-✓ Policy and limits
-✓ SSH key, firewall, volume
-✓ Server created
-✓ Joined the tailnet
-✓ Box reachable
-✓ Install supervisor
-✓ Unlock secrets
-✓ Dev tools installed
+<span style="color:#7f8fa3">jauntbox · you · small (cpx42) · fsn1</span>
+✓ Policy and limits <span style="color:#7f8fa3">0.2s</span>
+✓ SSH key, firewall, volume <span style="color:#7f8fa3">2.4s</span>
+✓ Server created <span style="color:#7f8fa3">8.1s</span>
+✓ Joined the tailnet <span style="color:#7f8fa3">41s</span>
+✓ Box reachable <span style="color:#7f8fa3">12s</span>
+✓ Install supervisor <span style="color:#7f8fa3">38s</span>
+✓ Unlock secrets <span style="color:#7f8fa3">1.1s</span>
+✓ Dev tools installed <span style="color:#7f8fa3">46s</span>
 <span style="color:#4fc2b9">●</span> Ready in 2m31s.
 <span style="color:#7f8fa3">Deletes itself at 19:00 (evening cutoff) or after 2h idle.
 ssh jauntbox-&lt;user&gt;</span></pre></div><p class="mt-4 text-[15.5px] leading-7">If the box is already past its deadline, the last lines say so and tell you it deletes itself once you are idle. Press Ctrl-C once the server exists and the box keeps getting ready in the background; a second Ctrl-C quits. <code class="font-mono text-[13px] text-ink">--detach</code> returns as soon as the box exists. Output is plain when it is not a terminal or with <code class="font-mono text-[13px] text-ink">--plain</code>.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox status      <span style="color:#7f8fa3"># a short summary: state, tailnet, secrets, deadline</span>

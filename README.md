@@ -32,13 +32,12 @@ jauntbox                 # brings the box up if needed and attaches your persist
 ## Quick start
 
 Needs a Hetzner Cloud project token (`HCLOUD_TOKEN`) and a Tailscale API key
-(`TAILSCALE_API_KEY`). `jauntbox init` is a form in your terminal (arrow keys, Esc to go back, Ctrl-C to quit
-and write nothing). It detects your settings, lets you search for a timezone, checks both
+(`TAILSCALE_API_KEY`). `jauntbox init` is a form in your terminal (arrow keys to move, Enter to go on, type / to filter the timezones, Ctrl-C to quit and write nothing). It detects your settings, lets you search for a timezone, checks both
 tokens on the spot, offers locations and server types with monthly prices, writes `~/.config/jauntbox/config.yaml` (never the tokens) and prints the
 Tailscale policy snippet. It can save the tokens to `~/.config/jauntbox/env` (mode 0600),
 which jauntbox reads automatically when the variables are unset; or it prints the two
 `export` lines for your shell profile. A last screen lets you review what it will save.
-Without a terminal (a pipe) or with `--plain`, it asks the same questions line by line. Prefer editing by hand? Copy
+Without a terminal (a pipe), with `--plain`, with `NO_COLOR` set or with `TERM=dumb`, it asks the same questions line by line. Prefer editing by hand? Copy
 `examples/jauntbox.yaml` to `~/.config/jauntbox/config.yaml`.
 
 ```sh
@@ -54,7 +53,7 @@ jauntbox down                       # wrap up and delete the box (the volume sta
 ```
 
 `jauntbox up` stays in the foreground and shows each step with its time. A new box goes
-through Policy and limits, SSH key/firewall/volume, Server created, Joined the tailnet,
+through Policy and limits, SSH key, firewall, volume, Server created, Joined the tailnet,
 Box reachable, Install supervisor, Unlock secrets and Dev tools installed, then ends on
 `Ready in 2m31s.` with the time the box deletes itself and the `ssh` command. If the box
 is already past its deadline it says so. `down`, `resize` and bare `jauntbox` show steps

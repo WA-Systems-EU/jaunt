@@ -234,21 +234,21 @@ result column.
 
 | Check | Result |
 |---|---|
-| 1. `jauntbox up small` on a new box shows each step (Policy and limits, SSH key/firewall/volume, Server created, Joined the tailnet, Box reachable, Install supervisor, Unlock secrets, Dev tools installed) with its time, and ends on `Ready in …` with the deletion time and the `ssh` line | |
+| 1. `jauntbox up small` on a new box shows each step (Policy and limits, SSH key, firewall, volume, Server created, Joined the tailnet, Box reachable, Install supervisor, Unlock secrets, Dev tools installed) with its time, and ends on `Ready in …` with the deletion time and the `ssh` line | |
 | 2. `jauntbox up small \| cat` (box already up, then on a new box) prints plain lines only: no escape bytes, no spinner, one line per finished step | |
-| 3. Ctrl-C during Provisioning prints the note naming `push.log`; `jauntbox status` a few minutes later shows the box ready. A second Ctrl-C during the foreground wait quits | |
+| 3. Ctrl-C during Joined the tailnet or Box reachable (after Server created) prints the note naming `push.log`; `jauntbox status` a few minutes later shows the box ready. A second Ctrl-C during the foreground wait quits | |
 | 4. `jauntbox down` shows its steps and ends cleanly; `jauntbox down` again says "no box running" | |
 | 5. `jauntbox resize big` shows its steps and returns only when the new box is ready | |
 | 6. `jauntbox status` prints the short summary (box, state, server type, created, tailnet, secrets, verdict and deadline); `jauntbox status --json \| jq .` parses | |
-| 7. `jauntbox init --config /tmp/t.yaml` walks the form (arrow keys, Esc back, timezone search, token checks, locations, server types with prices, review screen) and writes the config, env file and ssh block you chose; Ctrl-C in the form writes nothing | |
-| 8. `jauntbox init --config /tmp/t2.yaml < /dev/null` (or with `--plain`) asks line by line; the files match what the form wrote for the same answers | |
+| 7. `jauntbox init --config /tmp/t.yaml` walks the form (arrow keys, Enter to go on, `/` to filter timezones, token checks, locations, server types with prices, review screen) and writes the config, env file and ssh block you chose; Ctrl-C in the form writes nothing | |
+| 8. `jauntbox init --plain --config /tmp/t2.yaml` in a terminal asks line by line; answer the same as row 7 and compare the files with the form's | |
 | 9. Bare `jauntbox` with no box shows the same steps as `up`, then attaches the herdr session | |
 | 10. `NO_COLOR=1 jauntbox status` and `jauntbox --plain up` print no colour or animation | |
 | 11. `jauntbox up --detach` returns once the server exists; `jauntbox status` later shows the box ready | |
 
 ## What "good" looks like
 
-- `up` returns quickly; the box joins the tailnet within a few minutes.
+- `up` shows each step and ends on Ready within a few minutes.
 - The box deletes itself by every route (limit, `down`, safety net); the volume
   is never deleted.
 - Nothing is left billing: after the test, the Hetzner project shows no server
