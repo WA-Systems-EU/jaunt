@@ -3,5 +3,5 @@ Description=jauntbox supervisor tick
 
 [Service]
 Type=oneshot
-TimeoutStartSec=90
+TimeoutStartSec=600
 ExecStart=/usr/local/bin/jauntctl supervise

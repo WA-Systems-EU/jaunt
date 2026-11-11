@@ -45,10 +45,21 @@ type RunManager interface {
 	Tick(ctx context.Context, now time.Time) error
 	WrapUpAll(now time.Time, reason string) error
 	FinishAll(ctx context.Context) error
+	CancelWrapUps(reason string) error
 }
 
-// finishAllTimeout caps FinishAll so a hung docker cannot stall the delete.
-const finishAllTimeout = 5 * time.Minute
+// RevokeTimeout bounds the token revoke before the box deletes itself.
+const RevokeTimeout = 30 * time.Second
+
+// MaxPassBudget is the worst case of a Delete pass spent on agent work and
+// revoke: Tick + FinishAll + Revoke. TimeoutStartSec of the supervise unit
+// must exceed it with margin. The heartbeat is touched at the END of a
+// successful non-Delete pass (never earlier, so a failed pass still lets
+// the safety net act); such a pass spends at most the Tick budget, far
+// below the safety net's 900 s.
+func MaxPassBudget() time.Duration {
+	return agentrun.TickTimeout + agentrun.FinishAllTimeout + RevokeTimeout
+}
 
 // New wires the production supervisor for info.
 func New(info boxinfo.BoxInfo) *Supervisor {
@@ -243,11 +254,18 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 			}
 		}
 	case v.Action == lifecycle.Keep && !st.WrapUpStartedAt.IsZero():
+		cancelled := st.WrapUpReason
 		st.WrapUpStartedAt, st.WrapUpReason = time.Time{}, ""
 		if err := os.Remove(s.Paths.WrapUpFlag); err != nil && !os.IsNotExist(err) {
 			return v, err
 		}
 		s.emit(now, events.WrapUpCancelled, fields)
+		if s.Runs != nil {
+			// Reason that was being cancelled, not the new verdict's.
+			if err := safeCall("runs cancel wrap-up", func() error { return s.Runs.CancelWrapUps(cancelled) }); err != nil {
+				s.emit(now, "agent.wrapup_cancel_failed", map[string]string{"error": err.Error()})
+			}
+		}
 	}
 	if v.Reason != st.LastVerdict {
 		s.emit(now, events.SupervisorTick, fields)
@@ -260,7 +278,7 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		// Teardown order: finish the runs (their fallback pushes, so it needs
 		// the tokens) -> revoke tokens -> box.deleted -> sync -> self-delete.
 		if s.Runs != nil {
-			fctx, cancel := context.WithTimeout(ctx, finishAllTimeout)
+			fctx, cancel := context.WithTimeout(ctx, agentrun.FinishAllTimeout)
 			err := safeCall("finish runs", func() error { return s.Runs.FinishAll(fctx) })
 			cancel()
 			if err != nil {
@@ -268,7 +286,7 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 			}
 		}
 		if s.Revoke != nil {
-			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			rctx, cancel := context.WithTimeout(ctx, RevokeTimeout)
 			err := safeRevoke(rctx, s.Revoke)
 			cancel()
 			if err != nil {

@@ -24,11 +24,15 @@ func (f *fakeAgents) Count(context.Context) (int, error) { return f.n, nil }
 
 type recSink struct {
 	kinds  []string
+	onEmit func(kind string)
 	fields map[string]map[string]string
 }
 
 func (r *recSink) Emit(e events.Event) error {
 	r.kinds = append(r.kinds, e.Kind)
+	if r.onEmit != nil {
+		r.onEmit(e.Kind)
+	}
 	if r.fields == nil {
 		r.fields = map[string]map[string]string{}
 	}
@@ -522,6 +526,10 @@ func (f *fakeRuns) WrapUpAll(_ time.Time, reason string) error {
 	f.reason = reason
 	return nil
 }
+func (f *fakeRuns) CancelWrapUps(reason string) error {
+	*f.calls = append(*f.calls, "cancel:"+reason)
+	return nil
+}
 func (f *fakeRuns) FinishAll(context.Context) error {
 	*f.calls = append(*f.calls, "finish-all")
 	return f.finErr
@@ -532,11 +540,16 @@ func TestDeleteOrderFinishRevokeSyncDelete(t *testing.T) {
 	var calls []string
 	e.s.Runs = &fakeRuns{calls: &calls}
 	e.s.Revoke = func(context.Context) error { calls = append(calls, "revoke"); return nil }
+	e.sink.onEmit = func(k string) {
+		if k == events.BoxDeleted {
+			calls = append(calls, "box.deleted")
+		}
+	}
 	e.s.Sync = func() { calls = append(calls, "sync") }
 	e.s.DeleteSelf = func(context.Context) error { calls = append(calls, "delete-self"); return nil }
 	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
 	e.run(t)
-	if got := strings.Join(calls, ","); got != "tick,finish-all,revoke,sync,delete-self" {
+	if got := strings.Join(calls, ","); got != "tick,finish-all,revoke,box.deleted,sync,delete-self" {
 		t.Fatalf("call order %q", got)
 	}
 	if e.sink.count(events.BoxDeleted) != 1 {
@@ -577,5 +590,40 @@ func TestRunsTickFailureDoesNotBlockHeartbeat(t *testing.T) {
 	e.run(t)
 	if e.sink.count("agent.tick_failed") != 1 || !exists(e.s.Paths.Heartbeat) {
 		t.Fatalf("%v", e.sink.kinds)
+	}
+}
+
+func TestWrapUpCancelCancelsRuns(t *testing.T) {
+	e := newEnv(t, at(19, 0))
+	e.agents.n = 1
+	e.pts("0", time.Hour)
+	var calls []string
+	e.s.Runs = &fakeRuns{calls: &calls}
+	e.run(t) // StartWrapUp
+	e.now = e.now.Add(time.Minute)
+	e.pts("0", time.Minute)
+	e.run(t) // human back: cancelled
+	got := strings.Join(calls, ",")
+	if !strings.Contains(got, "cancel:") || strings.HasSuffix(got, "cancel:") {
+		t.Fatalf("calls %q", got)
+	}
+}
+
+func TestSuperviseUnitTimeoutExceedsPassBudget(t *testing.T) {
+	b, err := os.ReadFile("../cloudinit/units/jauntbox-supervise.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secs int
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, "TimeoutStartSec="); ok {
+			fmt.Sscan(v, &secs)
+		}
+	}
+	if need := MaxPassBudget() + time.Minute; time.Duration(secs)*time.Second < need {
+		t.Fatalf("TimeoutStartSec=%d is below the worst-case pass budget %v + margin", secs, need)
+	}
+	if time.Duration(secs)*time.Second >= 900*time.Second {
+		t.Fatalf("TimeoutStartSec=%d must stay below the 900 s safety net", secs)
 	}
 }

@@ -213,19 +213,108 @@ func TestTickCorruptRecordReportedOnce(t *testing.T) {
 	}
 }
 
+func TestTickAndFinishAllShareOneDeadline(t *testing.T) {
+	old1, old2, old3 := TickTimeout, FinishAllTimeout, FallbackTimeout
+	defer func() { TickTimeout, FinishAllTimeout, FallbackTimeout = old1, old2, old3 }()
+	TickTimeout, FinishAllTimeout, FallbackTimeout = 200*time.Millisecond, 200*time.Millisecond, 10*time.Second
+	for name, run := range map[string]func(e *mtEnv) error{
+		"tick":      func(e *mtEnv) error { return e.m.Tick(context.Background(), at.Add(time.Hour)) },
+		"finishall": func(e *mtEnv) error { return e.m.FinishAll(context.Background()) },
+	} {
+		e := newMT(t, running())
+		id2 := "gadget-20261110-233100"
+		r2 := Run{ID: id2, Repo: "acme/gadget", Mode: ModeInteractive, StartedAt: at, Max: 8 * time.Hour,
+			WrapUpAt: at, WrapUpReason: "run-max"}
+		saveRun(t, e.p, r2)
+		os.MkdirAll(filepath.Join(e.p.RunsTmp, id2), 0o750)
+		e.d.states[ContainerName(id2)] = running()
+		e.d.execHang = true
+		// the first run is past its grace too
+		if err := RequestWrapUp(e.p, stopID, "run-max", at); err != nil {
+			t.Fatal(err)
+		}
+		start := time.Now()
+		_ = run(e)
+		if el := time.Since(start); el > 700*time.Millisecond {
+			t.Errorf("%s took %v: deadline not shared by the runs", name, el)
+		}
+	}
+}
+
+func TestCancelWrapUpsClearsOnlyBoxCaused(t *testing.T) {
+	e := newMT(t, running())
+	id2 := "gadget-20261110-233100"
+	saveRun(t, e.p, Run{ID: id2, Repo: "acme/gadget", Mode: ModeInteractive, StartedAt: at, Max: time.Hour})
+	os.MkdirAll(filepath.Join(e.p.RunsTmp, id2), 0o750)
+	if err := RequestWrapUp(e.p, id2, "run-max", at); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.WrapUpAll(at.Add(time.Minute), "stop-requested"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.CancelWrapUps("stop-requested"); err != nil {
+		t.Fatal(err)
+	}
+	r1, _ := e.p.Load(stopID)
+	r2, _ := e.p.Load(id2)
+	if !r1.WrapUpAt.IsZero() || r1.WrapUpReason != "" {
+		t.Fatalf("box wrap-up kept: %+v", r1)
+	}
+	if _, err := os.Stat(filepath.Join(e.p.RunsTmp, stopID, "wrapup")); err == nil {
+		t.Fatal("flag file kept")
+	}
+	if r2.WrapUpReason != "run-max" || r2.WrapUpAt.IsZero() {
+		t.Fatalf("run-max wrap-up cleared: %+v", r2)
+	}
+	if _, err := os.Stat(filepath.Join(e.p.RunsTmp, id2, "wrapup")); err != nil {
+		t.Fatal("run-max flag removed")
+	}
+}
+
+func TestTickMissingTokenFileIsQuiet(t *testing.T) {
+	e := newMT(t, running())
+	os.Remove(filepath.Join(e.p.RunsTmp, stopID, "token"))
+	e.tok = "new"
+	if err := e.m.Tick(context.Background(), at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if e.has("agent.token_refresh_failed") {
+		t.Fatalf("events %v", e.kinds())
+	}
+}
+
+func TestTickFinishedEventOnlyAfterSuccessfulFinish(t *testing.T) {
+	e := newMT(t, State{Exists: true, ExitCode: 2})
+	r, _ := e.p.Load(stopID)
+	r.Mode = ModeUnattended
+	saveRun(t, e.p, r)
+	// make teardown fail: the run dir cannot be removed
+	dir := filepath.Join(e.p.RunsTmp, stopID)
+	os.Chmod(e.p.RunsTmp, 0o500)
+	defer os.Chmod(e.p.RunsTmp, 0o755)
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory modes")
+	}
+	_ = dir
+	_ = e.m.Tick(context.Background(), at.Add(time.Hour))
+	if e.has("agent.finished") || !e.has("agent.finish_failed") {
+		t.Fatalf("events %v", e.kinds())
+	}
+}
+
 func TestWrapUpAllAndFinishAll(t *testing.T) {
 	e := newMT(t, running())
 	if err := e.m.WrapUpAll(at.Add(time.Hour), "night"); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := e.p.Load(stopID)
-	if r.WrapUpReason != "night" {
+	if r.WrapUpReason != "box-night" {
 		t.Fatalf("run %+v", r)
 	}
 	if err := e.m.WrapUpAll(at.Add(2*time.Hour), "other"); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ = e.p.Load(stopID); r.WrapUpReason != "night" {
+	if r, _ = e.p.Load(stopID); r.WrapUpReason != "box-night" {
 		t.Fatal("second wrap-up changed the reason")
 	}
 	if err := e.m.FinishAll(context.Background()); err != nil {

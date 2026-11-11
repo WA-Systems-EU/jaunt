@@ -29,6 +29,20 @@ const (
 	tokenFileMode        = 0o640
 )
 
+// TickTimeout is the overall deadline of one Tick; FinishAllTimeout that of
+// FinishAll (all runs together; each run's fallback gets what is left of it,
+// capped by FallbackTimeout). They bound a supervisor pass; the supervise
+// unit's TimeoutStartSec must exceed them plus the revoke timeout.
+var (
+	TickTimeout      = 2 * time.Minute
+	FinishAllTimeout = 5 * time.Minute
+)
+
+// BoxReasonPrefix marks wrap-ups requested for the whole box, so cancelling
+// the box wrap-up leaves `agent stop` and run-max wrap-ups alone (the box
+// verdict also uses "stop-requested").
+const BoxReasonPrefix = "box-"
+
 // Maintainer is the supervisor's per-pass driver of the active agent runs.
 type Maintainer struct {
 	Docker Docker
@@ -70,6 +84,8 @@ func (m *Maintainer) active(now time.Time) ([]Run, error) {
 // reported as an event and does not stop the others; only an unreadable
 // runs directory is an error.
 func (m *Maintainer) Tick(ctx context.Context, now time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, TickTimeout)
+	defer cancel()
 	runs, err := m.active(now)
 	if err != nil {
 		return err
@@ -89,19 +105,20 @@ func (m *Maintainer) tickRun(ctx context.Context, now time.Time, r Run) {
 		fail(evTickFailed, err)
 		return
 	}
-	finish := func() {
-		if err := Finish(ctx, m.Docker, m.Paths, r.ID, m.Events, now); err != nil {
+	finish := func() error {
+		err := Finish(ctx, m.Docker, m.Paths, r.ID, m.Events, now)
+		if err != nil {
 			fail(evFinishFailed, err)
 		}
+		return err
 	}
 	if !st.Running {
-		if st.Exists && r.Mode == ModeUnattended {
+		if finish() == nil && st.Exists && r.Mode == ModeUnattended {
 			m.emit(now, evFinished, map[string]string{"run": r.ID, "repo": r.Repo, "exit_code": strconv.Itoa(st.ExitCode)})
 		}
-		finish()
 		return
 	}
-	if err := m.refreshToken(ctx, now, r); err != nil {
+	if err := m.refreshToken(ctx, now, r); err != nil && !errors.Is(err, os.ErrNotExist) {
 		fail(evTokenRefreshFailed, err)
 	}
 	if r.WrapUpAt.IsZero() {
@@ -115,7 +132,7 @@ func (m *Maintainer) tickRun(ctx context.Context, now time.Time, r Run) {
 		return
 	}
 	if !now.Before(r.WrapUpAt.Add(m.Grace)) {
-		finish()
+		_ = finish()
 	}
 }
 
@@ -160,13 +177,15 @@ func (m *Maintainer) refreshToken(ctx context.Context, now time.Time, r Run) err
 	return nil
 }
 
-// WrapUpAll asks every active run that has not been asked yet to wrap up.
+// WrapUpAll asks every active run that has not been asked yet to wrap up,
+// with the box reason prefixed by BoxReasonPrefix.
 func (m *Maintainer) WrapUpAll(now time.Time, reason string) error {
 	runs, err := m.active(now)
 	if err != nil {
 		return err
 	}
 	var errs []error
+	reason = BoxReasonPrefix + reason
 	for _, r := range runs {
 		if !r.WrapUpAt.IsZero() {
 			continue
@@ -182,6 +201,8 @@ func (m *Maintainer) WrapUpAll(now time.Time, reason string) error {
 
 // FinishAll finishes every active run (fallback first while running).
 func (m *Maintainer) FinishAll(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, FinishAllTimeout)
+	defer cancel()
 	now := time.Now()
 	runs, err := m.active(now)
 	if err != nil {
@@ -190,6 +211,31 @@ func (m *Maintainer) FinishAll(ctx context.Context) error {
 	var errs []error
 	for _, r := range runs {
 		if err := Finish(ctx, m.Docker, m.Paths, r.ID, m.Events, time.Now()); err != nil {
+			errs = append(errs, fmt.Errorf("run %s: %w", r.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// CancelWrapUps undoes the wrap-ups WrapUpAll requested for the box reason:
+// every active run whose wrap-up reason is the box-prefixed reason loses its
+// WrapUpAt, WrapUpReason and wrapup flag. Other wrap-ups are kept.
+func (m *Maintainer) CancelWrapUps(reason string) error {
+	runs, err := m.active(time.Now())
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, r := range runs {
+		if r.WrapUpAt.IsZero() || r.WrapUpReason != BoxReasonPrefix+reason {
+			continue
+		}
+		r.WrapUpAt, r.WrapUpReason = time.Time{}, ""
+		if err := m.Paths.Save(r); err != nil {
+			errs = append(errs, fmt.Errorf("run %s: %w", r.ID, err))
+			continue
+		}
+		if err := os.Remove(filepath.Join(m.Paths.RunsTmp, r.ID, "wrapup")); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, fmt.Errorf("run %s: %w", r.ID, err))
 		}
 	}
