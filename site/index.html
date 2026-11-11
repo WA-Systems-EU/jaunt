@@ -505,6 +505,49 @@
 
 
   <!-- COST -->
+  <section id="power" class="gutter border-y border-line bg-surface">
+    <div class="mx-auto max-w-6xl py-20 grid lg:grid-cols-[1fr_1.1fr] gap-12 items-start">
+      <div>
+        <p class="eyebrow text-route mb-3">Power</p>
+        <h2 class="font-display text-5xl font-extrabold uppercase leading-none">Don't be limited by your laptop.</h2>
+        <p class="mt-5 text-muted max-w-[32rem]">Your own machine only drives the box: a terminal, ssh and Tailscale. Builds, test suites, containers and agents run on the server, so a small, quiet machine on your desk is enough.</p>
+        <p class="mt-4 text-muted max-w-[32rem]">Our own setup: a ThinkCentre mini running GhostBSD, working on a box with four times its RAM and CPU. When a task needs more, resize the box; your <code class="font-mono text-[13px] text-ink">/home</code> comes along.</p>
+      </div>
+      <div class="min-w-0 rounded-xl border border-line bg-bg overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-[15px] tabnum">
+            <thead>
+              <tr class="text-left eyebrow text-muted border-b border-line">
+                <th class="px-5 py-3 font-normal">Profile</th>
+                <th class="px-5 py-3 font-normal">Hetzner server</th>
+                <th class="px-5 py-3 font-normal text-right whitespace-nowrap">vCPU · RAM</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-line">
+                <td class="px-5 py-3 font-mono">small</td>
+                <td class="px-5 py-3">CPX42, shared</td>
+                <td class="px-5 py-3 text-right font-mono whitespace-nowrap">8 · 16 GB</td>
+              </tr>
+              <tr class="border-b border-line">
+                <td class="px-5 py-3 font-mono">big</td>
+                <td class="px-5 py-3">CCX33, dedicated</td>
+                <td class="px-5 py-3 text-right font-mono whitespace-nowrap">8 · 32 GB</td>
+              </tr>
+              <tr>
+                <td class="px-5 py-3 font-mono">huge</td>
+                <td class="px-5 py-3">CCX43, dedicated</td>
+                <td class="px-5 py-3 text-right font-mono whitespace-nowrap">16 · 64 GB</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="border-t border-line bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-3 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox resize big   <span style="color:#7f8fa3"># same box, more machine; /home persists</span></pre></div>
+        <p class="px-5 py-3 text-xs text-muted border-t border-line">jauntbox init picks the server types from what Hetzner offers in your location; you can change them in the config.</p>
+      </div>
+    </div>
+  </section>
+
   <section id="cost" class="gutter">
     <div class="mx-auto max-w-6xl py-20 grid lg:grid-cols-[1fr_1.1fr] gap-12 items-start">
       <div>
