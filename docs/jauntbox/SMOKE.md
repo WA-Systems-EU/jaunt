@@ -173,6 +173,38 @@ column.
 | 19. `docker -H unix:///var/run/docker.sock ps` is denied | |
 | 20. With root refused in the policy, `jauntbox` on a new box fails within a minute and names `jauntbox acl-snippet` | |
 
+## Plan 03: agent containers
+
+Needs a box with the repo's App installed, `CLAUDE_CODE_OAUTH_TOKEN` stored
+(`claude setup-token`, then `jauntbox secrets set` and `jauntbox unlock`), and
+`user.name` / `user.email` set on the box. Run from `~/src/<repo>` in a herdr pane
+unless a row says otherwise. Fill in the result column.
+
+| Check | Result |
+|---|---|
+| 1. First `jauntctl agent`: record the image build time; `docker image ls jauntbox/agent` shows `jauntbox/agent:<12 hex>` (use `sudo docker image ls`) | |
+| 2. In the image, as the non-root uid: `claude --version` works (the Claude Code installer layout was assumed, not built) and `mise --version` works | |
+| 3. From `jauntctl agent attach <id> --shell`: `id -u` is your uid | |
+| 4. `echo x >> .git/config`, `touch .git/hooks/x` and `rm .git/commondir` all fail (read-only) | |
+| 5. `curl -m 5 http://169.254.169.254/hetzner/v1/metadata` fails | |
+| 6. `curl -m 5 http://100.100.100.100` fails | |
+| 7. `ls /run/jauntbox/secrets` fails | |
+| 8. `cat /run/jauntbox-run/token` shows only a token | |
+| 9. `git push -u origin HEAD` on the agent branch reports the config write error (read-only `.git/config`) but the push lands | |
+| 10. Pushing to another installed repo with that token fails (403) | |
+| 11. `sudo ip6tables -S DOCKER-USER` on the box exists and holds the tailnet IPv6 rule (`fd7a:115c:a1e0::/48`); `sudo iptables -S DOCKER-USER` holds the two IPv4 rules | |
+| 12. Interactive: `jauntbox`, then in the repo's herdr pane `jauntctl agent`: Claude opens in that pane. Record what Claude asked on the very first run (onboarding) | |
+| 13. A second agent in another repo's pane at the same time: both run; `jauntctl agent` again in the first checkout refuses and names the run | |
+| 14. Close the pane; in another pane `jauntctl agent attach <id>`: Claude continues (`--continue`). Record whether herdr shows the pane as an agent | |
+| 15. Wrap-up: `jauntctl agent stop <id>` during an interactive task: Claude receives the instruction, writes, commits and pushes `CONTINUATION.md`. Record the hook output seen in the session | |
+| 16. Fallback: `jauntctl agent stop <id>` with Claude idle: after the grace, a mechanical `CONTINUATION.md` is pushed | |
+| 17. Unattended with `--max 10m`: `jauntctl agent --unattended "a prompt with spaces" --max 10m` works through the sudoers rule, `logs --follow` shows output, the run wraps up at 10 min; `agent.*` events in `events.jsonl` | |
+| 18. `jauntctl agent logs <id>` shows a finished run; with no id it shows the newest run of the checkout | |
+| 19. Resume: `jauntctl agent --branch <that branch>` in the same checkout opens with the resume prompt | |
+| 20. On the host, `git status` and `git log` in the checkout work normally after the run, and `cat .git/commondir` shows `.` | |
+| 21. Teardown with a running agent: `jauntbox down`: fallback pushed, tokens revoked, box deleted; event order in the next box's log | |
+| 22. `jauntbox night` then cancel (back to "keep"): box wrap-ups (`box-night`) are cleared; a wrap-up from `jauntctl agent stop` is not | |
+
 ## What "good" looks like
 
 - `up` returns quickly; the box joins the tailnet within a few minutes.

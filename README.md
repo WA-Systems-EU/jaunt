@@ -106,6 +106,92 @@ jauntbox unlock                                # push secrets to the box: after 
 - **Upgrading.** After upgrading jauntbox, run `jauntbox` or `jauntbox up` once against
   an existing box before `jauntbox down`, so the box gets `jauntctl`.
 
+## Agents
+
+Agents run in containers on the box, never in your shell. You start them from the box
+itself with `jauntctl agent`, in the folder of the repo they should work on.
+
+```sh
+jauntbox                                # attach the box's herdr session
+cd ~/src/<repo>                         # in the repo's herdr pane
+jauntctl agent                          # Claude opens right there, in a container
+```
+
+```sh
+jauntctl agent [--branch b] [--max 2h] [--skip-permissions]   # start an interactive run in this checkout
+jauntctl agent --unattended "one-line prompt"                 # start a run that works on its own
+jauntctl agent attach [<run>] [--shell]   # reopen Claude (it continues) or open bash in the container
+jauntctl agent list                       # runs with state, limit and container IP
+jauntctl agent stop [<run>] [--now]       # ask for a wrap-up; --now also stops the container
+jauntctl agent logs [<run>] [--follow]    # a run's Claude log
+```
+
+- **First start.** The first `jauntctl agent` builds the agent image, which takes
+  minutes. Claude's credential is `CLAUDE_CODE_OAUTH_TOKEN`: run `claude setup-token`
+  on your laptop, then `jauntbox secrets set CLAUDE_CODE_OAUTH_TOKEN` and
+  `jauntbox unlock`. Agents commit as you, so the box needs `git config --global
+  user.name` and `user.email`; `start` refuses with the fix if they are missing.
+- **Where it works.** The container mounts the checkout you are in, with your uid, so
+  you see its changes live and its files stay yours. The agent stays on your current
+  branch. On the repo's default branch (or a detached HEAD) the run switches the
+  checkout to `agent/<repo>-<YYYYMMDD>` and says so; `--branch b` switches to `b`.
+  Uncommitted changes go along; a switch git refuses fails the start.
+- **Several repos at once, one run per checkout.** Each repo under `~/src` can have its
+  own run, container and token. A second `jauntctl agent` in a checkout that already
+  has a run refuses and names the run to attach to.
+- **Closing the pane doesn't end the run.** Interactive containers stay up; reopen
+  with `jauntctl agent attach` (in the same folder, or give a run id).
+  `attach` and `stop` act only on your own running containers. `--skip-permissions`
+  lets interactive Claude skip permission prompts; unattended runs always do (the
+  container is the sandbox). herdr does not see Claude's working or idle status
+  through `docker exec`.
+- **Unattended.** The prompt must be a single line for now (multi-line prompts are
+  refused). `jauntctl agent logs --follow` watches the run. `logs` reads any of your
+  own runs, finished or not; without an id it shows the newest run of the current
+  checkout.
+- **What a container holds.** Only the checkout and a per-run state directory. No
+  Docker socket, no host networking, not privileged, all capabilities dropped,
+  `no-new-privileges`. It gets a token for that one repo (re-read from a file the
+  supervisor refreshes) and only the agent credentials the adapter declares. It never
+  holds the App private key, the Hetzner token or other repos' tokens. Toolchains come
+  from `mise` inside the container (the repo's mise config is trusted there), cached
+  in the agent home on the volume.
+- **What it cannot reach.** The metadata service (`169.254.169.254`) and the tailnet
+  (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) are dropped for containers on the root
+  daemon. The unit is enabled by the install step (best effort) and every
+  `jauntctl agent` start re-applies the rules and refuses to start if it cannot.
+  Containers you start yourself on the root daemon (`sudo docker run`) are covered once
+  the guard has been applied (by an agent start or after a reboot).
+- **The checkout guard, and what it does not cover.** Inside the container
+  `.git/config`, `.git/hooks`, `.git/commondir` and (if present) `.git/modules` are
+  read-only, so the agent cannot plant hooks or config your own `git` would run. Your
+  global git settings also stop your git descending into submodules. It does not cover
+  code you run yourself after the agent changed it: tests, `make`, `mise` and `direnv`
+  config. **Run agent-changed tests inside the container** (`jauntctl agent attach
+  --shell`) and don't trust agent-changed `mise` or `direnv` files. Host `git` in an
+  agent workspace refuses by design; use the shell in the container for git work.
+  Because `.git/config` is read-only, `git push -u` reports a config write error but
+  the push lands; branches are created without tracking.
+- **Wrap-up and `CONTINUATION.md`.** On any forced stop (`jauntctl agent stop`, the
+  run's `--max` duration, the box's night deadline or `jauntbox down`) the agent is
+  told to write `CONTINUATION.md` (what is done, what is next), commit it and push.
+  Claude's hooks (managed settings the repo and the agent cannot change) inject the
+  instruction and block stopping until it is pushed. If nothing appears within
+  `limits.wrapup_grace` (default 5 min), the box writes a mechanical `CONTINUATION.md`
+  (git status, diff summary, last log lines) and pushes it itself, with `--no-verify` so your repo's hooks
+  don't block it. Teardown order: wrap-up agents, revoke tokens, stop containers, sync,
+  delete the box.
+- **Box wrap-ups.** Wrap-ups the box starts carry a reason prefixed `box-` (for example
+  `box-night`). Putting the box back to "keep" (cancelling the wrap-up) clears those,
+  but not wrap-ups from `jauntctl agent stop` or `run-max`. The supervisor's agent
+  work is bounded: 2 minutes per normal pass, up to 5 minutes to finish agents before
+  the box deletes itself.
+- **Resume.** `jauntctl agent --branch <branch>` on a branch that already has
+  `CONTINUATION.md` opens Claude with "Read CONTINUATION.md at the repository root and
+  continue from it."
+- **Trust.** The box user is trusted: they have the sudo password and can read
+  everything an agent can. Agents never run on the host.
+
 ## Root and sudo on the box
 
 - **Root comes from the laptop.** jauntbox's own privileged steps (install, units,
@@ -135,8 +221,8 @@ jauntbox unlock                                # push secrets to the box: after 
 - **Metadata endpoint.** The unit `jauntbox-metadata-guard.service` drops traffic to
   `169.254.169.254` from any non-root process, so the Hetzner user data (which holds
   boot-time secrets) isn't readable by you or your containers. If `iptables` fails the
-  unit fails open and shows as failed. Containers on the root daemon aren't covered
-  until Plan 03's network task.
+  unit fails open and shows as failed. Containers on the root daemon are covered by the
+  agent network guard (see Agents).
 - **The accepted weakness.** You know the sudo password, so you can become root on your
   own box. A process running as you can't use `sudo` by itself, but it can plant a fake
   `sudo` (an alias or a PATH shim in your shell config) and capture the password the next
