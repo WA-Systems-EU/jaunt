@@ -164,7 +164,9 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   the guard has been applied (by an agent start or after a reboot).
 - **The checkout guard, and what it does not cover.** Inside the container
   `.git/config`, `.git/hooks`, `.git/commondir` and (if present) `.git/modules` are
-  read-only, so the agent cannot plant hooks or config your own `git` would run. Your
+  read-only, so the agent cannot plant hooks or config your own `git` would run.
+  `.git` itself is mounted separately (writable, so the agent can commit), which makes
+  it a mount point the agent cannot move away or remove to plant a fresh one. Your
   global git settings also stop your git descending into submodules. It does not cover
   code you run yourself after the agent changed it: tests, `make`, `mise` and `direnv`
   config. **Run agent-changed tests inside the container** (`jauntctl agent attach

@@ -296,6 +296,7 @@ func TestStartHappyPath(t *testing.T) {
 		"--label", "jauntbox.agent=1", "--label", "jauntbox.run=" + wantID, "--label", "jauntbox.repo=acme/widget",
 		"--env-file", envFile, "-e", "HOME=/home/agent",
 		"-v", e.root + ":/work",
+		"-v", e.root + "/.git:/work/.git",
 		"-v", e.root + "/.git/config:/work/.git/config:ro",
 		"-v", e.root + "/.git/hooks:/work/.git/hooks:ro",
 		"-v", e.root + "/.git/commondir:/work/.git/commondir:ro",

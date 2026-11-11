@@ -438,8 +438,12 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	}
 
 	g := co.Root + "/.git"
+	// .git itself is a mount point (read-write) so the agent cannot rename
+	// or remove it (EBUSY) and plant a fresh .git with its own config next
+	// to the moved-away read-only files.
 	mounts := []Mount{
 		{Src: co.Root, Dst: "/work"},
+		{Src: g, Dst: "/work/.git"},
 		{Src: g + "/config", Dst: "/work/.git/config", RO: true},
 		{Src: g + "/hooks", Dst: "/work/.git/hooks", RO: true},
 	}

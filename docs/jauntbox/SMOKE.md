@@ -186,6 +186,7 @@ unless a row says otherwise. Fill in the result column.
 | 2. In the image, as the non-root uid: `claude --version` works (the Claude Code installer layout was assumed, not built) and `mise --version` works | |
 | 3. From `jauntctl agent attach <id> --shell`: `id -u` is your uid | |
 | 4. `echo x >> .git/config`, `touch .git/hooks/x` and `rm .git/commondir` all fail (read-only) | |
+| 4b. `mv .git .git2` and `rmdir .git` both fail (`.git` is a mount point: busy) | |
 | 5. `curl -m 5 http://169.254.169.254/hetzner/v1/metadata` fails | |
 | 6. `curl -m 5 http://100.100.100.100` fails | |
 | 7. `ls /run/jauntbox/secrets` fails | |
