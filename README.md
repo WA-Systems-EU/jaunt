@@ -92,6 +92,19 @@ jauntbox unlock                                # push secrets to the box: after 
   valid for an hour and cached until 10 minutes before it expires. `jaunt-repos`
   lists the repos the App is installed on and clones them; it warns if it finds an old
   `gh auth login`, which you should remove.
+- **Adding repos later.** The App works for any repo you install it on, including ones
+  you create after setup:
+  1. On GitHub, open the settings of the account or organization that owns the App,
+     then **GitHub Apps** → **Configure** next to `jauntbox-<user>`, and add the repo under
+     *Repository access* (or pick *All repositories* to include future repos automatically).
+  2. Run `jauntbox setup github` again. It skips what already exists and adds the
+     default-branch ruleset to every installed repo; without it, agents can push to the new
+     repo's default branch. `jauntbox setup github --check` lists installed repos whose
+     ruleset is missing or has drifted. On GitHub Free a private repo can't be protected
+     (see Rulesets above).
+  3. Nothing to restart or unlock on the box: `jaunt-repos` shows and clones the new repo,
+     and `jauntctl agent` works in its checkout. An agent start in a repo the App isn't
+     installed on is refused with the install link.
 - **Locked state.** After a reboot (or before the first unlock) the box has no secrets
   in memory. `git push` then prints the locked message. Laptop commands that reach the
   box (`jauntbox`, `ssh`, `status`) unlock it automatically; a locked box shows the
