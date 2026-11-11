@@ -30,6 +30,63 @@ write_sudoers() {
   return 0
 }
 
+# setup_rootless_docker <user> <uid> <etc-dir>: gives the engineer their own rootless
+# Docker daemon (the docker group is root-equivalent, so they are not in it). Best
+# effort: every step failing logs a WARNING and returns 0, so provisioning goes on and
+# `sudo docker` still works. <etc-dir> is /etc (tests point it at a temp dir);
+# JAUNT_RUN_USER_DIR overrides /run/user for the same reason.
+setup_rootless_docker() {
+  local user=$1 uid=$2 etc=$3
+  local rdir="${JAUNT_RUN_USER_DIR:-/run/user}/$uid" home i
+  local -a asuser=(runuser -u "$user" -- env "XDG_RUNTIME_DIR=/run/user/$uid" "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus")
+
+  apt-get install -y --no-install-recommends uidmap dbus-user-session slirp4netns \
+    || { log "WARNING: rootless docker setup failed: packages"; return 0; }
+  apt-get install -y --no-install-recommends docker-ce-rootless-extras \
+    || { log "WARNING: rootless docker setup failed: docker-ce-rootless-extras"; return 0; }
+
+  local f
+  for f in subuid subgid; do
+    if ! grep -q "^$user:" "$etc/$f" 2>/dev/null; then
+      printf '%s:100000:65536\n' "$user" >>"$etc/$f" \
+        || { log "WARNING: rootless docker setup failed: $f"; return 0; }
+    fi
+  done
+
+  # Ubuntu 24.04 restricts unprivileged user namespaces; rootlesskit gets a profile
+  # that allows them (the sysctl stays on).
+  mkdir -p "$etc/apparmor.d" || { log "WARNING: rootless docker setup failed: apparmor dir"; return 0; }
+  cat >"$etc/apparmor.d/usr.bin.rootlesskit" <<'PROFILE' \
+    || { log "WARNING: rootless docker setup failed: apparmor profile"; return 0; }
+abi <abi/4.0>,
+include <tunables/global>
+
+profile rootlesskit /usr/bin/rootlesskit flags=(unconfined) {
+  userns,
+  include if exists <local/usr.bin.rootlesskit>
+}
+PROFILE
+  apparmor_parser -r "$etc/apparmor.d/usr.bin.rootlesskit" \
+    || { log "WARNING: rootless docker setup failed: apparmor_parser"; return 0; }
+
+  loginctl enable-linger "$user" \
+    || { log "WARNING: rootless docker setup failed: enable-linger"; return 0; }
+  for i in $(seq 1 30); do [ -d "$rdir" ] && break; sleep 1; done
+  [ -d "$rdir" ] || { log "WARNING: rootless docker setup failed: $rdir did not appear"; return 0; }
+
+  home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6)
+  home=${home:-/home/$user}
+  if [ ! -f "$home/.config/systemd/user/docker.service" ]; then
+    "${asuser[@]}" dockerd-rootless-setuptool.sh install \
+      || { log "WARNING: rootless docker setup failed: dockerd-rootless-setuptool.sh install"; return 0; }
+  fi
+  "${asuser[@]}" systemctl --user enable --now docker \
+    || { log "WARNING: rootless docker setup failed: systemctl --user enable --now docker"; return 0; }
+  "${asuser[@]}" docker context use rootless \
+    || { log "WARNING: rootless docker setup failed: docker context use rootless"; return 0; }
+  return 0
+}
+
 # When sourced (tests), stop here: only the functions above are defined.
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
 
@@ -125,6 +182,9 @@ systemctl enable docker
 systemctl restart docker
 # The engineer is not in the docker group (docker access is root-equivalent).
 gpasswd -d "$JAUNT_USER" docker 2>/dev/null || true
+
+# --- 3b. Rootless Docker for the engineer (own daemon, data on the /home volume) ----
+setup_rootless_docker "$JAUNT_USER" "$JAUNT_UID" /etc
 
 # --- 4. Language toolchain (as the user) ------------------------------------------
 if [ "${JAUNT_INSTALL_TOOLCHAIN:-true}" != "true" ]; then

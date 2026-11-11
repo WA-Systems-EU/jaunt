@@ -40,7 +40,53 @@ out=$(STUB_VISUDO_FAIL=1 write_sudoers alice "$dir" 2>&1)
 [ "$(ls "$dir" | wc -l)" = 1 ] || bad "temp file left behind: $(ls -A "$dir")"
 case "$out" in *WARNING*) ;; *) bad "no warning logged: $out" ;; esac
 
+# --- setup_rootless_docker ---------------------------------------------------------
+type setup_rootless_docker >/dev/null 2>&1 || { bad "setup_rootless_docker not defined"; exit 1; }
+for c in apt-get loginctl runuser apparmor_parser; do
+  cat >"$bin/$c" <<'S'
+#!/bin/sh
+echo "$(basename "$0") $*" >>"$STUB_LOG"
+case "$(basename "$0") $*" in *"$STUB_FAIL_MATCH"*) [ -n "${STUB_FAIL_MATCH:-}" ] && exit 1 ;; esac
+exit 0
+S
+  chmod +x "$bin/$c"
+done
+export STUB_LOG="$tmp/rd.log"
+etc="$tmp/etc"; runroot="$tmp/run"; mkdir -p "$etc" "$runroot/1001"
+export JAUNT_RUN_USER_DIR="$runroot"
+: >"$STUB_LOG"
+setup_rootless_docker alice 1001 "$etc" >/dev/null 2>&1 || bad "setup_rootless_docker returned non-zero"
+setup_rootless_docker alice 1001 "$etc" >/dev/null 2>&1 || bad "second run returned non-zero"
+[ "$(grep -c '^alice:' "$etc/subuid")" = 1 ] || bad "subuid not added exactly once: $(cat "$etc/subuid")"
+[ "$(grep -c '^alice:' "$etc/subgid")" = 1 ] || bad "subgid not added exactly once"
+[ "$(grep '^alice:' "$etc/subuid")" = "alice:100000:65536" ] || bad "subuid line wrong"
+[ "$(grep '^alice:' "$etc/subgid")" = "alice:100000:65536" ] || bad "subgid line wrong"
+want_prof='abi <abi/4.0>,
+include <tunables/global>
+
+profile rootlesskit /usr/bin/rootlesskit flags=(unconfined) {
+  userns,
+  include if exists <local/usr.bin.rootlesskit>
+}'
+[ "$(cat "$etc/apparmor.d/usr.bin.rootlesskit")" = "$want_prof" ] || bad "apparmor profile mismatch"
+grep -q "^apparmor_parser -r $etc/apparmor.d/usr.bin.rootlesskit\$" "$STUB_LOG" || bad "apparmor_parser -r not called: $(cat "$STUB_LOG")"
+grep -q '^apt-get install .*uidmap.*dbus-user-session.*slirp4netns' "$STUB_LOG" || bad "base packages not installed"
+grep -q 'docker-ce-rootless-extras' "$STUB_LOG" || bad "rootless extras not installed"
+grep -q '^loginctl enable-linger alice$' "$STUB_LOG" || bad "enable-linger not called"
+ru='runuser -u alice -- env XDG_RUNTIME_DIR=/run/user/1001 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus'
+grep -q "^$ru dockerd-rootless-setuptool.sh install\$" "$STUB_LOG" || bad "setuptool not run as the user: $(cat "$STUB_LOG")"
+grep -q "^$ru systemctl --user enable --now docker\$" "$STUB_LOG" || bad "systemctl --user enable not run"
+grep -q "^$ru docker context use rootless\$" "$STUB_LOG" || bad "docker context use rootless not run"
+
+# A failing setuptool warns and still returns 0 under set -e.
+: >"$STUB_LOG"
+out=$(set -e; STUB_FAIL_MATCH=dockerd-rootless-setuptool setup_rootless_docker alice 1001 "$etc" 2>&1; echo reached)
+case "$out" in *"WARNING: rootless docker setup failed: "*) ;; *) bad "no rootless warning: $out" ;; esac
+case "$out" in *reached) ;; *) bad "failing setuptool aborted under set -e: $out" ;; esac
+grep -q 'systemctl --user' "$STUB_LOG" && bad "continued past the failed setuptool"
+
 # Static checks on the script text.
+
 grep -q 'usermod -aG docker' "$here/dev-setup.sh" && bad "dev-setup.sh still adds the user to docker"
 grep -q 'NOPASSWD:ALL' "$here/dev-setup.sh" && bad "dev-setup.sh still has NOPASSWD:ALL"
 grep -q 'gpasswd -d "\$JAUNT_USER" docker' "$here/dev-setup.sh" || bad "dev-setup.sh does not remove the user from docker"
