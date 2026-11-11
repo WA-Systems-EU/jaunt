@@ -6,12 +6,37 @@
 #
 # Idempotent: safe on every boot. Cold first boot is slow (compiles Ruby); warm boots
 # (volume already populated) are near-instant because every step is a skip-if-present.
+
+log() { echo "[jaunt-provision] $*"; }
+
+# write_sudoers <user> <dir>: password sudo for the engineer, passwordless only for the
+# few jauntctl commands the box-side helpers need. The NOPASSWD line comes last because
+# sudo uses the last matching entry. Validated with visudo before it replaces the
+# current file; on failure the previous file stays and provisioning continues.
+write_sudoers() {
+  local user=$1 dir=$2 tmp
+  tmp=$(mktemp "$dir/.90-jaunt-$user.XXXXXX") || { log "WARNING: cannot create sudoers temp file in $dir"; return 0; }
+  {
+    printf '%s ALL=(ALL:ALL) ALL\n' "$user"
+    printf '%s ALL=(root) NOPASSWD: /usr/local/bin/jauntctl mint *, /usr/local/bin/jauntctl repos, /usr/local/bin/jauntctl repos *, /usr/local/bin/jauntctl box-status, /usr/local/bin/jauntctl box-status *, /usr/local/bin/jauntctl agent *\n' "$user"
+  } >"$tmp"
+  chmod 0440 "$tmp"
+  if visudo -cf "$tmp" >/dev/null 2>&1; then
+    mv -f "$tmp" "$dir/90-jaunt-$user"
+  else
+    rm -f "$tmp"
+    log "WARNING: sudoers for $user failed visudo check; keeping the previous file"
+  fi
+  return 0
+}
+
+# When sourced (tests), stop here: only the functions above are defined.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
+
 set -euo pipefail
 
 # shellcheck disable=SC1091
 . /etc/jaunt/provision.env # JAUNT_USER, JAUNT_UID, JAUNT_INSTALL_TOOLCHAIN, JAUNT_DOCKER_DATA_ROOT
-
-log() { echo "[jaunt-provision] $*"; }
 
 # --- 1. Engineer user -------------------------------------------------------------
 # Pinned UID/GID: /home lives on the persistent volume, so a stable id keeps file
@@ -21,9 +46,8 @@ if ! id "$JAUNT_USER" >/dev/null 2>&1; then
   groupadd -g "$JAUNT_UID" "$JAUNT_USER" 2>/dev/null || true
   useradd -m -u "$JAUNT_UID" -g "$JAUNT_UID" -s /bin/bash "$JAUNT_USER"
 fi
-# Passwordless sudo for the engineer.
-printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$JAUNT_USER" >"/etc/sudoers.d/90-jaunt-$JAUNT_USER"
-chmod 0440 "/etc/sudoers.d/90-jaunt-$JAUNT_USER"
+# Password sudo for the engineer; passwordless only for a few jauntctl commands.
+write_sudoers "$JAUNT_USER" /etc/sudoers.d
 # Home may already exist on the volume from a prior box — ensure it's owned correctly.
 install -d -o "$JAUNT_USER" -g "$JAUNT_USER" -m 0755 "/home/$JAUNT_USER"
 # Copy the cloud-injected SSH key (Hetzner/UpCloud seed it onto root) so `ssh
@@ -99,7 +123,8 @@ cat >/etc/docker/daemon.json <<EOF
 EOF
 systemctl enable docker
 systemctl restart docker
-usermod -aG docker "$JAUNT_USER"
+# The engineer is not in the docker group (docker access is root-equivalent).
+gpasswd -d "$JAUNT_USER" docker 2>/dev/null || true
 
 # --- 4. Language toolchain (as the user) ------------------------------------------
 if [ "${JAUNT_INSTALL_TOOLCHAIN:-true}" != "true" ]; then
