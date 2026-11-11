@@ -1,5 +1,6 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive DISABLE_AUTOUPDATER=1
+ENV MISE_TRUSTED_CONFIG_PATHS=/work PATH=/home/agent/.local/share/mise/shims:$PATH
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates curl jq ripgrep less vim-tiny build-essential tini \
  && rm -rf /var/lib/apt/lists/*

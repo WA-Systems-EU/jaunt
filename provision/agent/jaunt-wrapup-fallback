@@ -21,6 +21,7 @@ if is_done; then
 fi
 
 if [ ! -f CONTINUATION.md ]; then
+	mkdir -p "$logd" 2>/dev/null
 	logf=
 	for f in "$logd/claude.jsonl" "$logd/init.log"; do
 		[ -f "$f" ] && { logf=$f; break; }
@@ -47,13 +48,13 @@ if [ ! -f CONTINUATION.md ]; then
 		echo '```'
 		[ -n "$logf" ] && tail -n 40 "$logf"
 		echo '```'
-	} >CONTINUATION.md.tmp && mv CONTINUATION.md.tmp CONTINUATION.md
+	} >"$logd/continuation.tmp" && mv "$logd/continuation.tmp" CONTINUATION.md
 fi
 
 fail() { echo "failed: $(printf '%s' "$1" | tr '\n' ' ')"; exit 1; }
 msg=$(git add -A 2>&1) || fail "$msg"
 if ! git diff --cached --quiet; then
-	msg=$(git commit -q -m "wip(jauntbox): mechanical wrap-up ($reason)" 2>&1) || fail "$msg"
+	msg=$(git commit -q --no-verify -m "wip(jauntbox): mechanical wrap-up ($reason)" 2>&1) || fail "$msg"
 fi
-msg=$(git push origin HEAD 2>&1) || fail "$msg"
+msg=$(git push --no-verify origin HEAD 2>&1) || fail "$msg"
 echo pushed

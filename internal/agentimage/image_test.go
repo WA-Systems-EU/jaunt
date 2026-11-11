@@ -24,7 +24,7 @@ func TestTagStableAndContentAddressed(t *testing.T) {
 	if a == b {
 		t.Error("changing a script must change the tag")
 	}
-	if !regexp.MustCompile(`^jauntbox-agent:[0-9a-f]{12}$`).MatchString(Tag()) {
+	if !regexp.MustCompile(`^jauntbox/agent:[0-9a-f]{12}$`).MatchString(Tag()) {
 		t.Errorf("Tag() = %q", Tag())
 	}
 }

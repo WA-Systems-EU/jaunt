@@ -75,6 +75,7 @@ eq fb-subject "$(cat "$tmp/subj")" "wip(jauntbox): mechanical wrap-up (max durat
 note=$(git -C "$c/origin.git" show feat/x:CONTINUATION.md)
 case "$note" in "# CONTINUATION (written by jauntbox)"*) ;; *) bad "fb-title: $note";; esac
 case "$note" in *"did not leave a continuation note before the run ended (max duration)."*) ;; *) bad "fb-reason";; esac
+case "$note" in *"CONTINUATION.md.tmp"*|*"continuation.tmp"*) bad "fb-tmp-listed";; esac
 case "$note" in *"- Branch: feat/x"*"- Run: run-1"*"## git status"*"?? new.txt"*"## Changes against origin/main"*"## Last log lines"*'{"x":1}'*) ;; *) bad "fb-body: $note";; esac
 git -C "$c/origin.git" show feat/x:new.txt >/dev/null 2>&1 || bad "fb-new-file-pushed"
 eq fb-again "$(fb "max duration")" already-done
@@ -84,6 +85,17 @@ git -C "$JAUNT_WORK" remote set-url origin "$c/nonexistent.git"
 out=$(fb oops); rc=$?
 case "$out" in "failed: "*) ;; *) bad "fb-unreachable output: $out";; esac
 eq fb-unreachable-rc "$rc" 1
+
+mk fb3
+printf '#!/bin/sh\nexit 1\n' >"$JAUNT_WORK/.git/hooks/pre-commit"; cp "$JAUNT_WORK/.git/hooks/pre-commit" "$JAUNT_WORK/.git/hooks/pre-push"
+chmod +x "$JAUNT_WORK/.git/hooks/pre-commit" "$JAUNT_WORK/.git/hooks/pre-push"
+echo dirty >"$JAUNT_WORK/new.txt"
+eq fb-hooks-bypassed "$(fb hooks)" pushed
+# --- unattended
+mk un
+out=$(JAUNT_PROMPT= sh "$here/jaunt-unattended" 2>&1); rc=$?
+[ "$rc" -ne 0 ] || bad "unattended-noprompt rc"
+case "$out" in *JAUNT_PROMPT*) ;; *) bad "unattended-noprompt msg: $out";; esac
 
 # --- init
 mk init
@@ -120,16 +132,14 @@ mk guard
 echo . >"$JAUNT_WORK/.git/commondir"
 chmod a-w "$JAUNT_WORK/.git/config"
 g() { git -C "$JAUNT_WORK" "$@"; }
+cp "$JAUNT_WORK/.git/config" "$tmp/guard.before"
 g status >/dev/null 2>&1 || bad "guard-status"
 echo more >"$JAUNT_WORK/g.txt"; g add g.txt
 g commit -q -m g >/dev/null 2>&1 || bad "guard-commit"
 g switch --no-track -c agent/g >/dev/null 2>&1 || bad "guard-switch"
 g push origin HEAD >/dev/null 2>&1 || bad "guard-push"
-echo again >"$JAUNT_WORK/h.txt"; g add h.txt; g commit -q -m h
-g push -u origin HEAD >/dev/null 2>"$tmp/pu.err"
-git -C "$c/origin.git" rev-parse agent/g >/dev/null 2>&1 || bad "guard-push-u did not land"
-# NOTE: a chmod stand-in cannot make git fail the upstream config write (git renames a lock file
-# over the config); the real read-only bind mount does. The push must land either way.
+git -C "$c/origin.git" rev-parse agent/g >/dev/null 2>&1 || bad "guard-push did not land"
+cmp -s "$tmp/guard.before" "$JAUNT_WORK/.git/config" || bad "guard-config changed"
 
 [ "$fail" = 0 ] && echo "ok"
 exit "$fail"

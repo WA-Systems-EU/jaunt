@@ -2,6 +2,7 @@
 # Runs Claude Code non-interactively in /work for an unattended run.
 work=${JAUNT_WORK:-/work}
 logd=${JAUNT_LOG_DIR:-/var/log/jauntbox}
+[ -n "${JAUNT_PROMPT:-}" ] || { echo "jaunt-unattended: JAUNT_PROMPT is not set" >&2; exit 2; }
 mkdir -p "$logd"
 cd "$work" || exit 1
 claude -p "$JAUNT_PROMPT" --output-format stream-json --verbose --dangerously-skip-permissions \

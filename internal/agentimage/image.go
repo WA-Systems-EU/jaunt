@@ -54,10 +54,10 @@ func tagOf(fsys fs.FS) (string, error) {
 		fmt.Fprintf(h, "%s\x00%d\x00", n, len(b))
 		h.Write(b)
 	}
-	return "jauntbox-agent:" + hex.EncodeToString(h.Sum(nil))[:12], nil
+	return "jauntbox/agent:" + hex.EncodeToString(h.Sum(nil))[:12], nil
 }
 
-// Tag is the content-addressed image tag, e.g. jauntbox-agent:0123456789ab.
+// Tag is the content-addressed image tag, e.g. jauntbox/agent:0123456789ab.
 func Tag() string {
 	fsys, err := embedded()
 	if err != nil {
