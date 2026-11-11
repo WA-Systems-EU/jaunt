@@ -108,8 +108,9 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 		RunE: withSteps(func(cmd *cobra.Command, d client.Deps, steps *tracked, args []string) error {
 			startedAt := d.Now()
 			steps.Header("jauntbox", "resize "+resizeFrom(cmd.Context(), d)+" → "+args[0])
-			if err := client.Resize(cmd.Context(), d, args[0]); err != nil {
-				return err
+			res, err := client.Resize(cmd.Context(), d, args[0])
+			if err != nil {
+				return handOff(cmd.Context(), cmd, d.Spawn, steps, res, err)
 			}
 			finishUp(cmd.Context(), steps, d, startedAt, startedAt)
 			return nil

@@ -372,8 +372,12 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 			startedAt := d.Now()
 			steps.Header("jauntbox", upContext(d.Cfg, d.Cfg.DefaultProfile))
 			steps.Plan("Policy and limits", "SSH key, firewall, volume")
-			d.AfterUp = func(created bool) {
-				if created {
+			var upRes client.UpResult
+			attached := false // BeforeAttach ran: the box is ready, nothing to hand off
+			spawn := d.Spawn  // Attach hides it from Up; Ctrl-C still needs it
+			d.AfterUp = func(res client.UpResult) {
+				upRes = res
+				if res.Created {
 					steps.Plan("Joined the tailnet", "Box reachable", "Install supervisor", "Unlock secrets", "Dev tools installed")
 				} else {
 					steps.Plan("Box online", "Dev tools installed")
@@ -382,12 +386,17 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 			// Nothing may print under a live block: finish the stream before
 			// Attach writes its own warnings and reconnect notes.
 			d.BeforeAttach = func(created bool) {
+				attached = true
 				if created {
 					finishUp(ctx, steps, d, startedAt, startedAt)
 				}
 				steps.Close()
 			}
-			return client.Attach(ctx, d, session.Herdr{}, nested, runInherited, exec.LookPath)
+			err = client.Attach(ctx, d, session.Herdr{}, nested, runInherited, exec.LookPath)
+			if err != nil && !attached {
+				return handOff(ctx, cmd, spawn, steps, upRes, err)
+			}
+			return err
 		},
 	}
 	root.Flags().BoolVar(&nested, "nested", false, "attach even from inside a local herdr pane (herdr inside herdr)")

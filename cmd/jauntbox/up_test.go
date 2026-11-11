@@ -52,11 +52,11 @@ type tProv struct {
 	hook func()
 }
 
-func (p *tProv) EnsureSSHKey(context.Context, string, string, map[string]string) (int64, error) {
+func (p *tProv) EnsureSSHKey(ctx context.Context, _, _ string, _ map[string]string) (int64, error) {
 	if p.hook != nil {
 		p.hook()
 	}
-	return 1, nil
+	return 1, ctx.Err()
 }
 func (p *tProv) EnsureFirewall(context.Context, string, map[string]string) (int64, error) {
 	return 2, nil
@@ -97,10 +97,14 @@ type tRemote struct {
 	log        *tLog
 	failUnlock bool
 	boxStatus  string
+	hook       func(cmd string) // called with each root/user command line
 }
 
 func (r *tRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
 	j := strings.Join(args, " ")
+	if r.hook != nil {
+		r.hook(j)
+	}
 	if r.failUnlock && strings.Contains(j, ".loaded") {
 		return nil, errors.New("boom")
 	}

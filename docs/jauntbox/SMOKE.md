@@ -240,8 +240,8 @@ result column.
 | 4. `jauntbox down` shows its steps and ends cleanly; `jauntbox down` again says "no box running" | |
 | 5. `jauntbox resize big` shows its steps and returns only when the new box is ready | |
 | 6. `jauntbox status` prints the short summary (box, state, server type, created, tailnet, secrets, verdict and deadline); `jauntbox status --json \| jq .` parses | |
-| 7. `jauntbox init --config /tmp/t.yaml` walks the form (arrow keys, Enter to go on, `/` to filter timezones, token checks, locations, server types with prices, review screen) and writes the config, env file and ssh block you chose; Ctrl-C in the form writes nothing | |
-| 8. `jauntbox init --plain --config /tmp/t2.yaml` in a terminal asks line by line; answer the same as row 7 and compare the files with the form's | |
+| 7. `jauntbox init --config /tmp/jb-form/config.yaml` walks the form (arrow keys, Enter to go on, `/` to filter timezones, token checks, locations, server types with prices, review screen) and writes the config, env file and ssh block you chose; Ctrl-C in the form writes nothing | |
+| 8. `jauntbox init --plain --config /tmp/jb-plain/config.yaml` in a terminal asks line by line; answer the same as row 7 (separate folders keep the two env files apart; the ssh block already exists on this second run, so skip it) and compare `config.yaml` and `env` only with the form's | |
 | 9. Bare `jauntbox` with no box shows the same steps as `up`, then attaches the herdr session | |
 | 10. `NO_COLOR=1 jauntbox status` and `jauntbox --plain up` print no colour or animation | |
 | 11. `jauntbox up --detach` returns once the server exists; `jauntbox status` later shows the box ready | |

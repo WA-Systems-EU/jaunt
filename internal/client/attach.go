@@ -58,7 +58,7 @@ func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 		return err
 	}
 	if d.AfterUp != nil {
-		d.AfterUp(res.Created)
+		d.AfterUp(res)
 	}
 	// A non-nil err with Created set is a warning Up already put on its step.
 	if res.Created {
@@ -163,7 +163,8 @@ func ReadyExisting(ctx context.Context, d Deps, box provider.Box) error {
 // may still be joining (cloud-init), so it gets until DefaultPushWait after its
 // creation if that is later than the base wait.
 func waitOnline(ctx context.Context, d Deps, host string, box provider.Box) error {
-	deadline := nowFn().Add(onlineWait)
+	start := nowFn()
+	deadline := start.Add(onlineWait)
 	if !box.Created.IsZero() {
 		if joinBy := box.Created.Add(DefaultPushWait); joinBy.After(deadline) {
 			deadline = joinBy
@@ -176,7 +177,7 @@ func waitOnline(ctx context.Context, d Deps, host string, box provider.Box) erro
 			return nil
 		}
 		if !nowFn().Before(deadline) {
-			err := fmt.Errorf("%s exists but is not on the tailnet after %s (check `jauntbox status`)", host, onlineWait)
+			err := fmt.Errorf("%s exists but is not on the tailnet after %s (check `jauntbox status`)", host, deadline.Sub(start).Round(time.Second))
 			st.Fail(err, "")
 			return err
 		}

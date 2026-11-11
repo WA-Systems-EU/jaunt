@@ -433,7 +433,7 @@ func TestAttachHooksRunBeforeConnectionTimePrints(t *testing.T) {
 	r.list = `{"result":{"workspaces":[]}}`
 	var order []string
 	var created []bool
-	d.AfterUp = func(c bool) { order = append(order, "afterup"); created = append(created, c) }
+	d.AfterUp = func(r UpResult) { order = append(order, "afterup"); created = append(created, r.Created) }
 	d.BeforeAttach = func(c bool) {
 		order = append(order, "beforeattach")
 		created = append(created, c)

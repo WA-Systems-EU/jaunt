@@ -296,7 +296,7 @@ func TestResizeWaitsForNewBox(t *testing.T) {
 	withBox(p)
 	rec := withRec(&d)
 	osExecutable = func() (string, error) { return "/bin/true", nil }
-	if err := Resize(context.Background(), d, "big"); err != nil {
+	if _, err := Resize(context.Background(), d, "big"); err != nil {
 		t.Fatal(err)
 	}
 	if *spawns != 0 {
@@ -357,7 +357,7 @@ func TestResizeFailureModes(t *testing.T) {
 		old := resizePushWait
 		resizePushWait = 20 * time.Millisecond
 		defer func() { resizePushWait = old }()
-		err := Resize(context.Background(), d, "big")
+		_, err := Resize(context.Background(), d, "big")
 		if err == nil || !strings.Contains(err.Error(), "joined the tailnet but is not accepting ssh") {
 			t.Fatalf("err = %v", err)
 		}
@@ -374,7 +374,7 @@ func TestResizeFailureModes(t *testing.T) {
 		rec := withRec(&d)
 		// the down request also emits; let only box.created fail
 		d.Events = kindFailSink{kind: events.BoxCreated}
-		err := Resize(context.Background(), d, "big")
+		_, err := Resize(context.Background(), d, "big")
 		if err == nil || !strings.Contains(err.Error(), "recording the box.created event failed") {
 			t.Fatalf("err = %v", err)
 		}
@@ -608,7 +608,7 @@ func TestResizeEndsWithDevTools(t *testing.T) {
 	withBox(p)
 	rec := withRec(&d)
 	osExecutable = func() (string, error) { return "/bin/true", nil }
-	if err := Resize(context.Background(), d, "big"); err != nil {
+	if _, err := Resize(context.Background(), d, "big"); err != nil {
 		t.Fatal(err)
 	}
 	n := len(rec.Events)
@@ -646,6 +646,31 @@ func TestWaitOnlineGivesRecentBoxTheJoinWindow(t *testing.T) {
 	}
 	if err := run(t, 2*time.Hour); err == nil || !strings.Contains(err.Error(), "is not on the tailnet after") {
 		t.Fatalf("old box err = %v", err)
+	}
+}
+
+func TestWaitOnlineErrorNamesTheTimeAllowed(t *testing.T) {
+	run := func(t *testing.T, created time.Duration) error {
+		d, p, _ := attachFixture(t)
+		withBox(p)
+		clock := time.Now()
+		nowFn = func() time.Time { return clock }
+		t.Cleanup(func() { nowFn = time.Now })
+		sleepFn = func(_ context.Context, dur time.Duration) error { clock = clock.Add(dur); return nil }
+		d.Mesh = onlineAfter{d.Mesh.(*fakeMesh), &clock, clock.Add(24 * time.Hour)}
+		box := *p.box
+		box.Created = clock.Add(-created)
+		return waitOnline(context.Background(), d, "jauntbox-alice", box)
+	}
+	// plain wait: onlineWait
+	if err := run(t, 2*time.Hour); err == nil || !strings.Contains(err.Error(), "not on the tailnet after "+onlineWait.String()) {
+		t.Fatalf("plain: %v", err)
+	}
+	// created a minute ago: the join window (DefaultPushWait from creation) is longer
+	want := (DefaultPushWait - time.Minute).Round(time.Second).String()
+	err := run(t, time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "not on the tailnet after "+want) {
+		t.Fatalf("extended: want %q in %v", want, err)
 	}
 }
 

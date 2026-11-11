@@ -168,7 +168,7 @@ func TestResizeOrder(t *testing.T) {
 	var seq []string
 	p.seq, r.seq = &seq, &seq
 	p.volAttached, p.volDetachPolls = true, 3 // Hetzner lags after the server is gone
-	if err := Resize(context.Background(), d, "big"); err != nil {
+	if _, err := Resize(context.Background(), d, "big"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"run:jauntctl stop", "waitdeleted", "waitdetached", "create:" + d.Cfg.Profiles["big"].ServerType}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -92,7 +93,7 @@ func readyLinesAt(cfg config.Config, lim config.Limits, elapsedFrom, now, deadli
 	day := func(t time.Time) string { // "" today, else yesterday/tomorrow/Mon 3 Jun
 		y, m, d := t.Date()
 		ny, nm, nd := nowL.Date()
-		diff := int(time.Date(y, m, d, 12, 0, 0, 0, loc).Sub(time.Date(ny, nm, nd, 12, 0, 0, 0, loc)).Hours() / 24)
+		diff := int(math.Round(time.Date(y, m, d, 12, 0, 0, 0, loc).Sub(time.Date(ny, nm, nd, 12, 0, 0, 0, loc)).Hours() / 24))
 		switch {
 		case diff == 0:
 			return ""
