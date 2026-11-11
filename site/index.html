@@ -155,7 +155,7 @@
             <span class="h-3 w-3 rounded-full" style="background:#28c840" aria-hidden="true"></span>
             <span class="ml-2 font-mono text-xs text-white/55 truncate">agent@box: ~/src/repo</span>
           </div>
-          <svg class="block w-full h-auto" viewBox="0 0 480 320" role="img" aria-label="A terminal window. A hooded, shadowy figure with two glowing red eyes looms out of the dark: the rogue AI model. Faint command lines fade behind it, such as a curl to the cloud metadata address." preserveAspectRatio="xMidYMid meet">
+          <svg class="block w-full h-auto" viewBox="0 0 480 320" role="img" aria-label="A terminal window. A dark robot, a droid dome over an angular face plate with two glowing red eyes, looms out of the dark: the rogue AI model. Faint command lines fade behind it, such as a curl to the cloud metadata address." preserveAspectRatio="xMidYMid meet">
             <defs>
               <radialGradient id="scare-halo" cx="50%" cy="42%" r="55%">
                 <stop offset="0" stop-color="#3a0d12" stop-opacity=".75"/>
@@ -179,12 +179,29 @@
               <text x="14" y="98" opacity=".28"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> git push origin main</text>
               <text x="14" y="122" opacity=".16"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> echo "hello?"</text>
             </g>
-            <!-- red rim light behind the hood -->
-            <path d="M240 36 C186 36 164 92 162 144 C160 186 132 220 92 310 L388 310 C348 220 320 186 318 144 C316 92 294 36 240 36 Z" fill="#7a1018" opacity=".5" filter="url(#scare-rim)"/>
-            <!-- hooded figure, soft edges -->
-            <g filter="url(#scare-soft)">
-              <path d="M240 40 C192 40 172 92 170 142 C168 182 142 214 102 310 L378 310 C338 214 312 182 310 142 C308 92 288 40 240 40 Z" fill="url(#scare-body)" opacity=".97"/>
-              <ellipse cx="240" cy="138" rx="42" ry="50" fill="#000"/>
+            <!-- red rim light behind the robot -->
+            <path d="M240 44 C196 44 178 74 178 108 L182 150 L150 222 L96 236 L80 310 L400 310 L384 236 L330 222 L298 150 L302 108 C302 74 284 44 240 44 Z" fill="#7a1018" opacity=".45" filter="url(#scare-rim)"/>
+            <!-- robot: droid dome over an angular face plate -->
+            <g stroke="#2a3546" stroke-width="1.2" stroke-linejoin="round">
+              <!-- shoulders and chest -->
+              <path d="M100 310 L112 246 L170 228 L210 222 L270 222 L310 228 L368 246 L380 310 Z" fill="url(#scare-body)"/>
+              <path d="M112 246 L170 228 L186 256 L132 272 Z" fill="#0a0f17"/>
+              <path d="M368 246 L310 228 L294 256 L348 272 Z" fill="#0a0f17"/>
+              <path d="M214 240 L266 240 L258 284 L222 284 Z" fill="#05080d"/>
+              <!-- neck pistons -->
+              <path d="M224 196 L230 224 M256 196 L250 224 M240 200 L240 226" stroke="#3a4658" stroke-width="3" fill="none"/>
+              <!-- dome -->
+              <path d="M184 112 C184 72 208 48 240 48 C272 48 296 72 296 112 Z" fill="#0c121b"/>
+              <path d="M188 98 L292 98" fill="none" stroke="#33415a"/>
+              <circle cx="266" cy="76" r="5" fill="#05080d" stroke="#3a4658"/>
+              <circle cx="266" cy="76" r="1.8" fill="#ff3b30" opacity=".85"/>
+              <path d="M214 60 L214 96 M240 50 L240 96" fill="none" stroke="#1f2938"/>
+              <!-- face plate: brow ridge, cheeks, chin -->
+              <path d="M184 112 L296 112 L292 152 L272 186 L240 204 L208 186 L188 152 Z" fill="#070b11"/>
+              <path d="M188 113 L240 125 L292 113 L290 121 L240 131 L190 121 Z" fill="#141b27"/>
+              <path d="M206 158 L224 176 M274 158 L256 176" fill="none" stroke="#233043"/>
+              <!-- mouth grille -->
+              <path d="M226 180 L254 180 M228 186 L252 186 M231 192 L249 192" fill="none" stroke="#3b1418" stroke-width="1.6"/>
             </g>
             <!-- eyes -->
             <g class="scare-eyes">
