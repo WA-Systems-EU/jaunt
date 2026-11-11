@@ -463,7 +463,7 @@ func TestInstallCmdRunsAsRoot(t *testing.T) {
 }
 
 func TestRootSSHFailureNamesACLSnippet(t *testing.T) {
-	cause := errors.New("Permission denied")
+	cause := mkExit(255)
 	run := map[string]func(Deps) error{
 		"down":   func(d Deps) error { return Down(context.Background(), d, false) },
 		"night":  func(d Deps) error { return Night(context.Background(), d, "07:00") },
@@ -488,12 +488,7 @@ func TestRootSSHFailureNamesACLSnippet(t *testing.T) {
 		} else {
 			err = f(d)
 		}
-		if name == "down" {
-			// down falls back to the provider API, not to the box user's ssh.
-			if err != nil {
-				t.Errorf("down: %v", err)
-			}
-		} else if name != "status" {
+		if name != "status" {
 			if !errors.Is(err, ErrRootSSH) || !errors.Is(err, cause) || !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: err = %v", name, err)
 			}

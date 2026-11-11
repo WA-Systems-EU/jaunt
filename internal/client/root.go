@@ -2,13 +2,15 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 )
 
 // ErrRootSSH is matched (errors.Is) by every error that comes back from a
 // Deps.Root call. Root steps are never retried through Deps.Remote (the box
 // user has no sudo for them), so the only remedy is the tailnet policy.
-var ErrRootSSH = fmt.Errorf("root ssh failed")
+var ErrRootSSH = errors.New("root ssh failed")
 
 type rootSSHError struct {
 	host, user string
@@ -31,14 +33,28 @@ func rootErr(d Deps, err error) error {
 	return &rootSSHError{host: hostname(d.Cfg.User), user: d.Cfg.User, err: err}
 }
 
+// rootCmdErr classifies a Run/RunInput error: ssh failing to connect or log in
+// (no exit status, or ssh's own 255) is a root ssh problem; any other exit
+// status comes from the remote command and is reported as such.
+func rootCmdErr(d Deps, err error) error {
+	if err == nil {
+		return nil
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() != 255 {
+		return fmt.Errorf("on the box: %w", err)
+	}
+	return rootErr(d, err)
+}
+
 func rootRun(ctx context.Context, d Deps, args ...string) ([]byte, error) {
 	out, err := d.Root.Run(ctx, hostname(d.Cfg.User), args...)
-	return out, rootErr(d, err)
+	return out, rootCmdErr(d, err)
 }
 
 func rootRunInput(ctx context.Context, d Deps, stdin []byte, args ...string) ([]byte, error) {
 	out, err := d.Root.RunInput(ctx, hostname(d.Cfg.User), stdin, args...)
-	return out, rootErr(d, err)
+	return out, rootCmdErr(d, err)
 }
 
 func rootCopy(ctx context.Context, d Deps, local, remotePath string) error {

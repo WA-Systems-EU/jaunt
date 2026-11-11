@@ -37,6 +37,11 @@ func Down(ctx context.Context, d Deps, force bool) error {
 		if ctx.Err() != nil { // Ctrl-C must never fall through to the force path
 			return ctx.Err()
 		}
+		if errors.Is(runErr, ErrRootSSH) {
+			if online, oerr := d.Mesh.DeviceOnline(ctx, hostname(d.Cfg.User)); oerr != nil || online {
+				return fmt.Errorf("%w\n(`jauntbox down --force` deletes the box without the wrap-up)", runErr)
+			}
+		}
 		if unreachable(runErr) {
 			fmt.Printf("could not reach the box (%v); deleting it directly\n", runErr)
 		} else {

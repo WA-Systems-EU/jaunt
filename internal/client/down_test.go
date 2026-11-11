@@ -33,12 +33,14 @@ func TestDownGraceful(t *testing.T) {
 }
 
 func TestDownFallsBackToForce(t *testing.T) {
-	d, p, _, r, _, _ := newDeps(t)
+	d, p, m, r, _, _ := newDeps(t)
 	withBox(p)
+	m.falses = -1 // really offline
 	r.err = errors.New("ssh unreachable")
 	if err := Down(context.Background(), d, false); err != nil {
 		t.Fatal(err)
 	}
+	assertRemoteUnused(t, d)
 	if p.count("delete") != 1 || len(p.deleted) != 1 || p.deleted[0] != 9 || p.count("waitdeleted") != 1 {
 		t.Fatalf("calls = %v", p.calls)
 	}
@@ -182,8 +184,9 @@ func TestDownRemoteFailureNot255WaitsForSelfDelete(t *testing.T) {
 }
 
 func TestDownSSHTransportFailureForcesDelete(t *testing.T) {
-	d, p, _, r, _, _ := newDeps(t)
+	d, p, m, r, _, _ := newDeps(t)
 	withBox(p)
+	m.falses = -1 // really offline
 	r.err = exitErr(t, 255)
 	if err := Down(context.Background(), d, false); err != nil {
 		t.Fatal(err)
@@ -203,5 +206,64 @@ func TestDownGracefulTimeoutForcesDelete(t *testing.T) {
 	}
 	if p.count("delete") != 1 || p.count("waitdeleted") != 2 {
 		t.Fatalf("calls = %v", p.calls)
+	}
+}
+
+func TestDownRootRefusedOnOnlineBoxFailsWithFix(t *testing.T) {
+	d, p, _, r, _, _ := newDeps(t)
+	withBox(p) // online by default
+	r.err = exitErr(t, 255)
+	err := Down(context.Background(), d, false)
+	if !errors.Is(err, ErrRootSSH) || !strings.Contains(err.Error(), "jauntbox acl-snippet") || !strings.Contains(err.Error(), "jauntbox down --force") {
+		t.Fatalf("err = %v", err)
+	}
+	if p.count("delete") != 0 || p.count("waitdeleted") != 0 {
+		t.Fatalf("deleted despite online box: %v", p.calls)
+	}
+	assertRemoteUnused(t, d)
+}
+
+func TestRootErrorClassification(t *testing.T) {
+	d, _, _, r, _, _ := newDeps(t)
+	r.err = mkExit(1)
+	_, err := rootRun(context.Background(), d, "x")
+	if errors.Is(err, ErrRootSSH) || err == nil {
+		t.Fatalf("remote exit 1 must not be ErrRootSSH: %v", err)
+	}
+	r.err = mkExit(255)
+	if _, err = rootRun(context.Background(), d, "x"); !errors.Is(err, ErrRootSSH) {
+		t.Fatalf("exit 255 must be ErrRootSSH: %v", err)
+	}
+	r.inputErr = errors.New("ssh not found")
+	if _, err = rootRunInput(context.Background(), d, nil, "x"); !errors.Is(err, ErrRootSSH) {
+		t.Fatalf("non-exit error must be ErrRootSSH: %v", err)
+	}
+}
+
+func TestStatusRootSSHErrorDropsSupervisorHint(t *testing.T) {
+	d, p, _, r, _, _ := newDeps(t)
+	withBox(p)
+	withSecrets(t, &d, "agents.env", "K=v\n")
+	r.err = mkExit(255)
+	rep, _ := Status(context.Background(), d)
+	if strings.Contains(rep.Err, "supervisor not installed") || !strings.Contains(rep.Err, "acl-snippet") {
+		t.Fatalf("Err = %q", rep.Err)
+	}
+	r.err = mkExit(1)
+	rep, _ = Status(context.Background(), d)
+	if !strings.Contains(rep.Err, "supervisor not installed") {
+		t.Fatalf("Err = %q", rep.Err)
+	}
+}
+
+func TestEnsureUnlockedRootSSHFailureDoesNotPush(t *testing.T) {
+	d, _, _, r, _, _ := newDeps(t)
+	withSecrets(t, &d, "agents.env", "K=v\n")
+	r.err = mkExit(255)
+	if err := EnsureUnlocked(context.Background(), d); !errors.Is(err, ErrRootSSH) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(r.inputs) != 0 {
+		t.Fatalf("pushed secrets: %d", len(r.inputs))
 	}
 }

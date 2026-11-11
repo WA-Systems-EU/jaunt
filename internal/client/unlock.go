@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -32,8 +33,12 @@ func PushSecrets(ctx context.Context, d Deps) error {
 // EnsureUnlocked pushes the secrets only when the box does not hold them
 // (it was just created or rebooted).
 func EnsureUnlocked(ctx context.Context, d Deps) error {
-	if _, err := rootRun(ctx, d, "test", "-e", secretsMarker); err == nil {
+	_, err := rootRun(ctx, d, "test", "-e", secretsMarker)
+	if err == nil {
 		return nil
+	}
+	if errors.Is(err, ErrRootSSH) {
+		return err // only a remote exit status means "locked"
 	}
 	return PushSecrets(ctx, d)
 }

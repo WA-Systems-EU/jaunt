@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"time"
@@ -161,7 +162,7 @@ func (r *fakeRemote) Run(_ context.Context, host string, args ...string) ([]byte
 		*r.seq = append(*r.seq, "run:"+strings.Join(args, " "))
 	}
 	if r.locked && strings.Contains(strings.Join(args, " "), "/run/jauntbox/secrets/.loaded") {
-		return nil, errors.New("exit 1")
+		return nil, mkExit(1)
 	}
 	return r.out, r.err
 }
@@ -203,4 +204,14 @@ func (f *fakeProv) WaitVolumeDetached(ctx context.Context, id int64) error {
 	}
 	f.volAttached = false
 	return nil
+}
+
+// mkExit returns a real *exec.ExitError (wrapped like the ssh runner does).
+func mkExit(code int) error {
+	err := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		panic(fmt.Sprintf("no exit error: %v", err))
+	}
+	return fmt.Errorf("ssh x: %w: out", ee)
 }

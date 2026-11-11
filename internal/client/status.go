@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 )
@@ -43,7 +44,11 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	tryUnlock(ctx, d)
 	out, err := rootRun(ctx, d, "jauntctl", "box-status", "--json")
 	if err != nil {
-		rep.Err = "box-status failed (supervisor not installed yet?): " + err.Error()
+		if errors.Is(err, ErrRootSSH) {
+			rep.Err = err.Error()
+		} else {
+			rep.Err = "box-status failed (supervisor not installed yet?): " + err.Error()
+		}
 		return rep, nil
 	}
 	if json.Valid(out) {
