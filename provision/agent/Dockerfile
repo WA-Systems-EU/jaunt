@@ -1,8 +1,10 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive DISABLE_AUTOUPDATER=1
+# names for the run's arbitrary uid; jaunt-agent-init writes these files
+ENV LD_PRELOAD=libnss_wrapper.so NSS_WRAPPER_PASSWD=/tmp/jauntbox-passwd NSS_WRAPPER_GROUP=/tmp/jauntbox-group
 ENV MISE_TRUSTED_CONFIG_PATHS=/work PATH=/home/agent/.local/share/mise/shims:$PATH
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates curl jq ripgrep less vim-tiny build-essential tini \
+ && apt-get install -y --no-install-recommends git ca-certificates curl jq ripgrep less vim-tiny build-essential tini libnss-wrapper \
  && rm -rf /var/lib/apt/lists/*
 # mise, installed system-wide
 RUN curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh

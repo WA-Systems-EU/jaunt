@@ -197,6 +197,31 @@ grep -q "overwritten\|local changes" "$JAUNT_LOG_DIR/init.log" || bad "init-refu
 JAUNT_WORK="$tmp/notgit" ini "$tmp/true"; rc=$?
 [ "$rc" -ne 0 ] || bad "init-notgit rc"
 
+# names for the run's uid (nss_wrapper files)
+uid=$(id -u); gid=$(id -g)
+printf 'root:x:0:0:root:/root:/bin/sh\n' >"$tmp/etc-passwd"
+printf 'root:x:0:\n' >"$tmp/etc-group"
+export JAUNT_ETC_PASSWD="$tmp/etc-passwd" JAUNT_ETC_GROUP="$tmp/etc-group"
+mk names
+HOME=/home/agent ini "$tmp/true" || bad "names-rc"
+eq names-passwd "$(cat "$JAUNT_TMP/jauntbox-passwd")" "$(printf 'root:x:0:0:root:/root:/bin/sh\nagent:x:%s:%s:jauntbox agent:/home/agent:/bin/bash' "$uid" "$gid")"
+eq names-group "$(cat "$JAUNT_TMP/jauntbox-group")" "$(printf 'root:x:0:\nagent:x:%s:' "$gid")"
+HOME=/home/agent ini "$tmp/true" || bad "names-rc2"
+eq names-idempotent "$(grep -c '^agent:' "$JAUNT_TMP/jauntbox-passwd")" 1
+eq names-idempotent-group "$(grep -c '^agent:' "$JAUNT_TMP/jauntbox-group")" 1
+eq names-mode "$(stat -c %a "$JAUNT_TMP/jauntbox-passwd")" 644
+mk names2
+printf 'root:x:0:0:root:/root:/bin/sh\nbox:x:%s:%s::/home/box:/bin/sh\n' "$uid" "$gid" >"$tmp/etc-passwd2"
+printf 'root:x:0:\nboxg:x:%s:\n' "$gid" >"$tmp/etc-group2"
+JAUNT_ETC_PASSWD="$tmp/etc-passwd2" JAUNT_ETC_GROUP="$tmp/etc-group2" ini "$tmp/true" || bad "names2-rc"
+cmp -s "$tmp/etc-passwd2" "$JAUNT_TMP/jauntbox-passwd" || bad "names-uid-present added a line"
+cmp -s "$tmp/etc-group2" "$JAUNT_TMP/jauntbox-group" || bad "names-gid-present added a line"
+mk names3
+JAUNT_WORK="$tmp/notgit" ini "$tmp/true"; rc=$?
+[ "$rc" -ne 0 ] || bad "names3-notgit rc"
+[ -f "$JAUNT_TMP/jauntbox-passwd" ] && [ -f "$JAUNT_TMP/jauntbox-group" ] || bad "names-missing after failed init"
+unset JAUNT_ETC_PASSWD JAUNT_ETC_GROUP
+
 # --- checkout guard: read-only config, commondir stand-in for the RO mount
 mk guard
 echo . >"$JAUNT_WORK/.git/commondir"

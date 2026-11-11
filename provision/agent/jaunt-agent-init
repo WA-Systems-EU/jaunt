@@ -7,6 +7,19 @@ mkdir -p "$logd" 2>/dev/null
 log=$logd/init.log
 say() { echo "jaunt-agent-init: $*" >>"$log"; }
 
+# Give the run's uid/gid names (nss_wrapper, preloaded via the image ENV). /etc/passwd stays read-only.
+# Best effort: a failure here never stops init.
+uid=$(id -u); gid=$(id -g)
+names() { # names <src> <dest> <field-3 id> <line to add if absent>
+	n_t=$(mktemp "$tmpd/.jauntbox-names.XXXXXX") || return 1
+	{
+		cat "$1" 2>/dev/null
+		if ! awk -F: -v id="$3" '$3 == id { f = 1 } END { exit !f }' "$1" 2>/dev/null; then echo "$4"; fi
+	} >"$n_t" && chmod 644 "$n_t" && mv -f "$n_t" "$2" || { rm -f "$n_t"; return 1; }
+}
+names "${JAUNT_ETC_PASSWD:-/etc/passwd}" "$tmpd/jauntbox-passwd" "$uid" "agent:x:$uid:$gid:jauntbox agent:${HOME:-/home/agent}:/bin/bash" || say "could not write $tmpd/jauntbox-passwd"
+names "${JAUNT_ETC_GROUP:-/etc/group}" "$tmpd/jauntbox-group" "$gid" "agent:x:$gid:" || say "could not write $tmpd/jauntbox-group"
+
 git -C "$work" rev-parse --git-dir >>"$log" 2>&1 || { say "$work is not a git checkout"; exit 1; }
 
 if [ -n "${JAUNT_SWITCH_TO:-}" ]; then
