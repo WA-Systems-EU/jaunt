@@ -212,8 +212,9 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
      Docker can only publish ports 1024 and up. Your laptop reaches the same port over
      the tailnet as before.
   3. List the ports. In the config, `agent.host_ports: [5432, 6379]` applies to every
-     run. It takes effect on the next box (`jauntbox down`, then `jauntbox up`), or edit
-     `box.json` on the box and run `sudo jauntctl agent-net`. For one run only, use
+     run. It takes effect on the next box (`jauntbox down`, then `jauntbox up`), or, on the
+     running box, edit `agent.host_ports` in `/etc/jauntbox/box.json` (with sudo) and run
+     `sudo jauntctl agent-net`. For one run only, use
      `jauntctl agent --host-port 5432` (repeat the flag, or write `--host-port 5432,6379`).
      That port closes when the run ends.
   4. In the app's config inside the container, use the host name `host.jauntbox`, for
