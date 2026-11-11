@@ -88,6 +88,7 @@ func (s *Supervisor) evaluate(ctx context.Context, now time.Time, st State) (_ S
 	}
 	idle := HumanIdle(s.PtsDir, now)
 	agents, err := s.Agents.Count(ctx)
+	unknown := false
 	if err != nil {
 		// An active human keeps the box regardless of agents, so a broken or
 		// hung docker must not starve the heartbeat and trip the safety net
@@ -95,7 +96,7 @@ func (s *Supervisor) evaluate(ctx context.Context, now time.Time, st State) (_ S
 		if idle > time.Duration(s.Info.Limits.HumanActiveWindow) {
 			return st, lifecycle.Verdict{}, nil, fmt.Errorf("count agents: %w", err)
 		}
-		agents, warn = 0, fmt.Errorf("count agents: %w", err)
+		agents, unknown, warn = 0, true, fmt.Errorf("count agents: %w", err)
 	}
 	if idle <= time.Duration(s.Info.Limits.HumanActiveWindow) {
 		// Measure idleness from the real last input, not from this pass.
@@ -109,7 +110,7 @@ func (s *Supervisor) evaluate(ctx context.Context, now time.Time, st State) (_ S
 	_, statErr := os.Stat(s.Paths.StopRequest)
 	v := lifecycle.Decide(lifecycle.Inputs{
 		Now: now, UpAt: s.Info.UpAt, LastActive: st.LastActive,
-		HumanIdle: idle, AgentsRunning: agents, NightUntil: night,
+		HumanIdle: idle, AgentsRunning: agents, AgentsUnknown: unknown, NightUntil: night,
 		StopRequested:   statErr == nil,
 		WrapUpStartedAt: st.WrapUpStartedAt,
 		Limits:          s.Info.Limits, Loc: loc,

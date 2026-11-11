@@ -129,3 +129,20 @@ func TestInNightHours(t *testing.T) {
 		t.Error("unparsable night_hours must be not-night")
 	}
 }
+
+func TestStopWithUnknownAgentsWrapsUp(t *testing.T) {
+	in := base()
+	in.Now, in.UpAt, in.LastActive = at(1, 12, 0), at(1, 10, 0), at(1, 11, 59)
+	in.StopRequested, in.AgentsRunning, in.AgentsUnknown = true, 0, true
+	if v := Decide(in); v != (Verdict{StartWrapUp, "stop-requested"}) {
+		t.Fatalf("start: %+v", v)
+	}
+	in.WrapUpStartedAt = in.Now.Add(-time.Minute)
+	if v := Decide(in); v != (Verdict{Keep, "wrapup-in-progress"}) {
+		t.Fatalf("in progress: %+v", v)
+	}
+	in.WrapUpStartedAt = in.Now.Add(-time.Duration(in.Limits.WrapUpGrace))
+	if v := Decide(in); v != (Verdict{Delete, "wrapup-grace-elapsed"}) {
+		t.Fatalf("elapsed: %+v", v)
+	}
+}

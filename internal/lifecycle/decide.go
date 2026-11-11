@@ -24,6 +24,7 @@ type Inputs struct {
 	Now, UpAt, LastActive time.Time
 	HumanIdle             time.Duration // smallest idle across sessions; very large if none
 	AgentsRunning         int
+	AgentsUnknown         bool      // the count failed: agents may be running
 	NightUntil            time.Time // zero = no night session
 	StopRequested         bool
 	WrapUpStartedAt       time.Time // zero = not wrapping up
@@ -67,13 +68,14 @@ func Decide(in Inputs) Verdict {
 }
 
 func stop(in Inputs, reason string) Verdict {
+	maybe := in.AgentsRunning > 0 || in.AgentsUnknown
 	if in.WrapUpStartedAt.IsZero() {
-		if in.AgentsRunning == 0 {
+		if !maybe {
 			return Verdict{Delete, reason}
 		}
 		return Verdict{StartWrapUp, reason}
 	}
-	if in.AgentsRunning == 0 {
+	if !maybe {
 		return Verdict{Delete, "no-agents"}
 	}
 	if !in.Now.Before(in.WrapUpStartedAt.Add(time.Duration(in.Limits.WrapUpGrace))) {

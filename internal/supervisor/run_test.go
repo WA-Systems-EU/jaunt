@@ -488,3 +488,20 @@ func TestBoxDeletedWrittenBeforeSyncAndDelete(t *testing.T) {
 		t.Fatalf("kinds %v", e.sink.kinds)
 	}
 }
+
+func TestDockerErrorWithActiveHumanAndStopStartsWrapUp(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	e.s.Agents = failAgents{}
+	e.pts("0", 2*time.Minute)
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	v := e.run(t)
+	if v.Action != lifecycle.StartWrapUp || v.Reason != "stop-requested" {
+		t.Fatalf("got %+v", v)
+	}
+	if !exists(e.s.Paths.WrapUpFlag) {
+		t.Error("wrapup flag missing")
+	}
+	if e.deletes != 0 {
+		t.Errorf("deleted %d", e.deletes)
+	}
+}
