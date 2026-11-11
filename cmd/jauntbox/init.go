@@ -89,8 +89,9 @@ func initCmd(cfgPath *string) *cobra.Command {
 			opts := []client.InitOption{client.WithOutput(cmd.OutOrStdout()), client.WithSSHConfig(filepath.Join(home, ".ssh", "config"))}
 			// The form needs a terminal on both sides; anything else gets the
 			// line-by-line wizard.
-			if ui.Live(os.Stdout, plainFlag(cmd), os.Getenv, isTerminal) && isTerminal(int(os.Stdin.Fd())) {
-				opts = append(opts, client.WithSteps(newSteps(cmd, false)))
+			// huh draws on stderr, like the step stream.
+			if ui.Live(os.Stderr, plainFlag(cmd), os.Getenv, isTerminal) && isTerminal(int(os.Stdin.Fd())) {
+				opts = append(opts, client.WithStepsFunc(func() ui.Steps { return newSteps(cmd, plainFlag(cmd)) }))
 				_, err := client.InitForm(cmd.Context(), det, lister, finder, meshCheck, *cfgPath, opts...)
 				return err
 			}

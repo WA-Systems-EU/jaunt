@@ -72,3 +72,20 @@ func TestFormTypeOptions(t *testing.T) {
 		t.Errorf("locations %v", locs)
 	}
 }
+
+func TestLocationsWithProfiles(t *testing.T) {
+	types := fixtureTypes()
+	for i := range types {
+		types[i].Locations = []string{"fsn1", "nbg1"}
+	}
+	// ccx43 (the only 64 GB type) is not sold in nbg1
+	for i := range types {
+		if types[i].Name == "ccx43" {
+			types[i].Locations = []string{"fsn1"}
+		}
+	}
+	types = append(types, provider.ServerType{Name: "cx22b", Cores: 2, MemoryGB: 4, Arch: "amd64", Locations: []string{"hel1"}, PriceMonthly: map[string]float64{"hel1": 4}})
+	if got := locationsWithProfiles(types); !reflect.DeepEqual(got, []string{"fsn1"}) {
+		t.Fatalf("got %v", got)
+	}
+}

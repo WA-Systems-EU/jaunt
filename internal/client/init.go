@@ -121,6 +121,7 @@ type initOpts struct {
 	out       io.Writer
 	sshConfig string
 	steps     ui.Steps
+	newSteps  func() ui.Steps
 }
 
 // WithSSHConfig makes Init offer to append the host-key block to this ssh
@@ -133,6 +134,22 @@ func WithOutput(w io.Writer) InitOption { return func(o *initOpts) { o.out = w }
 // WithSteps sets where ApplyInit reports its writes (default: plain lines on
 // the output writer).
 func WithSteps(s ui.Steps) InitOption { return func(o *initOpts) { o.steps = s } }
+
+// WithStepsFunc builds the Steps lazily: ApplyInit calls it only when it starts
+// writing, and InitForm uses it for its short checks, so no renderer draws
+// while a form is on screen.
+func WithStepsFunc(f func() ui.Steps) InitOption { return func(o *initOpts) { o.newSteps = f } }
+
+// makeSteps returns the configured Steps, else plain lines on the output.
+func (o initOpts) makeSteps() ui.Steps {
+	switch {
+	case o.steps != nil:
+		return o.steps
+	case o.newSteps != nil:
+		return o.newSteps()
+	}
+	return ui.NewPlain(o.out, time.Now)
+}
 
 func newInitOpts(opts []InitOption) initOpts {
 	o := initOpts{out: os.Stdout}
@@ -277,10 +294,7 @@ func ApplyInit(path string, a InitAnswers, opts ...InitOption) (config.Config, e
 	if err != nil {
 		return cfg, err
 	}
-	steps := o.steps
-	if steps == nil {
-		steps = ui.NewPlain(o.out, time.Now)
-	}
+	steps := o.makeSteps()
 	defer steps.Close()
 	fail := func(s ui.Step, err error) (config.Config, error) {
 		s.Fail(err, "")
@@ -326,14 +340,15 @@ func ApplyInit(path string, a InitAnswers, opts ...InitOption) (config.Config, e
 				return fail(st, err)
 			}
 			switch {
-			case warn != "":
-				st.Warn(warn)
-				st.Done()
 			case added:
 				st.Detail(fmt.Sprintf("added the jauntbox-%s block to %s", cfg.User, o.sshConfig))
 				st.Done()
 			default:
-				st.Skip(fmt.Sprintf("%s already has a Host jauntbox-%s entry; left unchanged", o.sshConfig, cfg.User))
+				if warn != "" {
+					steps.Note("warning: " + warn)
+				}
+				steps.Note(fmt.Sprintf("%s already has a Host jauntbox-%s entry.", o.sshConfig, cfg.User))
+				st.Skip("left unchanged")
 			}
 		}
 	}

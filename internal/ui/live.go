@@ -133,6 +133,9 @@ func (l *live) blockLine(it *item) string {
 // redrawLocked erases the previous block, prints the finished lines at the
 // head of the list for good and draws the rest. The caller holds l.mu.
 func (l *live) redrawLocked() {
+	if l.drawn == 0 && len(l.items) == 0 {
+		return // nothing on screen and nothing to draw: do not touch the terminal
+	}
 	var b strings.Builder
 	if l.drawn > 0 {
 		fmt.Fprintf(&b, "\x1b[%dA", l.drawn)

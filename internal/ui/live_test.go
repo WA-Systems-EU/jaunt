@@ -388,3 +388,15 @@ func TestLiveHostileInputSanitised(t *testing.T) {
 		t.Errorf("foreign escape in %q", rest)
 	}
 }
+
+func TestLiveIdleWritesNothing(t *testing.T) {
+	buf := &lockedBuf{}
+	s, tick, _ := newTestLive(buf)
+	for range 3 {
+		tick <- time.Now()
+	}
+	s.Close()
+	if got := buf.String(); got != "" {
+		t.Fatalf("idle live renderer wrote %q", got)
+	}
+}

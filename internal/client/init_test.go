@@ -11,6 +11,7 @@ import (
 
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
 )
 
 func fixtureTypes() []provider.ServerType {
@@ -354,5 +355,19 @@ func TestApplyInitRespectsChoices(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "SECRET") && !strings.Contains(out.String(), "export HCLOUD_TOKEN") {
 		t.Error("tokens leaked outside the export lines")
+	}
+}
+
+func TestApplyInitExistingSSHHostIsSkipped(t *testing.T) {
+	dir := t.TempDir()
+	sshPath := filepath.Join(dir, "ssh_config")
+	must(t, os.WriteFile(sshPath, []byte("Host jauntbox-thomas\n"), 0o600))
+	rec := &ui.Recorder{}
+	if _, err := ApplyInit(filepath.Join(dir, "config.yaml"), applyAnswers(true, true), WithOutput(&bytes.Buffer{}), WithSSHConfig(sshPath), WithSteps(rec)); err != nil {
+		t.Fatal(err)
+	}
+	log := strings.Join(rec.Events, "\n")
+	if !strings.Contains(log, "skip Add ssh config: left unchanged") || strings.Contains(log, "done Add ssh config") {
+		t.Errorf("events:\n%s", log)
 	}
 }

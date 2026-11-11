@@ -23,7 +23,15 @@ func zoneDirs() []string {
 // found; callers then fall back to free text.
 func ZoneNames() []string {
 	valid := func(name string) bool { _, err := time.LoadLocation(name); return err == nil }
-	for _, d := range zoneDirs() {
+	return zoneNamesFromDirs(zoneDirs(), valid)
+}
+
+// zoneNamesFromDirs returns the names from the first directory that has any.
+func zoneNamesFromDirs(dirs []string, valid func(string) bool) []string {
+	for _, d := range dirs {
+		if r, err := filepath.EvalSymlinks(d); err == nil {
+			d = r // WalkDir does not follow a symlinked root
+		}
 		if z := zoneNamesIn(d, valid); len(z) > 0 {
 			return z
 		}

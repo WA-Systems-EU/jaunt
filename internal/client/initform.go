@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/huh"
 
@@ -66,6 +65,18 @@ func typeLocations(types []provider.ServerType) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// locationsWithProfiles keeps the locations where PickProfiles can fill
+// small, big and huge, so choosing one never ends the form.
+func locationsWithProfiles(types []provider.ServerType) []string {
+	var out []string
+	for _, l := range typeLocations(types) {
+		if _, err := PickProfiles(types, l); err == nil {
+			out = append(out, l)
+		}
+	}
 	return out
 }
 
@@ -144,14 +155,14 @@ func shortKey(k string) string {
 	return f[0] + " …"
 }
 
-// checkWithSpinner runs f under a one-line live spinner on stderr.
-func checkWithSpinner(label string, f func() error) error {
-	steps := ui.NewLive(os.Stderr, time.Now, nil)
+// checkWithSpinner runs f as one step of a short-lived Steps (a spinner on a terminal).
+func checkWithSpinner(newSteps func() ui.Steps, label string, f func() error) error {
+	steps := newSteps()
 	defer steps.Close()
 	st := steps.Start(label)
 	err := f()
 	if err != nil {
-		st.Fail(errors.New("rejected"), "")
+		st.Fail(err, "")
 		return err
 	}
 	st.Done()
@@ -171,7 +182,7 @@ func run(ctx context.Context, f *huh.Form) error {
 }
 
 // askToken asks for a token in a hidden field until check accepts it.
-func askToken(ctx context.Context, title, what string, check func(string) error) (string, error) {
+func askToken(ctx context.Context, newSteps func() ui.Steps, title, what string, check func(string) error) (string, error) {
 	desc := ""
 	for {
 		var tok string
@@ -181,11 +192,11 @@ func askToken(ctx context.Context, title, what string, check func(string) error)
 			return "", err
 		}
 		tok = strings.TrimSpace(tok)
-		err := checkWithSpinner("Check "+what, func() error { return check(tok) })
+		err := checkWithSpinner(newSteps, "Check "+what, func() error { return check(tok) })
 		if err == nil {
 			return tok, nil
 		}
-		desc = fmt.Sprintf("%s rejected: %v. Paste it again.", what, err)
+		desc = fmt.Sprintf("Could not verify the %s: %v. Paste it again.", what, err)
 	}
 }
 
@@ -287,7 +298,7 @@ func InitForm(ctx context.Context, det Detected, lister func(token string) provi
 	// Hetzner token, checked by listing the server types
 	var types []provider.ServerType
 	var err error
-	if a.HetznerToken, err = askToken(ctx, "Hetzner Cloud API token", "Hetzner token", func(tok string) error {
+	if a.HetznerToken, err = askToken(ctx, o.makeSteps, "Hetzner Cloud API token", "Hetzner token", func(tok string) error {
 		var e error
 		types, e = lister(tok).ServerTypes(ctx)
 		return e
@@ -296,16 +307,16 @@ func InitForm(ctx context.Context, det Detected, lister func(token string) provi
 	}
 
 	// location
-	locs := typeLocations(types)
+	locs := locationsWithProfiles(types)
 	if len(locs) == 0 {
-		return config.Config{}, errors.New("Hetzner offers no server types for this project")
+		return config.Config{}, errors.New("no Hetzner location offers amd64 server types with 16, 32 and 64 GB")
 	}
 	var volLoc string
 	var volFound bool
 	if finder != nil {
 		if vf := finder(a.HetznerToken); vf != nil {
 			// A failed lookup only loses the default; the volume check at `up` still applies.
-			_ = checkWithSpinner("Look for your home volume", func() error {
+			_ = checkWithSpinner(o.makeSteps, "Look for your home volume", func() error {
 				var e error
 				volLoc, volFound, e = vf.FindVolume(ctx, "jauntbox-"+a.User+"-home")
 				return e
@@ -347,7 +358,7 @@ func InitForm(ctx context.Context, det Detected, lister func(token string) provi
 	}
 
 	// Tailscale key
-	if a.TailscaleKey, err = askToken(ctx, "Tailscale API key", "Tailscale API key", meshCheck); err != nil {
+	if a.TailscaleKey, err = askToken(ctx, o.makeSteps, "Tailscale API key", "Tailscale API key", meshCheck); err != nil {
 		return config.Config{}, err
 	}
 
