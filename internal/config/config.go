@@ -36,6 +36,26 @@ type Limits struct {
 // Agent configures agent runs on the box.
 type Agent struct {
 	MaxDuration Duration `yaml:"max_duration" json:"max_duration"`
+	// HostPorts are TCP ports on the box that agents may reach (host.jauntbox:<port>).
+	HostPorts []int `yaml:"host_ports" json:"host_ports,omitempty"`
+}
+
+// CheckHostPorts validates a list of host ports an agent may reach; field
+// names the source (a config key or flag) in errors.
+func CheckHostPorts(field string, ports []int) error {
+	seen := map[int]bool{}
+	for _, p := range ports {
+		switch {
+		case p < 1 || p > 65535:
+			return fmt.Errorf("%s: port %d is out of range (want 1-65535)", field, p)
+		case p == 22:
+			return fmt.Errorf("%s: port 22 is the box's SSH port; agents may not reach it", field)
+		case seen[p]:
+			return fmt.Errorf("%s: port %d is listed twice", field, p)
+		}
+		seen[p] = true
+	}
+	return nil
 }
 
 // GitHub configures the forge integration.
@@ -157,6 +177,9 @@ func (c Config) Validate() error {
 	}
 	if d := time.Duration(c.Agent.MaxDuration); d <= 0 || d > 24*time.Hour {
 		return fmt.Errorf("agent.max_duration must be greater than 0 and at most 24h (got %s)", d)
+	}
+	if err := CheckHostPorts("agent.host_ports", c.Agent.HostPorts); err != nil {
+		return err
 	}
 	for _, p := range c.GitHub.ProtectedPatterns {
 		if p == "" {

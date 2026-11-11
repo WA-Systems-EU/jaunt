@@ -28,6 +28,7 @@ limits:
 
 agent:
   max_duration: 8h                 # per-run cap on an agent container; > 0, <= 24h
+  # host_ports: [5432, 6379]   # TCP ports on the box your agents may reach (host.jauntbox:<port>)
 
 hetzner_token_env: HCLOUD_TOKEN
 tailscale_api_key_env: TAILSCALE_API_KEY

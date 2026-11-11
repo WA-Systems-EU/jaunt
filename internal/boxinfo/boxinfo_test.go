@@ -1,7 +1,9 @@
 package boxinfo
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,5 +42,28 @@ func TestBoxInfoCarriesAgent(t *testing.T) {
 	}
 	if out.Agent.MaxDuration != config.Duration(6*time.Hour) {
 		t.Fatalf("got %v", time.Duration(out.Agent.MaxDuration))
+	}
+}
+
+func TestBoxInfoCarriesHostPorts(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "box.json")
+	in := BoxInfo{User: "alice", Agent: config.Agent{MaxDuration: config.Duration(time.Hour), HostPorts: []int{5432, 6379}}}
+	if err := Write(p, in); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Read(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Agent.HostPorts) != 2 || out.Agent.HostPorts[0] != 5432 || out.Agent.HostPorts[1] != 6379 {
+		t.Fatalf("got %v", out.Agent.HostPorts)
+	}
+	p2 := filepath.Join(t.TempDir(), "box.json")
+	if err := Write(p2, BoxInfo{User: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(p2)
+	if strings.Contains(string(raw), "host_ports") {
+		t.Fatalf("empty list leaked: %s", raw)
 	}
 }

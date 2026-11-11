@@ -209,3 +209,54 @@ func TestAgentMaxDurationValidation(t *testing.T) {
 		t.Errorf("24h rejected: %v", err)
 	}
 }
+
+func TestAgentHostPortsDefaultEmpty(t *testing.T) {
+	if got := Default().Agent.HostPorts; len(got) != 0 {
+		t.Fatalf("default host_ports = %v", got)
+	}
+}
+
+func TestAgentHostPortsValidation(t *testing.T) {
+	cases := []struct {
+		ports []int
+		want  string
+	}{
+		{[]int{5432, 6379}, ""},
+		{[]int{1}, ""},
+		{[]int{22}, "agent.host_ports: port 22 is the box's SSH port; agents may not reach it"},
+		{[]int{0}, "agent.host_ports: port 0 is out of range (want 1-65535)"},
+		{[]int{65536}, "agent.host_ports: port 65536 is out of range (want 1-65535)"},
+		{[]int{5432, 5432}, "agent.host_ports: port 5432 is listed twice"},
+	}
+	for _, tc := range cases {
+		c := Default()
+		c.User, c.SSHPublicKey, c.Timezone = "thomas", "k", "Europe/Paris"
+		c.Agent.HostPorts = tc.ports
+		err := c.Validate()
+		if tc.want == "" {
+			if err != nil {
+				t.Errorf("%v: unexpected %v", tc.ports, err)
+			}
+			continue
+		}
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("%v: err = %v, want %q", tc.ports, err, tc.want)
+		}
+	}
+}
+
+func TestCheckHostPortsFieldName(t *testing.T) {
+	for _, ports := range [][]int{{70000}, {22}} {
+		err := CheckHostPorts("--host-port", ports)
+		if err == nil || !strings.HasPrefix(err.Error(), "--host-port: ") {
+			t.Errorf("%v: err = %v", ports, err)
+		}
+	}
+}
+
+func TestLoadHostPortsYAML(t *testing.T) {
+	c, err := Load(writeCfg(t, minimal+"agent:\n  host_ports: [5432]\n"))
+	if err != nil || len(c.Agent.HostPorts) != 1 || c.Agent.HostPorts[0] != 5432 {
+		t.Fatalf("got %v, %v", c.Agent.HostPorts, err)
+	}
+}
