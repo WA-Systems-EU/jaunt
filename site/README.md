@@ -28,4 +28,4 @@ python3 -m http.server -d site 8000   # then open http://localhost:8000
 - Status labels (Done, Next, Later) on the roadmap page and the roadmap teaser on the
   landing page must match the plans in `docs/superpowers/plans/` and the results in
   `docs/jauntbox/SMOKE.md`. Update them when a plan lands.
-- Deploying it (the earlier site spec named Odysseus) is not set up yet.
+- Deployed to https://jauntbox.eu by GitHub Pages (`.github/workflows/pages.yml`) on every push to `trunk` that touches `site/`; `site/CNAME` holds the domain.
