@@ -331,8 +331,12 @@ func boxCmds() []*cobra.Command {
 }
 
 // newClientCmd is the jauntbox (laptop) root.
-func newClientCmd() *cobra.Command {
+func newClientCmd() *cobra.Command { return newClientCmdWith(loadDeps) }
+
+// newClientCmdWith is newClientCmd with the dependency loader injected.
+func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 	var cfgPath string
+	var plain bool
 	var nested bool
 	defaultCfg, defaultCfgErr := config.DefaultPath()
 	root := &cobra.Command{
@@ -357,62 +361,39 @@ func newClientCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			d, err := loadDeps(cfgPath)
+			d, err := load(cfgPath)
 			if err != nil {
 				return err
+			}
+			steps := track(stepsFor(cmd, plain))
+			defer steps.Close()
+			d.Steps = steps
+			startedAt := d.Now()
+			steps.Header("jauntbox", upContext(d.Cfg, d.Cfg.DefaultProfile))
+			steps.Plan("Policy and limits", "SSH key, firewall, volume")
+			d.AfterUp = func(created bool) {
+				if created {
+					steps.Plan("Joined the tailnet", "Provisioning", "Install supervisor", "Unlock secrets", "Box provisioned")
+				} else {
+					steps.Plan("Box online", "Box provisioned")
+				}
+			}
+			// Nothing may print under a live block: finish the stream before
+			// Attach writes its own warnings and reconnect notes.
+			d.BeforeAttach = func(created bool) {
+				if created {
+					finishUp(steps, d.Cfg, startedAt, d.Now())
+				}
+				steps.Close()
 			}
 			return client.Attach(ctx, d, session.Herdr{}, nested, runInherited, exec.LookPath)
 		},
 	}
 	root.Flags().BoolVar(&nested, "nested", false, "attach even from inside a local herdr pane (herdr inside herdr)")
 	root.PersistentFlags().StringVar(&cfgPath, "config", defaultCfg, "path to the jauntbox config file")
+	root.PersistentFlags().BoolVar(&plain, "plain", false, "no colour or animation: print one line per step")
 
-	var wait bool
-	up := &cobra.Command{
-		Use:   "up [profile]",
-		Short: "Create the box (or report the existing one) and install the supervisor",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			d, err := loadDeps(cfgPath)
-			if err != nil {
-				return err
-			}
-			profile := d.Cfg.DefaultProfile
-			if len(args) == 1 {
-				profile = args[0]
-			}
-			if wait {
-				d = client.WithoutSpawn(d)
-			}
-			res, err := client.Up(ctx, d, profile)
-			if err != nil && !res.Created {
-				return err
-			}
-			if !res.Created {
-				fmt.Fprintf(cmd.OutOrStdout(), "box %s already exists (%s)\n", res.Box.Name, res.Box.Status)
-				if wait {
-					fmt.Fprintln(cmd.OutOrStdout(), "making sure the supervisor is installed...")
-				}
-				return client.InstallSupervisor(ctx, d, wait)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "created %s (%s)\n", res.Box.Name, profile)
-			if err != nil { // the box exists; report the follow-up problem as a warning
-				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", err)
-				if !wait {
-					return nil
-				}
-			}
-			if wait {
-				fmt.Fprintln(cmd.OutOrStdout(), "waiting for the box to join the tailnet...")
-				return client.PushBinary(ctx, d, client.DefaultPushWait)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "installing the supervisor in the background; log: %s\n", filepath.Join(stateDir(), "push.log"))
-			return nil
-		},
-	}
-	up.Flags().BoolVar(&wait, "wait", false, "install the supervisor in the foreground and wait for it")
+	up := upCmd(&cfgPath, load)
 
 	push := &cobra.Command{
 		Use:    "internal-push",
@@ -449,7 +430,7 @@ func newClientCmd() *cobra.Command {
 		c.Annotations = map[string]string{"box": "1"}
 		root.AddCommand(c)
 	}
-	root.AddCommand(clientOpsCmds(&cfgPath, loadDeps)...)
+	root.AddCommand(clientOpsCmds(&cfgPath, load)...)
 	// Agents start on the box: point a laptop `jauntbox agent` there.
 	root.AddCommand(&cobra.Command{
 		Use:                "agent",

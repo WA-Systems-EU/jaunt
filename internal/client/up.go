@@ -44,6 +44,14 @@ type Deps struct {
 	HetznerToken string
 	// Steps reports progress; nil means silent (ui.Nop).
 	Steps ui.Steps
+	// AfterUp, when set, is called by Attach once Up has returned a box, so the
+	// caller can plan the steps that follow (created: this run created it).
+	AfterUp func(created bool)
+	// BeforeAttach, when set, is called by Attach once the box is ready and
+	// before anything else is printed (workspace warnings, reconnect notes), so
+	// the caller can finish the step stream. created tells whether this run
+	// created the box.
+	BeforeAttach func(created bool)
 }
 
 // steps returns the progress reporter, never nil.

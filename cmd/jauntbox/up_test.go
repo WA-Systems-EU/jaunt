@@ -1,0 +1,472 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/WA-Systems-EU/jaunt/internal/client"
+	"github.com/WA-Systems-EU/jaunt/internal/config"
+	"github.com/WA-Systems-EU/jaunt/internal/events"
+	"github.com/WA-Systems-EU/jaunt/internal/policy"
+	"github.com/WA-Systems-EU/jaunt/internal/provider"
+	"github.com/WA-Systems-EU/jaunt/internal/secrets"
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
+)
+
+// --- fakes -----------------------------------------------------------------
+
+type tLog struct{ lines []string }
+
+func (l *tLog) add(s string) { l.lines = append(l.lines, s) }
+func (l *tLog) count(s string) int {
+	n := 0
+	for _, x := range l.lines {
+		if x == s {
+			n++
+		}
+	}
+	return n
+}
+func (l *tLog) index(s string) int {
+	for i, x := range l.lines {
+		if x == s {
+			return i
+		}
+	}
+	return -1
+}
+
+type tProv struct {
+	box *provider.Box
+	log *tLog
+	// onPolicy-like hook: called at the start of EnsureSSHKey.
+	hook func()
+}
+
+func (p *tProv) EnsureSSHKey(context.Context, string, string, map[string]string) (int64, error) {
+	if p.hook != nil {
+		p.hook()
+	}
+	return 1, nil
+}
+func (p *tProv) EnsureFirewall(context.Context, string, map[string]string) (int64, error) {
+	return 2, nil
+}
+func (p *tProv) EnsureVolume(context.Context, string, int, string, map[string]string) (provider.Volume, error) {
+	return provider.Volume{ID: 3, Device: "/dev/x"}, nil
+}
+func (p *tProv) FindBox(context.Context, map[string]string) (*provider.Box, error) {
+	return p.box, nil
+}
+func (p *tProv) CreateBox(_ context.Context, s provider.CreateBoxSpec) (provider.Box, error) {
+	b := provider.Box{ID: 9, Name: s.Name, Status: "running", ServerType: s.ServerType, Created: time.Now()}
+	p.box = &b
+	return b, nil
+}
+func (p *tProv) DeleteBox(context.Context, int64) error { p.box = nil; return nil }
+func (p *tProv) WaitDeleted(context.Context, int64) error {
+	p.box = nil
+	return nil
+}
+func (p *tProv) WaitVolumeDetached(context.Context, int64) error { return nil }
+
+type tMesh struct {
+	online func() bool
+}
+
+func (m *tMesh) CreateAuthKey(context.Context, []string, time.Duration) (string, error) {
+	return "k", nil
+}
+func (m *tMesh) DeviceOnline(context.Context, string) (bool, error) {
+	if m.online != nil {
+		return m.online(), nil
+	}
+	return true, nil
+}
+
+type tRemote struct {
+	log        *tLog
+	failUnlock bool
+	boxStatus  string
+}
+
+func (r *tRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	j := strings.Join(args, " ")
+	if r.failUnlock && strings.Contains(j, ".loaded") {
+		return nil, errors.New("boom")
+	}
+	if strings.Contains(j, "box-status") {
+		return []byte(r.boxStatus), nil
+	}
+	return nil, nil
+}
+func (r *tRemote) RunInput(context.Context, string, []byte, ...string) ([]byte, error) {
+	return nil, nil
+}
+func (r *tRemote) Copy(context.Context, string, string, string) error { return nil }
+
+type tSink struct{}
+
+func (tSink) Emit(events.Event) error { return nil }
+
+type fx struct {
+	d     client.Deps
+	prov  *tProv
+	mesh  *tMesh
+	rem   *tRemote
+	log   *tLog
+	spawn []string
+}
+
+func newFx(t *testing.T) *fx {
+	t.Helper()
+	cfg := config.Default()
+	cfg.User = "alice"
+	cfg.Timezone = "Europe/Paris"
+	cfg.SSHPublicKey = "ssh-ed25519 AAAA"
+	f := &fx{log: &tLog{}}
+	f.prov, f.mesh = &tProv{log: f.log}, &tMesh{}
+	f.rem = &tRemote{log: f.log}
+	f.d = client.Deps{
+		Cfg: cfg, Policy: policy.Local{Cfg: cfg}, Prov: f.prov, Mesh: f.mesh,
+		Remote: f.rem, Root: f.rem, Events: tSink{},
+		Secrets: secrets.Store{Dir: t.TempDir()},
+		Now:     time.Now,
+		Spawn: func(args ...string) error {
+			f.log.add("spawn:" + strings.Join(args, " "))
+			f.spawn = append(f.spawn, strings.Join(args, " "))
+			return nil
+		},
+	}
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	return f
+}
+
+func (f *fx) load(string) (client.Deps, error) { return f.d, nil }
+
+// run executes root with args, returning stdout, stderr and the error.
+func (f *fx) run(ctx context.Context, args ...string) (string, string, error) {
+	root := newClientCmdWith(f.load)
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errb)
+	root.SetArgs(append([]string{"--config", "x.yaml"}, args...))
+	err := root.ExecuteContext(ctx)
+	return out.String(), errb.String(), err
+}
+
+func withRecorder(t *testing.T) *ui.Recorder {
+	t.Helper()
+	rec := &ui.Recorder{}
+	old := stepsFor
+	stepsFor = func(*cobra.Command, bool) ui.Steps { return rec }
+	t.Cleanup(func() { stepsFor = old })
+	return rec
+}
+
+// --- tests -----------------------------------------------------------------
+
+func TestUpPlainWhenNotTTY(t *testing.T) {
+	f := newFx(t)
+	_, stderr, err := f.run(context.Background(), "up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr, "\x1b") {
+		t.Fatalf("escape bytes in plain output:\n%q", stderr)
+	}
+	if !strings.Contains(stderr, "● Ready in") {
+		t.Fatalf("no Ready line:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "jauntbox · alice · small (cpx42) · fsn1") {
+		t.Fatalf("header:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "·  ") || strings.Contains(stderr, "\n· ") {
+		t.Fatalf("pending line left:\n%s", stderr)
+	}
+	if len(f.spawn) != 0 {
+		t.Fatalf("foreground up spawned %v", f.spawn)
+	}
+}
+
+func TestUpReadyWithWarnings(t *testing.T) {
+	f := newFx(t)
+	f.rem.failUnlock = true
+	_, stderr, err := f.run(context.Background(), "up")
+	if err != nil {
+		t.Fatalf("exit must be 0: %v", err)
+	}
+	if !strings.Contains(stderr, ", with warnings.") {
+		t.Fatalf("summary:\n%s", stderr)
+	}
+}
+
+func TestUpPlansOnlyWhatRuns(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		f := newFx(t)
+		if existing {
+			f.prov.box = &provider.Box{ID: 5, Name: "jauntbox-alice", Status: "running"}
+		}
+		rec := withRecorder(t)
+		if _, _, err := f.run(context.Background(), "up"); err != nil {
+			t.Fatal(err)
+		}
+		var planned []string // plan events; labels may contain commas
+		outcome := map[string]bool{}
+		for _, e := range rec.Events {
+			switch {
+			case strings.HasPrefix(e, "plan "):
+				planned = append(planned, strings.TrimPrefix(e, "plan "))
+			case strings.HasPrefix(e, "done "), strings.HasPrefix(e, "skip "), strings.HasPrefix(e, "fail "):
+				l := strings.SplitN(strings.SplitN(e, " ", 2)[1], ":", 2)[0]
+				outcome[l] = true
+			}
+		}
+		rest := strings.Join(planned, ",")
+		for l := range outcome {
+			rest = strings.Replace(rest, l, "", 1)
+		}
+		if strings.Trim(rest, ",") != "" {
+			t.Errorf("existing=%v: planned labels without an outcome: %q\n%v", existing, rest, rec.Events)
+		}
+		if len(planned) == 0 {
+			t.Errorf("existing=%v: nothing planned", existing)
+		}
+	}
+}
+
+func TestReadyLines(t *testing.T) {
+	cfg := config.Default()
+	cfg.User = "alice"
+	cfg.Timezone = "Europe/Paris"
+	cfg.Limits.MaxUptime = config.Duration(12 * time.Hour)
+	loc, _ := time.LoadLocation("Europe/Paris")
+	up := time.Date(2026, 6, 2, 9, 0, 0, 0, loc)
+	sum, lines := readyLinesAt(cfg, up, up.Add(41*time.Second), "alice")
+	if sum != "Ready in 41s." {
+		t.Fatalf("summary %q", sum)
+	}
+	want := []string{"Deletes itself at 19:00 (evening cutoff) or after 2h idle.", "ssh jauntbox-alice"}
+	if strings.Join(lines, "|") != strings.Join(want, "|") {
+		t.Fatalf("lines %q", lines)
+	}
+	if s, _ := readyLines(cfg, time.Now(), "alice"); !strings.HasPrefix(s, "Ready in ") {
+		t.Fatalf("readyLines %q", s)
+	}
+}
+
+func TestUpInterruptAfterCreateHandsOff(t *testing.T) {
+	f := newFx(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.mesh.online = func() bool {
+		f.log.add("poll")
+		cancel() // Ctrl-C while the foreground push waits for the tailnet
+		return false
+	}
+	rec := withRecorder(t)
+	_, _, err := f.run(ctx, "up")
+	if err == nil {
+		t.Fatal("interrupt must be an error exit")
+	}
+	if f.log.count("spawn:internal-push") != 1 {
+		t.Fatalf("spawns: %v", f.log.lines)
+	}
+	if f.log.index("spawn:internal-push") < f.log.index("poll") {
+		t.Fatalf("spawned before the foreground push returned: %v", f.log.lines)
+	}
+	found := false
+	for _, e := range rec.Events {
+		if strings.HasPrefix(e, "note ") && strings.Contains(e, "push.log") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no push.log note: %v", rec.Events)
+	}
+	if !strings.Contains(strings.Join(rec.Events, "\n"), "interrupted Joined the tailnet") {
+		t.Fatalf("running step not finalised: %v", rec.Events)
+	}
+}
+
+func TestUpInterruptBeforeCreateNoSpawn(t *testing.T) {
+	f := newFx(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.d.Policy = cancelPolicy{cancel: cancel}
+	if _, _, err := f.run(ctx, "up"); err == nil {
+		t.Fatal("want error")
+	}
+	if len(f.spawn) != 0 {
+		t.Fatalf("spawned %v before the server existed", f.spawn)
+	}
+}
+
+type cancelPolicy struct{ cancel func() }
+
+func (c cancelPolicy) Load(ctx context.Context) (policy.Policy, error) {
+	c.cancel()
+	return policy.Policy{}, ctx.Err()
+}
+
+func TestUpDetach(t *testing.T) {
+	f := newFx(t)
+	f.mesh.online = func() bool { t.Error("detach must not wait for the tailnet"); return false }
+	stdout, stderr, err := f.run(context.Background(), "up", "--detach")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.spawn) != 1 || f.spawn[0] != "internal-push" {
+		t.Fatalf("spawn %v", f.spawn)
+	}
+	all := stdout + stderr
+	if !strings.Contains(all, "installing the supervisor in the background; log: ") || !strings.Contains(all, "push.log") {
+		t.Fatalf("output:\n%s", all)
+	}
+	if strings.Contains(all, "● Ready") {
+		t.Fatalf("detach is not ready:\n%s", all)
+	}
+}
+
+func TestUpWaitFlagStillAccepted(t *testing.T) {
+	f := newFx(t)
+	if _, _, err := f.run(context.Background(), "up", "--wait"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDownNoBoxPlain(t *testing.T) {
+	f := newFx(t)
+	_, stderr, err := f.run(context.Background(), "down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "no box running") || strings.Contains(stderr, "Box deleted. The home volume") {
+		t.Fatalf("stderr:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "jauntbox down · alice") {
+		t.Fatalf("header:\n%s", stderr)
+	}
+}
+
+func TestDownEndLine(t *testing.T) {
+	f := newFx(t)
+	f.prov.box = &provider.Box{ID: 5, Name: "jauntbox-alice"}
+	_, stderr, err := f.run(context.Background(), "down", "--force")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "● Box deleted. The home volume is kept.") {
+		t.Fatalf("stderr:\n%s", stderr)
+	}
+}
+
+const sampleBoxStatus = `{"box":{},"state":{},"verdict":{"action":"keep","reason":"human active"},"deadline":{"time":"2026-06-02T19:00:00+02:00","reason":"evening-cutoff"},"locked":false}`
+
+func statusFx(t *testing.T) *fx {
+	f := newFx(t)
+	f.prov.box = &provider.Box{ID: 5, Name: "jauntbox-alice", Status: "running", ServerType: "cpx42",
+		Created: time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC)}
+	f.rem.boxStatus = sampleBoxStatus
+	return f
+}
+
+func TestStatusJSONFlag(t *testing.T) {
+	f := statusFx(t)
+	stdout, _, err := f.run(context.Background(), "status", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v map[string]any
+	if err := json.Unmarshal([]byte(stdout), &v); err != nil {
+		t.Fatalf("stdout is not only JSON: %v\n%s", err, stdout)
+	}
+	if _, ok := v["verdict"]; !ok {
+		t.Fatalf("json: %s", stdout)
+	}
+}
+
+func TestStatusSummary(t *testing.T) {
+	f := statusFx(t)
+	stdout, _, err := f.run(context.Background(), "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"jauntbox-alice  running  cpx42",
+		"created ",
+		"tailnet  ✓",
+		"secrets  unlocked",
+		"supervisor  keep (human active), next deadline 19:00 (evening cutoff)",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("missing %q in:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "\x1b") {
+		t.Errorf("escape in non-tty status: %q", stdout)
+	}
+}
+
+func TestStatusKeepsUnlockWarning(t *testing.T) {
+	f := statusFx(t)
+	f.rem.failUnlock = true
+	_, stderr, err := f.run(context.Background(), "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "warning: could not unlock the box: ") {
+		t.Fatalf("stderr: %s", stderr)
+	}
+}
+
+func TestStatusNoBox(t *testing.T) {
+	f := newFx(t)
+	stdout, _, _ := f.run(context.Background(), "status")
+	if !strings.Contains(stdout, "no box running") {
+		t.Fatalf("stdout: %s", stdout)
+	}
+}
+
+func TestPlainFlagForcesPlain(t *testing.T) {
+	old := isTerminal
+	isTerminal = func(int) bool { return true }
+	defer func() { isTerminal = old }()
+	t.Setenv("TERM", "xterm")
+	t.Setenv("NO_COLOR", "")
+	tmp, err := os.Create(filepath.Join(t.TempDir(), "tty"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tmp.Close()
+	cmd := &cobra.Command{}
+	cmd.SetErr(tmp)
+	live := newSteps(cmd, false)
+	live.Start("working") // an unfinished step makes the live block redraw with cursor codes
+	live.Close()
+	if lb, _ := os.ReadFile(tmp.Name()); !strings.Contains(string(lb), "\x1b") {
+		t.Fatalf("without --plain a terminal gets the live renderer: %q", lb)
+	}
+	tmp.Truncate(0)
+	tmp.Seek(0, 0)
+	// live: a header carries ANSI/colour only in live mode; plain never does.
+	s := newSteps(cmd, true)
+	s.Header("jauntbox", "x")
+	s.Close()
+	b, _ := os.ReadFile(tmp.Name())
+	if strings.Contains(string(b), "\x1b") || !strings.Contains(string(b), "jauntbox · x") {
+		t.Fatalf("--plain output: %q", b)
+	}
+	if root := newClientCmd(); root.PersistentFlags().Lookup("plain") == nil {
+		t.Fatal("no --plain flag")
+	}
+}

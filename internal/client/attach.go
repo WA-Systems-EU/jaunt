@@ -56,6 +56,9 @@ func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 	if err != nil && !res.Created {
 		return err
 	}
+	if d.AfterUp != nil {
+		d.AfterUp(res.Created)
+	}
 	// A non-nil err with Created set is a warning Up already put on its step.
 	if res.Created {
 		if err := PushBinary(ctx, d, DefaultPushWait); err != nil {
@@ -72,6 +75,9 @@ func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 		if err := EnsureSupervisor(ctx, d); err != nil {
 			return err
 		}
+	}
+	if d.BeforeAttach != nil {
+		d.BeforeAttach(res.Created)
 	}
 	prepareWorkspaces(ctx, d, sess, host)
 

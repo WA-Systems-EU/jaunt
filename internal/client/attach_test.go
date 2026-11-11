@@ -410,3 +410,32 @@ func TestAttachOutsideHerdrUnaffected(t *testing.T) {
 		}
 	}
 }
+
+func TestAttachHooksRunBeforeConnectionTimePrints(t *testing.T) {
+	d, _, r := attachFixture(t)
+	r.src = "/home/alice/src/a/\n"
+	r.list = `{"result":{"workspaces":[]}}`
+	var order []string
+	var created []bool
+	d.AfterUp = func(c bool) { order = append(order, "afterup"); created = append(created, c) }
+	d.BeforeAttach = func(c bool) {
+		order = append(order, "beforeattach")
+		created = append(created, c)
+		if strings.Contains(strings.Join(r.cmds, "\n"), "workspace create") {
+			t.Error("BeforeAttach ran after workspaces were prepared")
+		}
+	}
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) {
+		order = append(order, "exec")
+		return 0, nil
+	}, func(string) (string, error) { return "", errors.New("none") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(order, ","); got != "afterup,beforeattach,exec" {
+		t.Fatalf("order = %s", got)
+	}
+	if len(created) != 2 || !created[0] || !created[1] {
+		t.Fatalf("created flags = %v", created)
+	}
+}
