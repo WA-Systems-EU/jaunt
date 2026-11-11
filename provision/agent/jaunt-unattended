@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs Claude Code non-interactively in /work for an unattended run.
+work=${JAUNT_WORK:-/work}
+logd=${JAUNT_LOG_DIR:-/var/log/jauntbox}
+mkdir -p "$logd"
+cd "$work" || exit 1
+claude -p "$JAUNT_PROMPT" --output-format stream-json --verbose --dangerously-skip-permissions \
+	>"$logd/claude.jsonl" 2>"$logd/claude.err"
+exit $?

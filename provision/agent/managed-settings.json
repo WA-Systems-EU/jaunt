@@ -1,0 +1,11 @@
+{
+  "env": { "DISABLE_AUTOUPDATER": "1" },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "/usr/local/bin/jaunt-hook pretool" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "/usr/local/bin/jaunt-hook stop" } ] }
+    ]
+  }
+}

@@ -14,3 +14,4 @@ jobs:
       - run: sh internal/cloudinit/units/safety-net_test.sh
       - run: bash provision/dev-setup_test.sh
       - run: bash provision/jaunt-repos_test.sh
+      - run: bash provision/agent/agent_test.sh

@@ -1,0 +1,59 @@
+#!/bin/sh
+# Mechanical wrap-up when the agent left no continuation note. Usage: jaunt-wrapup-fallback <reason>
+reason=${1:-unknown}
+work=${JAUNT_WORK:-/work}
+logd=${JAUNT_LOG_DIR:-/var/log/jauntbox}
+cd "$work" || { echo "failed: cannot enter $work"; exit 1; }
+
+branch=$(git symbolic-ref --short HEAD 2>/dev/null) || { echo "failed: detached HEAD"; exit 1; }
+
+is_done() {
+	[ -f CONTINUATION.md ] || return 1
+	[ -z "$(git status --porcelain 2>/dev/null)" ] || return 1
+	git fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || return 1
+	ahead=$(git rev-list "origin/$branch..HEAD" 2>/dev/null) || return 1
+	[ -z "$ahead" ]
+}
+
+if is_done; then
+	echo already-done
+	exit 0
+fi
+
+if [ ! -f CONTINUATION.md ]; then
+	logf=
+	for f in "$logd/claude.jsonl" "$logd/init.log"; do
+		[ -f "$f" ] && { logf=$f; break; }
+	done
+	{
+		echo "# CONTINUATION (written by jauntbox)"
+		echo
+		echo "The agent did not leave a continuation note before the run ended ($reason)."
+		echo
+		echo "- Branch: $branch"
+		echo "- Run: ${JAUNT_RUN:-}"
+		echo
+		echo "## git status"
+		echo '```'
+		git status --porcelain
+		echo '```'
+		echo
+		echo "## Changes against origin/${JAUNT_DEFAULT_BRANCH:-}"
+		echo '```'
+		[ -n "${JAUNT_DEFAULT_BRANCH:-}" ] && git diff --stat "origin/$JAUNT_DEFAULT_BRANCH" 2>/dev/null
+		echo '```'
+		echo
+		echo "## Last log lines"
+		echo '```'
+		[ -n "$logf" ] && tail -n 40 "$logf"
+		echo '```'
+	} >CONTINUATION.md.tmp && mv CONTINUATION.md.tmp CONTINUATION.md
+fi
+
+fail() { echo "failed: $(printf '%s' "$1" | tr '\n' ' ')"; exit 1; }
+msg=$(git add -A 2>&1) || fail "$msg"
+if ! git diff --cached --quiet; then
+	msg=$(git commit -q -m "wip(jauntbox): mechanical wrap-up ($reason)" 2>&1) || fail "$msg"
+fi
+msg=$(git push origin HEAD 2>&1) || fail "$msg"
+echo pushed

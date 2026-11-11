@@ -1,0 +1,25 @@
+#!/bin/sh
+# Container entrypoint: verifies the checkout, optionally switches branch, installs tools, then execs the command.
+work=${JAUNT_WORK:-/work}
+logd=${JAUNT_LOG_DIR:-/var/log/jauntbox}
+tmpd=${JAUNT_TMP:-/tmp}
+mkdir -p "$logd" 2>/dev/null
+log=$logd/init.log
+say() { echo "jaunt-agent-init: $*" >>"$log"; }
+
+git -C "$work" rev-parse --git-dir >>"$log" 2>&1 || { say "$work is not a git checkout"; exit 1; }
+
+if [ -n "${JAUNT_SWITCH_TO:-}" ]; then
+	if git -C "$work" show-ref --verify --quiet "refs/heads/$JAUNT_SWITCH_TO"; then
+		git -C "$work" switch "$JAUNT_SWITCH_TO" >>"$log" 2>&1 || { say "switch to $JAUNT_SWITCH_TO refused"; exit 1; }
+	else
+		git -C "$work" switch --no-track -c "$JAUNT_SWITCH_TO" >>"$log" 2>&1 || { say "creating $JAUNT_SWITCH_TO refused"; exit 1; }
+	fi
+fi
+
+if [ -f "$work/.tool-versions" ] || [ -f "$work/mise.toml" ]; then
+	(cd "$work" && mise install) >>"$log" 2>&1 || { say "mise install failed"; exit 1; }
+fi
+
+: >"$tmpd/jauntbox-ready"
+exec "$@"

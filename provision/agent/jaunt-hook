@@ -1,0 +1,37 @@
+#!/bin/sh
+# Claude Code hook: tells the agent to wrap up once the run's wrapup flag exists.
+# Usage: jaunt-hook pretool|stop  (hook JSON on stdin)
+run=${JAUNT_RUN_DIR:-/run/jauntbox-run}
+work=${JAUNT_WORK:-/work}
+tmpd=${JAUNT_TMP:-/tmp}
+flag=$run/wrapup
+input=$(cat)
+[ -f "$flag" ] || exit 0
+reason=$(cat "$flag")
+instr="jauntbox is wrapping up this run ($reason). Stop the current task now. Write CONTINUATION.md at the repository root with: what you were doing, the current state, next steps, and open questions for the owner. Commit it together with your work to the current branch and push. Do not start new work."
+
+done_check() {
+	[ -f "$work/CONTINUATION.md" ] || return 1
+	[ -z "$(git -C "$work" status --porcelain 2>/dev/null)" ] || return 1
+	b=$(git -C "$work" symbolic-ref --short HEAD 2>/dev/null) || return 1
+	git -C "$work" fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" >/dev/null 2>&1 || return 1
+	ahead=$(git -C "$work" rev-list "origin/$b..HEAD" 2>/dev/null) || return 1
+	[ -z "$ahead" ]
+}
+
+case "${1:-}" in
+pretool)
+	sid=$(printf '%s' "$input" | jq -r '.session_id // "unknown"' | tr -c 'A-Za-z0-9_.' '_')
+	marker=$tmpd/jauntbox-wrapup-told-$sid
+	[ -e "$marker" ] && exit 0
+	: >"$marker"
+	jq -cn --arg c "$instr" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$c}}'
+	;;
+stop)
+	active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false')
+	[ "$active" = true ] && exit 0
+	done_check && exit 0
+	jq -cn --arg r "$instr" '{decision:"block",reason:$r}'
+	;;
+esac
+exit 0
