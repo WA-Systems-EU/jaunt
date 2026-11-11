@@ -311,11 +311,21 @@
           </ul>
           <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: App setup, locked box after reboot, permission drift, token revocation and a clean volume passed. Six fixes landed from it.</p>
         </li>
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03a</span><span class="stamp lt st-plan">Building</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Privilege split</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li>Root ssh from the laptop for jauntbox's own steps</li>
+            <li>Password sudo for you; passwordless only for a few <code class="font-mono text-[13px] text-ink">jauntctl</code> commands</li>
+            <li>Your own rootless Docker and Compose, no <code class="font-mono text-[13px] text-ink">docker</code> group</li>
+            <li>Metadata endpoint reachable only by root</li>
+          </ul>
+        </li>
         <li class="min-w-0 rounded-xl border-2 p-6 flex flex-col gap-3 bg-surface" style="border-color: var(--tag)">
           <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03</span><span class="stamp lt st-next">Next</span></div>
           <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Agents in containers</h3>
           <ul class="text-[15px] text-muted space-y-1.5">
-            <li><code class="font-mono text-[13px] text-ink">jauntctl agent &lt;repo&gt;</code> from a herdr pane, interactive or unattended</li>
+            <li><code class="font-mono text-[13px] text-ink">jauntctl agent</code> inside a repo checkout in a herdr pane, interactive or unattended</li>
             <li>One container per run, one repo's token, no sudo</li>
             <li>Metadata endpoint and tailnet blocked</li>
             <li>Wrap-up: the agent writes <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code> and pushes before the box goes down</li>

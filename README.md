@@ -106,6 +106,44 @@ jauntbox unlock                                # push secrets to the box: after 
 - **Upgrading.** After upgrading jauntbox, run `jauntbox` or `jauntbox up` once against
   an existing box before `jauntbox down`, so the box gets `jauntctl`.
 
+## Root and sudo on the box
+
+- **Root comes from the laptop.** jauntbox's own privileged steps (install, units,
+  secrets load, the unlock marker, stop, night, box status) run over Tailscale SSH as
+  `root`. The tailnet policy allows that only for you. If it is not allowed, the
+  command fails with `root ssh to <host> failed; your tailnet policy must allow ssh as
+  root to tag:jauntbox-<user>`. Run `jauntbox acl-snippet` (it now includes `root`),
+  paste it into your policy, and retry. The laptop never falls back to your sudo.
+  `jauntbox down` on an online box stops with the same error and suggests
+  `jauntbox down --force`, which deletes the box without the wrap-up. An offline box
+  is still deleted through Hetzner.
+- **`sudo` asks for a password.** Set it with `jauntbox secrets set BOX_SUDO_PASSWORD`.
+  Every unlock applies it with `chpasswd`; it is never stored on the box. Without it,
+  `unlock` and `status` print a note and you have no sudo password. Don't set it to an
+  empty string.
+- **Passwordless sudo covers six `jauntctl` commands only:** `mint`, `repos`,
+  `box-status` and `agent`, in the forms the sudoers file lists. Nothing else:
+  not `install`, `systemctl`, `secrets-load`, `stop`, `night-set` or `supervise`.
+  Under sudo, `jauntctl` refuses `--config`, scrubs its environment, and `mint` takes
+  only `owner/name`.
+- **No `docker` group.** `docker` and `docker compose` work without sudo against your
+  own rootless daemon (context `rootless`, socket `/run/user/<uid>/docker.sock`, data
+  in `~/.local/share/docker` on `/home`, so images survive rebuilds). Published ports
+  must be above 1024. `sudo docker ...` reaches the root daemon and asks for your
+  password. Rootless setup is best-effort: if it fails, the provisioning log says
+  `WARNING: rootless docker setup failed: <step>`.
+- **Metadata endpoint.** The unit `jauntbox-metadata-guard.service` drops traffic to
+  `169.254.169.254` from any non-root process, so the Hetzner user data (which holds
+  boot-time secrets) isn't readable by you or your containers. If `iptables` fails the
+  unit fails open and shows as failed. Containers on the root daemon aren't covered
+  until Plan 03's network task.
+- **The accepted weakness.** You know the sudo password, so you can become root on your
+  own box. The split protects against a process running as you that doesn't have the
+  password (an agent, a script, a stolen shell), not against you.
+- **Upgrading.** Update the tailnet policy first. Boxes created before this change keep
+  the old passwordless sudo for everything until they are recreated, which the daily
+  teardown does.
+
 ## Status
 
 **Under construction** on the `feat/remote-workspace` branch.

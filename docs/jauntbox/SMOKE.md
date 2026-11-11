@@ -144,6 +144,32 @@ box before `jauntbox down`, so the box gets `jauntctl`.
 6. **Nothing on the volume.** `ls /home` and `grep -r ghs_ /home` find no token or
    key. Record the output (expected: nothing found).
 
+## Plan 03a checks (privilege split)
+
+Run on a box created after Plan 03a. Update the tailnet policy first, and set
+`BOX_SUDO_PASSWORD` (`jauntbox secrets set BOX_SUDO_PASSWORD`). Fill in the result
+column.
+
+| Check | Result |
+|---|---|
+| 1. Policy updated with `jauntbox acl-snippet` (includes `root`) | |
+| 2. `jauntbox up` works over root ssh | |
+| 3. As the box user, `sudo -n true` fails | |
+| 4. `sudo -n jauntctl repos` works | |
+| 5. `sudo -n jauntctl stop` is refused | |
+| 6. `sudo true` asks for a password and accepts `BOX_SUDO_PASSWORD` | |
+| 7. `docker info` shows `rootless` | |
+| 8. `docker run --rm hello-world` works | |
+| 9. A small `docker compose up` works | |
+| 10. `docker run --rm -v /:/host alpine cat /host/etc/shadow` is denied | |
+| 11. `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails from a rootless container | |
+| 12. `sudo docker ps` reaches the root daemon | |
+| 13. `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails as the box user and works with `sudo` | |
+| 14. The supervisor still deletes the box at `down` | |
+| 15. After a reboot the metadata rule is back (`sudo iptables -S OUTPUT`) | |
+| 16. With root ssh refused by the policy, `jauntbox down` stops with the fix and suggests `--force` | |
+| 17. Provisioning log has no `WARNING: rootless docker setup failed` | |
+
 ## What "good" looks like
 
 - `up` returns quickly; the box joins the tailnet within a few minutes.
