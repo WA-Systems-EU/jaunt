@@ -131,7 +131,7 @@
   <section class="gutter">
     <div class="mx-auto max-w-6xl grid lg:grid-cols-[1.05fr_1fr] gap-12 py-14 lg:py-20 items-center">
       <div class="min-w-0">
-        <p class="eyebrow text-route mb-5">Isolated dev boxes on Hetzner Cloud</p>
+        <p class="eyebrow text-route mb-5">Isolated dev boxes on <a href="https://www.hetzner.com/cloud" class="underline underline-offset-4 decoration-1 hover:opacity-80">Hetzner Cloud</a></p>
         <h1 class="font-display font-extrabold uppercase leading-[.92] text-[3.2rem] sm:text-[4.4rem] lg:text-[5.2rem] tracking-tight">
           Just jaunt some code<br>on a box.
         </h1>
@@ -140,10 +140,10 @@
         </p>
         <ul class="mt-6 flex flex-wrap gap-2 font-mono text-xs">
           <li class="rounded-full border border-line px-3 py-1">One box per developer</li>
-          <li class="rounded-full border border-line px-3 py-1">Agents in Docker</li>
+          <li class="rounded-full border border-line px-3 py-1">Agents in <a href="https://www.docker.com" class="text-route hover:underline">Docker</a></li>
           <li class="rounded-full border border-line px-3 py-1">No keys from home</li>
           <li class="rounded-full border border-line px-3 py-1">Humans merge, agents push</li>
-          <li class="rounded-full border border-line px-3 py-1">Tailscale only, no public ports</li>
+          <li class="rounded-full border border-line px-3 py-1"><a href="https://tailscale.com" class="text-route hover:underline">Tailscale</a> only, no public ports</li>
           <li class="rounded-full border border-line px-3 py-1">Open source, MIT</li>
         </ul>
         <div class="mt-8 flex flex-wrap gap-3">
@@ -369,7 +369,7 @@
       <div>
         <p class="eyebrow text-route mb-3">Agents</p>
         <h2 class="font-display text-5xl font-extrabold uppercase leading-none">Claude in a container, one repo at a time.</h2>
-        <p class="mt-5 text-muted max-w-[32rem]">Agents run in containers on the box, never in your shell. Attach the box's herdr session, go to a repo's folder and run <code class="font-mono text-[13px] text-ink">jauntctl agent</code>. Claude opens right there in that pane, with only that checkout and a token for that one repo.</p>
+        <p class="mt-5 text-muted max-w-[32rem]">Agents run in containers on the box, never in your shell. Attach the box's <a href="https://herdr.dev" class="text-route hover:underline">herdr</a> session, go to a repo's folder and run <code class="font-mono text-[13px] text-ink">jauntctl agent</code>. Claude opens right there in that pane, with only that checkout and a token for that one repo.</p>
         <div class="mt-6 min-w-0 rounded-lg bg-board overflow-x-auto">
           <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> jauntbox
 <span style="color:#7f8fa3">$</span> cd ~/src/&lt;repo&gt;
@@ -495,7 +495,7 @@
       <div class="min-w-0 rounded-xl border border-line bg-surface p-7">
         <p class="eyebrow text-muted">Server and system disk</p>
         <h3 class="font-display text-3xl font-extrabold uppercase mt-2">Rebuilt, not repaired</h3>
-        <p class="text-muted mt-3">Every box starts from stock Ubuntu and installs the same toolchain on first boot: Docker, language runtimes, herdr and Claude Code. When it breaks or ages, you replace it. A prebuilt base image for faster boots comes later.</p>
+        <p class="text-muted mt-3">Every box starts from stock Ubuntu and installs the same toolchain on first boot: <a href="https://www.docker.com" class="text-route hover:underline">Docker</a>, language runtimes, herdr and <a href="https://docs.anthropic.com/en/docs/claude-code/overview" class="text-route hover:underline">Claude Code</a>. When it breaks or ages, you replace it. A prebuilt base image for faster boots comes later.</p>
         <ul class="mt-5 font-mono text-[13px] space-y-1.5">
           <li><span class="text-muted">image</span>  ubuntu-26.04 + cloud-init</li>
           <li><span class="text-muted">tools</span>  go · rust · node · ruby · docker</li>
@@ -609,6 +609,7 @@
   <div class="mx-auto max-w-6xl py-8 flex flex-wrap items-center justify-between gap-4 text-sm text-muted">
     <span><span class="font-display text-lg font-extrabold text-ink">jauntbox</span> · MIT licensed · built by WA Systems · <a href="https://github.com/WA-Systems-EU/jaunt" class="text-route hover:underline">GitHub</a></span>
     <span class="basis-full text-xs">WA Systems also builds an enterprise edition and a hosted control plane on top of jauntbox, in a separate repository.</span>
+    <span class="basis-full text-xs">Built on <a href="https://www.hetzner.com/cloud" class="text-route hover:underline">Hetzner Cloud</a>, <a href="https://tailscale.com" class="text-route hover:underline">Tailscale</a>, <a href="https://herdr.dev" class="text-route hover:underline">herdr</a>, <a href="https://www.docker.com" class="text-route hover:underline">Docker</a>, <a href="https://mise.jdx.dev" class="text-route hover:underline">mise</a> and <a href="https://docs.anthropic.com/en/docs/claude-code/overview" class="text-route hover:underline">Claude Code</a>.</span>
     <span>Sibling of <a href="https://getodysseus.dev" class="text-route hover:underline">Odysseus</a>, the lean Rails deploy tool</span>
   </div>
 </footer>

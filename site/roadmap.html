@@ -144,8 +144,8 @@
           <ul class="text-[15px] text-muted space-y-1.5">
             <li><code class="font-mono text-[13px] text-ink">init</code>, <code class="font-mono text-[13px] text-ink">up</code>, <code class="font-mono text-[13px] text-ink">down</code>, <code class="font-mono text-[13px] text-ink">resize</code>, <code class="font-mono text-[13px] text-ink">status</code>, <code class="font-mono text-[13px] text-ink">night</code></li>
             <li>On-box supervisor, limits and safety net</li>
-            <li>Bare <code class="font-mono text-[13px] text-ink">jauntbox</code> attaches a herdr session with one workspace per repo</li>
-            <li>Volume and Tailscale identity survive every rebuild</li>
+            <li>Bare <code class="font-mono text-[13px] text-ink">jauntbox</code> attaches a <a href="https://herdr.dev" class="text-route hover:underline">herdr</a> session with one workspace per repo</li>
+            <li>Volume and <a href="https://tailscale.com" class="text-route hover:underline">Tailscale</a> identity survive every rebuild</li>
           </ul>
           <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: resize in about 2 minutes, self-delete, night sessions and volume survival passed. Four fixes landed from it.</p>
           <p class="text-[13px]"><a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md" class="text-route hover:underline">Plan 01 on GitHub</a> · <a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/jauntbox/SMOKE.md" class="text-route hover:underline">Smoke test results</a></p>
@@ -168,7 +168,7 @@
           <ul class="text-[15px] text-muted space-y-1.5">
             <li>Root ssh from the laptop for jauntbox's own steps</li>
             <li>Password sudo for you; passwordless only for a few <code class="font-mono text-[13px] text-ink">jauntctl</code> commands</li>
-            <li>Your own rootless Docker and Compose, no <code class="font-mono text-[13px] text-ink">docker</code> group</li>
+            <li>Your own <a href="https://docs.docker.com/engine/security/rootless/" class="text-route hover:underline">rootless</a> <a href="https://www.docker.com" class="text-route hover:underline">Docker</a> and Compose, no <code class="font-mono text-[13px] text-ink">docker</code> group</li>
             <li>Metadata endpoint reachable only by root</li>
           </ul>
           <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 11 Nov: root ssh install, the sudo split, rootless <code class="font-mono text-[13px] text-ink">docker run</code> and Compose, and the metadata block passed. One fix landed from it.</p>
