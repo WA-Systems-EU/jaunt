@@ -14,7 +14,15 @@ var osExecutable = os.Executable
 // DefaultPushWait is how long PushBinary waits for the box to join the tailnet.
 const DefaultPushWait = 15 * time.Minute
 
-const installCmd = "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer && git config --global --replace-all credential.https://github.com.helper '' && git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && git config --global credential.https://github.com.useHttpPath true"
+// installCmd runs as root on the box. The git settings belong to the box user,
+// so they run as that user.
+func installCmd(user string) string {
+	git := "runuser -u " + user + " -- git config --global "
+	return "install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && " +
+		git + "--replace-all credential.https://github.com.helper '' && " +
+		git + "--add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && " +
+		git + "credential.https://github.com.useHttpPath true"
+}
 
 const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer"
 
@@ -100,10 +108,10 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 	// Right after the tailnet join the engineer user may not exist yet (dev-setup.sh
 	// creates it), so ssh/scp fail until then: retry to the same deadline.
 	for {
-		err := d.Remote.Copy(ctx, host, bin, "/tmp/jauntbox")
+		err := rootCopy(ctx, d, bin, "/tmp/jauntbox")
 		if err != nil {
 			err = fmt.Errorf("copy binary: %w", err)
-		} else if _, rerr := d.Remote.Run(ctx, host, installCmd); rerr != nil {
+		} else if _, rerr := rootRun(ctx, d, installCmd(d.Cfg.User)); rerr != nil {
 			err = fmt.Errorf("install binary: %w", rerr)
 		} else {
 			tryUnlock(ctx, d)

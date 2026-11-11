@@ -30,6 +30,9 @@ type Deps struct {
 	Prov   provider.Provider
 	Mesh   mesh.Mesh
 	Remote remote.Runner
+	// Root logs in as root over Tailscale SSH. Every privileged step uses it;
+	// the box user has no sudo for them and nothing falls back to Remote.
+	Root   remote.Runner
 	Events events.Sink
 	// Secrets is the laptop-side secret store that unlock pushes to the box.
 	Secrets secrets.Store

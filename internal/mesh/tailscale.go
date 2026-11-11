@@ -145,12 +145,14 @@ func ACLSnippet(user string) string {
       "ip":  ["tcp:22"]
     }
   ],
+  // "root" is for jauntbox's own commands (install, unlock, stop); the box
+  // user keeps no sudo for them.
   "ssh": [
     {
       "action": "accept",
       "src":    ["autogroup:admin"],
       "dst":    ["tag:jauntbox-%[1]s"],
-      "users":  ["%[1]s"]
+      "users":  ["%[1]s", "root"]
     }
   ]
   // ISOLATION IS YOUR RESPONSIBILITY: the box can reach other devices if ANY

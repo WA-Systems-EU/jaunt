@@ -26,7 +26,7 @@ func withSecrets(t *testing.T, d *Deps, kv ...string) {
 	d.Secrets = secrets.Store{Dir: dir}
 }
 
-const markerCmd = "[sudo -n test -e /run/jauntbox/secrets/.loaded]"
+const markerCmd = "[test -e /run/jauntbox/secrets/.loaded]"
 
 func TestEnsureUnlockedPushesOnlyWhenLocked(t *testing.T) {
 	d, _, _, r, _, _ := newDeps(t)
@@ -46,7 +46,7 @@ func TestEnsureUnlockedPushesOnlyWhenLocked(t *testing.T) {
 	if len(r.inputs) != 1 {
 		t.Fatalf("inputs = %d", len(r.inputs))
 	}
-	if got := r.cmds[len(r.cmds)-1]; got != "[sudo -n jauntctl secrets-load]" {
+	if got := r.cmds[len(r.cmds)-1]; got != "[jauntctl secrets-load]" {
 		t.Fatalf("last cmd = %s", got)
 	}
 	var b secrets.Bundle
@@ -94,7 +94,7 @@ func TestPushBinaryUnlocksAfterInstall(t *testing.T) {
 	if strings.Join(r.order, ",") != strings.Join(want, ",") {
 		t.Fatalf("order = %v", r.order)
 	}
-	if r.cmds[0] != "["+installCmd+"]" || r.cmds[1] != markerCmd || r.cmds[2] != "[sudo -n jauntctl secrets-load]" {
+	if r.cmds[0] != "["+installCmd("alice")+"]" || r.cmds[1] != markerCmd || r.cmds[2] != "[jauntctl secrets-load]" {
 		t.Fatalf("cmds = %v", r.cmds)
 	}
 }

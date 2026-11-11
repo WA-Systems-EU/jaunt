@@ -29,7 +29,7 @@ func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte,
 			return nil, errors.New("exit 1")
 		}
 		return nil, nil
-	case args[0] == "test":
+	case args[0] == "test" && args[1] == "-x":
 		r.tests++
 		if r.tests <= r.testFails {
 			return nil, errors.New("exit 1")
@@ -61,7 +61,7 @@ func attachFixture(t *testing.T) (Deps, *fakeProv, *scriptRemote) {
 	d, p, _, _, _, _ := newDeps(t)
 	d.Cfg.DefaultProfile = "small"
 	r := &scriptRemote{}
-	d.Remote = r
+	d.Remote, d.Root = r, r
 	oldExe, oldOut, oldSleep := osExecutable, attachOut, sleepFn
 	oldProv := provisionPoll
 	provisionPoll = time.Millisecond
@@ -149,7 +149,7 @@ func TestEnsureSupervisorSkipsPushWhenInstalled(t *testing.T) {
 			t.Fatalf("pushed although installed: %v", r.cmds)
 		}
 	}
-	if len(r.cmds) != 2 || r.cmds[0] != supervisorCheck || r.cmds[1] != "sudo -n test -e /run/jauntbox/secrets/.loaded" {
+	if len(r.cmds) != 2 || r.cmds[0] != supervisorCheck || r.cmds[1] != "test -e /run/jauntbox/secrets/.loaded" {
 		t.Fatalf("cmds = %v", r.cmds)
 	}
 }
@@ -186,7 +186,7 @@ func TestInstallSupervisorNoWaitSkipsPushWhenInstalled(t *testing.T) {
 	if err := InstallSupervisor(context.Background(), d, false); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.cmds) != 2 || r.cmds[0] != supervisorCheck || r.cmds[1] != "sudo -n test -e /run/jauntbox/secrets/.loaded" {
+	if len(r.cmds) != 2 || r.cmds[0] != supervisorCheck || r.cmds[1] != "test -e /run/jauntbox/secrets/.loaded" {
 		t.Fatalf("cmds = %v (want the check, then the unlock probe)", r.cmds)
 	}
 }

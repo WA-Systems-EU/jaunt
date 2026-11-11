@@ -102,6 +102,16 @@ func TestDeviceOnlineAnyMatch(t *testing.T) {
 	}
 }
 
+func TestACLSnippetAllowsRoot(t *testing.T) {
+	s := ACLSnippet("alice")
+	if !strings.Contains(s, `"users":  ["alice", "root"]`) {
+		t.Errorf("ssh users must be the box user and root:\n%s", s)
+	}
+	if !strings.Contains(s, `"root" is for jauntbox's own commands`) {
+		t.Errorf("missing comment explaining root:\n%s", s)
+	}
+}
+
 func TestACLSnippetMentionsTag(t *testing.T) {
 	s := ACLSnippet("alice")
 	for _, w := range []string{"tag:jauntbox-alice", "autogroup:admin", `"alice"`, "accept", "tcp:22", "default"} {

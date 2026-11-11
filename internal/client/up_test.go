@@ -32,7 +32,7 @@ func newDeps(t *testing.T) (Deps, *fakeProv, *fakeMesh, *fakeRemote, *recSink, *
 	cfg.SSHPublicKey = "ssh-ed25519 AAAA"
 	p, m, r, s := &fakeProv{}, &fakeMesh{}, &fakeRemote{}, &recSink{}
 	spawns := 0
-	d := Deps{Cfg: cfg, Policy: policy.Local{Cfg: cfg}, Prov: p, Mesh: m, Remote: r, Events: s,
+	d := Deps{Cfg: cfg, Policy: policy.Local{Cfg: cfg}, Prov: p, Mesh: m, Root: r, Remote: &fakeRemote{}, Events: s,
 		Now: func() time.Time { return fixedNow }, HetznerToken: "hc-T",
 		Spawn: func(args ...string) error {
 			if len(args) != 1 || args[0] != "internal-push" {
@@ -214,10 +214,11 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 	if len(r.order) != 3 || r.order[0] != "copy:/tmp/jauntbox" || r.order[1] != "run" || r.order[2] != "run" {
 		t.Fatalf("order = %v", r.order)
 	}
-	want := "[" + installCmd + "]"
-	if r.cmds[0] != want || installCmd != "sudo install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && sudo ln -sf jauntctl /usr/local/bin/jauntbox && sudo systemctl enable --now jauntbox-supervise.timer && git config --global --replace-all credential.https://github.com.helper '' && git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && git config --global credential.https://github.com.useHttpPath true" {
+	want := "[" + installCmd("alice") + "]"
+	if r.cmds[0] != want || installCmd("alice") != "install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true" {
 		t.Fatalf("cmd = %q", r.cmds[0])
 	}
+	assertRemoteUnused(t, d)
 }
 
 func TestPushBinaryTimesOut(t *testing.T) {
@@ -308,7 +309,7 @@ func TestPushBinaryRetriesCopyUntilUserExists(t *testing.T) {
 	defer func() { pollInterval = old }()
 	d, _, _, _, _, _ := newDeps(t)
 	r := &flakyCopyRemote{copyFails: 2}
-	d.Remote = r
+	d.Root = r
 	osExecutable = func() (string, error) { return "/bin/true", nil }
 	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
 		t.Fatal(err)
@@ -323,7 +324,7 @@ func TestPushBinaryCopyTimeoutReportsLastError(t *testing.T) {
 	pollInterval = time.Millisecond
 	defer func() { pollInterval = old }()
 	d, _, _, _, _, _ := newDeps(t)
-	d.Remote = &flakyCopyRemote{copyFails: 1 << 30}
+	d.Root = &flakyCopyRemote{copyFails: 1 << 30}
 	osExecutable = func() (string, error) { return "/bin/true", nil }
 	err := PushBinary(context.Background(), d, 20*time.Millisecond)
 	if err == nil || !strings.Contains(err.Error(), "user not created yet") {
@@ -438,18 +439,72 @@ func TestSupervisorCheckNeedsJauntctl(t *testing.T) {
 	}
 }
 
-func TestInstallCmdConfiguresGitHelper(t *testing.T) {
-	parts := []string{
-		"git config --global --replace-all credential.https://github.com.helper ''",
-		"git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential'",
-		"git config --global credential.https://github.com.useHttpPath true",
+func TestInstallCmdRunsAsRoot(t *testing.T) {
+	cmd := installCmd("alice")
+	if strings.Contains(cmd, "sudo") {
+		t.Fatalf("installCmd must not use sudo: %q", cmd)
 	}
-	pos := strings.Index(installCmd, "systemctl enable")
+	parts := []string{
+		"runuser -u alice -- git config --global --replace-all credential.https://github.com.helper ''",
+		"runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential'",
+		"runuser -u alice -- git config --global credential.https://github.com.useHttpPath true",
+	}
+	pos := strings.Index(cmd, "systemctl enable")
 	for _, p := range parts {
-		i := strings.Index(installCmd, p)
+		i := strings.Index(cmd, p)
 		if i < pos {
-			t.Fatalf("%q missing or out of order in %q", p, installCmd)
+			t.Fatalf("%q missing or out of order in %q", p, cmd)
 		}
 		pos = i
+	}
+	if n := strings.Count(cmd, "git config"); n != strings.Count(cmd, "runuser -u alice -- git config") || n != 3 {
+		t.Fatalf("every git config must run via runuser (%d): %q", n, cmd)
+	}
+}
+
+func TestRootSSHFailureNamesACLSnippet(t *testing.T) {
+	cause := errors.New("Permission denied")
+	run := map[string]func(Deps) error{
+		"down":   func(d Deps) error { return Down(context.Background(), d, false) },
+		"night":  func(d Deps) error { return Night(context.Background(), d, "07:00") },
+		"unlock": func(d Deps) error { return PushSecrets(context.Background(), d) },
+		"push":   func(d Deps) error { return PushBinary(context.Background(), d, 20*time.Millisecond) },
+		"status": nil,
+	}
+	want := "root ssh to jauntbox-alice failed; your tailnet policy must allow ssh as root to tag:jauntbox-alice: run `jauntbox acl-snippet` and update the policy"
+	for name, f := range run {
+		d, p, _, r, _, _ := newDeps(t)
+		withSecrets(t, &d, "agents.env", "K=v\n")
+		withBox(p)
+		r.err, r.inputErr = cause, cause
+		osExecutable = func() (string, error) { return "/bin/true", nil }
+		var err error
+		if f == nil {
+			var rep StatusReport
+			rep, err = Status(context.Background(), d)
+			if !strings.Contains(rep.Err, want) {
+				t.Errorf("status Err = %q", rep.Err)
+			}
+		} else {
+			err = f(d)
+		}
+		if name == "down" {
+			// down falls back to the provider API, not to the box user's ssh.
+			if err != nil {
+				t.Errorf("down: %v", err)
+			}
+		} else if name != "status" {
+			if !errors.Is(err, ErrRootSSH) || !errors.Is(err, cause) || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: err = %v", name, err)
+			}
+		}
+		assertRemoteUnused(t, d)
+	}
+}
+
+func assertRemoteUnused(t *testing.T, d Deps) {
+	t.Helper()
+	if rem := d.Remote.(*fakeRemote); len(rem.order) != 0 {
+		t.Fatalf("Remote received calls (no sudo fallback allowed): %v", rem.cmds)
 	}
 }

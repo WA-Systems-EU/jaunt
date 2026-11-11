@@ -98,6 +98,7 @@ func loadDeps(cfgPath string) (client.Deps, error) {
 		Prov:         hetzner.New(hz),
 		Mesh:         mesh.NewTailscale(ts, "", nil),
 		Remote:       remote.NewSSH(cfg.User),
+		Root:         remote.NewSSH("root"),
 		Events:       events.JSONLFile(filepath.Join(stateDir(), "events.jsonl")),
 		Secrets:      secrets.Store{Dir: secrets.DirFor(cfgPath)},
 		Now:          time.Now,

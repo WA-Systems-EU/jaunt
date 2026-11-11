@@ -21,7 +21,7 @@ func TestDownGraceful(t *testing.T) {
 	if err := Down(context.Background(), d, false); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.cmds) != 1 || r.cmds[0] != "[sudo jauntctl stop]" {
+	if len(r.cmds) != 1 || r.cmds[0] != "[jauntctl stop]" {
 		t.Fatalf("cmds = %v", r.cmds)
 	}
 	if p.count("delete") != 0 || p.count("waitdeleted") != 1 {
@@ -95,7 +95,7 @@ func TestNightParsesNextOccurrence(t *testing.T) {
 		if err := Night(context.Background(), d, "07:00"); err != nil {
 			t.Fatal(err)
 		}
-		want := "[sudo jauntctl night-set --until " + c.want + "]"
+		want := "[jauntctl night-set --until " + c.want + "]"
 		if len(r.cmds) != 1 || r.cmds[0] != want {
 			t.Errorf("now %v: cmds = %v, want %s", c.now, r.cmds, want)
 		}
@@ -123,7 +123,7 @@ func TestResizeOrder(t *testing.T) {
 	if err := Resize(context.Background(), d, "big"); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"run:sudo jauntctl stop", "waitdeleted", "waitdetached", "create:" + d.Cfg.Profiles["big"].ServerType}
+	want := []string{"run:jauntctl stop", "waitdeleted", "waitdetached", "create:" + d.Cfg.Profiles["big"].ServerType}
 	if strings.Join(seq, ",") != strings.Join(want, ",") {
 		t.Fatalf("seq = %v, want %v", seq, want)
 	}
@@ -140,7 +140,7 @@ func TestStatusReportsBoxAndRemote(t *testing.T) {
 	if rep.Box == nil || !rep.Online || string(rep.BoxStatus) != `{"verdict":{"action":"keep"}}` || m.polls != 1 {
 		t.Fatalf("report = %+v", rep)
 	}
-	if r.cmds[len(r.cmds)-1] != "[sudo jauntctl box-status --json]" {
+	if r.cmds[len(r.cmds)-1] != "[jauntctl box-status --json]" {
 		t.Fatalf("cmd = %v", r.cmds)
 	}
 }

@@ -23,7 +23,7 @@ func PushSecrets(ctx context.Context, d Deps) error {
 	if err != nil {
 		return fmt.Errorf("encode secrets: %w", err)
 	}
-	if _, err := d.Remote.RunInput(ctx, hostname(d.Cfg.User), payload, "sudo", "-n", "jauntctl", "secrets-load"); err != nil {
+	if _, err := rootRunInput(ctx, d, payload, "jauntctl", "secrets-load"); err != nil {
 		return fmt.Errorf("load secrets on the box: %w", err)
 	}
 	return nil
@@ -32,7 +32,7 @@ func PushSecrets(ctx context.Context, d Deps) error {
 // EnsureUnlocked pushes the secrets only when the box does not hold them
 // (it was just created or rebooted).
 func EnsureUnlocked(ctx context.Context, d Deps) error {
-	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "-n", "test", "-e", secretsMarker); err == nil {
+	if _, err := rootRun(ctx, d, "test", "-e", secretsMarker); err == nil {
 		return nil
 	}
 	return PushSecrets(ctx, d)

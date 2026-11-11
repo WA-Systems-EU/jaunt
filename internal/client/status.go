@@ -41,7 +41,7 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 		return rep, nil
 	}
 	tryUnlock(ctx, d)
-	out, err := d.Remote.Run(ctx, hostname(d.Cfg.User), "sudo", "jauntctl", "box-status", "--json")
+	out, err := rootRun(ctx, d, "jauntctl", "box-status", "--json")
 	if err != nil {
 		rep.Err = "box-status failed (supervisor not installed yet?): " + err.Error()
 		return rep, nil
