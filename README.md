@@ -271,7 +271,8 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 
 **Beta.** Plans 01 (walking skeleton), 02 (GitHub and secrets), 03a (privilege split) and
 03 (agent containers) are built and merged; Plan 03's live smoke is partly done. Plan 04
-(services beside the agent, project images) is next.
+(agents reach the services you start with `docker compose`, and agent previews in
+your laptop browser) is next.
 
 - Design: [`docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/superpowers/specs/2026-11-09-jauntbox-single-machine-design.md)
 - Plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
