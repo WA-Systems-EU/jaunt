@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jauntbox quick start</title>
+<meta name="description" content="Install jauntbox from source, bring up your first self-deleting cloud dev box on your tailnet and run your first sandboxed coding agent.">
+<meta property="og:title" content="jauntbox quick start">
+<meta property="og:description" content="Install jauntbox from source, bring up your first self-deleting cloud dev box on your tailnet and run your first sandboxed coding agent.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#eef2f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1520" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='3' y='8' width='22' height='16' rx='3' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Cpath d='M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Crect x='3' y='14' width='22' height='3' fill='%23f0b928'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg: 'var(--bg)', surface: 'var(--surface)', ink: 'var(--ink)', muted: 'var(--muted)',
+          line: 'var(--line)', route: 'var(--route)', tag: 'var(--tag)', tagink: 'var(--tag-ink)',
+          board: 'var(--board)', boardink: 'var(--board-ink)', ok: 'var(--ok)', warn: 'var(--warn)'
+        },
+        fontFamily: {
+          display: ['"Big Shoulders Display"', 'Impact', '"Arial Narrow"', 'sans-serif'],
+          sans: ['"Public Sans"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace']
+        }
+      }
+    }
+  }
+</script>
+<style>
+  /* Layout: a travel document. Departures board as hero, then the trip in order: pack, depart, work, return, rebuild. */
+  :root {
+    --bg: #eef2f0;        /* cool off-white, slight green bias */
+    --surface: #ffffff;
+    --ink: #13233a;       /* route-map navy */
+    --muted: #55657a;
+    --line: #c9d3d6;
+    --route: #0d6d68;     /* trail teal: links, primary action */
+    --tag: #f0b928;       /* luggage-tag yellow, used sparingly */
+    --tag-ink: #2a1f00;
+    --board: #101a27;     /* departures board */
+    --board-ink: #f3d36b;
+    --ok: #3fb68b;
+    --warn: #e58f3c;
+    --plan: #6aa9e8;      /* planned work, on the dark board */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1520; --surface: #142131; --ink: #e5ecf2; --muted: #9aaabb; --line: #26384d;
+      --route: #4fc2b9; --tag: #f0b928; --tag-ink: #2a1f00; --board: #070c13; --board-ink: #f3d36b;
+      --ok: #4cc79a; --warn: #f0a052; --plan: #7db6ee; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1520; --surface: #142131; --ink: #e5ecf2; --muted: #9aaabb; --line: #26384d;
+    --route: #4fc2b9; --tag: #f0b928; --tag-ink: #2a1f00; --board: #070c13; --board-ink: #f3d36b;
+    --ok: #4cc79a; --warn: #f0a052; --plan: #7db6ee; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: "Public Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.6; }
+  .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1, h2, h3 { text-wrap: balance; }
+  .eyebrow { font-family: "JetBrains Mono", monospace; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; }
+  .tabnum { font-variant-numeric: tabular-nums; }
+  /* dashed route line between trip stops */
+  .route-line { background-image: linear-gradient(to bottom, var(--route) 50%, transparent 50%); background-size: 2px 10px; background-repeat: repeat-y; }
+  @media (min-width: 900px) {
+    .route-line-h { background-image: linear-gradient(to right, var(--route) 50%, transparent 50%); background-size: 10px 2px; background-repeat: repeat-x; background-position: 0 50%; }
+  }
+  /* luggage tag shape */
+  .tag { clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%); }
+  /* flap animation for the board, from a visible resting state */
+  @keyframes flap { 0% { transform: rotateX(0) } 40% { transform: rotateX(80deg) } 100% { transform: rotateX(0) } }
+  .flap { display: inline-block; animation: flap .6s ease-out both; transform-origin: 50% 60%; }
+  @media (prefers-reduced-motion: reduce) { .flap { animation: none; } }
+  @keyframes eyepulse { 0%, 100% { opacity: .55 } 50% { opacity: 1 } }
+  .scare-eyes { animation: eyepulse 3.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .scare-eyes { animation: none; } }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--route); outline-offset: 3px; border-radius: 4px; }
+  .board-row + .board-row { border-top: 1px dashed rgba(243, 211, 107, .18); }
+  /* status stamps: where each promise stands (on the dark board) */
+  .stamp { display: inline-flex; align-items: center; gap: .35em; font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; white-space: nowrap; vertical-align: middle; }
+  .st-live { color: var(--ok); }
+  .st-next { color: var(--board-ink); }
+  .st-plan { color: var(--plan); }
+  .st-later { color: rgba(232, 237, 243, .5); border-style: dashed; }
+  /* status stamps on light surfaces */
+  .lt.st-live { color: var(--route); }
+  .lt.st-next { color: #8a6400; }
+  .lt.st-plan { color: #2d5f95; }
+  .lt.st-later { color: var(--muted); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lt.st-next { color: var(--tag); } :root:not([data-theme="light"]) .lt.st-plan { color: var(--plan); } }
+  :root[data-theme="dark"] .lt.st-next { color: var(--tag); }
+  :root[data-theme="dark"] .lt.st-plan { color: var(--plan); }
+  /* multi-page additions */
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  [id] { scroll-margin-top: 1rem; }
+</style>
+</head>
+<body>
+<!-- NAV -->
+<header class="gutter border-b border-line">
+  <div class="mx-auto max-w-6xl flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3 md:py-4">
+    <a href="index.html" class="flex items-center gap-2 no-underline text-ink">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+        <rect x="3" y="8" width="22" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="3" y="14" width="22" height="3" fill="var(--tag)"/>
+      </svg>
+      <span class="font-display text-2xl font-extrabold tracking-wide">jauntbox</span>
+    </a>
+    <nav aria-label="Main" class="order-3 basis-full md:order-none md:basis-auto flex flex-wrap items-center gap-x-5 gap-y-0 md:gap-x-7 text-sm text-muted">
+      <a href="index.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Home</a>
+      <a href="quickstart.html" aria-current="page" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Quick start</a>
+      <a href="docs.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Docs</a>
+      <a href="roadmap.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Roadmap</a>
+      <a href="https://github.com/WA-Systems-EU/jaunt" class="py-1 hover:text-ink">GitHub</a>
+    </nav>
+    <a href="quickstart.html" class="text-sm font-semibold rounded-md bg-ink text-bg px-4 py-2 hover:opacity-90">Get started</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="gutter">
+    <div class="mx-auto max-w-4xl py-14 lg:py-20">
+      <p class="eyebrow text-route mb-5">Quick start</p>
+      <h1 class="font-display font-extrabold uppercase leading-[.95] text-[3rem] sm:text-[4.2rem] tracking-tight">From nothing to your first agent.</h1>
+      <p class="mt-6 text-lg text-muted max-w-[38rem]">Nine steps, about as long as a cup of coffee for the first box. No files to edit, no infrastructure to learn. jauntbox is in beta: you build it from source.</p>
+      <ol class="mt-14">
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">1</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Prerequisites</h2>
+<ul class="mt-4 space-y-2.5 list-disc pl-5 marker:text-route text-[15.5px] leading-7"><li>Go, to build the binary.</li><li>A dedicated Hetzner Cloud project and an API token for it (<code class="font-mono text-[13px] text-ink">HCLOUD_TOKEN</code>). Never point jauntbox at a project that holds other resources.</li><li>A Tailscale API key (<code class="font-mono text-[13px] text-ink">TAILSCALE_API_KEY</code>).</li><li>A GitHub organisation or personal account to own the private GitHub App, and <code class="font-mono text-[13px] text-ink">gh</code> logged in on your laptop (or <code class="font-mono text-[13px] text-ink">GITHUB_ADMIN_TOKEN</code> set) for the one-off App setup.</li><li>A Claude credential for the agents: run <code class="font-mono text-[13px] text-ink">claude setup-token</code> on your laptop and keep the token for step 5.</li></ul>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">2</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Build from source</h2>
+<p class="mt-4 text-[15.5px] leading-7">During the beta there are no packaged installs.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>git clone https://github.com/WA-Systems-EU/jaunt &amp;&amp; cd jaunt
+<span class="select-none" style="color:#7f8fa3">$ </span>go build -o ~/bin/jauntbox ./cmd/jauntbox</pre></div>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">3</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Initialise</h2>
+<p class="mt-4 text-[15.5px] leading-7"><code class="font-mono text-[13px] text-ink">jauntbox init</code> detects your user, SSH key and timezone, asks for the two API tokens and checks both, picks server types, and writes <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/config.yaml</code> (never the tokens). It can save the tokens to <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/env</code> (mode 0600), which jauntbox reads when the variables are unset; or it prints two <code class="font-mono text-[13px] text-ink">export</code> lines for your shell profile.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox init</pre></div><p class="mt-4 text-[15.5px] leading-7">Prefer editing by hand? Copy <code class="font-mono text-[13px] text-ink">examples/jauntbox.yaml</code> to <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/config.yaml</code>. See <a href="docs.html#config" class="text-route hover:underline">the configuration reference</a>.</p>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">4</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Allow the box in your tailnet policy</h2>
+<p class="mt-4 text-[15.5px] leading-7">Init prints the Tailscale policy snippet. Paste it into the access controls of your tailnet. It also lets you ssh to the box as <code class="font-mono text-[13px] text-ink">root</code>, which jauntbox uses for its own privileged steps. Reprint it any time:</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox acl-snippet</pre></div><p class="mt-4 text-[15.5px] leading-7">If root ssh is not allowed, commands that reach the box fail with <code class="font-mono text-[13px] text-ink">root ssh to &lt;host&gt; failed</code>. Paste the current snippet and retry.</p>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">5</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Set up GitHub and secrets</h2>
+<p class="mt-4 text-[15.5px] leading-7">Create the private GitHub App (it opens your browser and asks which account owns it), then install it on the repos you want agents to touch.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox setup github</pre></div><p class="mt-4 text-[15.5px] leading-7">Store the agent credential and the box sudo password. Both are prompted for and never echoed; secrets stay on the laptop in <code class="font-mono text-[13px] text-ink">~/.config/jauntbox/secrets/</code> and are pushed into the box's memory.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox secrets set CLAUDE_CODE_OAUTH_TOKEN  <span style="color:#7f8fa3"># paste the token from claude setup-token</span>
+<span class="select-none" style="color:#7f8fa3">$ </span>jauntbox secrets set BOX_SUDO_PASSWORD        <span style="color:#7f8fa3"># the password for sudo on the box (not empty)</span>
+<span class="select-none" style="color:#7f8fa3">$ </span>jauntbox secrets list                         <span style="color:#7f8fa3"># names only, never values</span></pre></div><p class="mt-4 text-[15.5px] leading-7">On GitHub Free, rulesets are not available on private repos; <code class="font-mono text-[13px] text-ink">setup github</code> names the repos it cannot protect. See <a href="docs.html#github" class="text-route hover:underline">GitHub and rulesets</a>.</p>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">6</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Start a box</h2>
+<p class="mt-4 text-[15.5px] leading-7"><code class="font-mono text-[13px] text-ink">up</code> returns at once; the box is ready a few minutes later. Add <code class="font-mono text-[13px] text-ink">--wait</code> to block until it is.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox up small
+<span class="select-none" style="color:#7f8fa3">$ </span>jauntbox status      <span style="color:#7f8fa3"># box, tailnet presence, deadline and verdict</span></pre></div>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">7</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Attach and unlock</h2>
+<p class="mt-4 text-[15.5px] leading-7">Bare <code class="font-mono text-[13px] text-ink">jauntbox</code> brings the box up if needed, waits, and attaches your persistent herdr session. It reconnects after network drops.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox</pre></div><p class="mt-4 text-[15.5px] leading-7">Laptop commands that reach the box unlock it automatically. Run an explicit <code class="font-mono text-[13px] text-ink">jauntbox unlock</code> after you change a secret or if <code class="font-mono text-[13px] text-ink">jauntbox status</code> shows the box as locked.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox unlock</pre></div>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">8</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Clone a repo and start your first agent</h2>
+<p class="mt-4 text-[15.5px] leading-7">On the box, git needs your identity (agents commit as you). Then clone a repo under <code class="font-mono text-[13px] text-ink">~/src</code>. <code class="font-mono text-[13px] text-ink">jaunt-repos</code> lists the repos the GitHub App is installed on and clones them.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>git config --global user.name "Your Name"
+<span class="select-none" style="color:#7f8fa3">$ </span>git config --global user.email you@example.com
+<span class="select-none" style="color:#7f8fa3">$ </span>jaunt-repos
+<span class="select-none" style="color:#7f8fa3">$ </span>cd ~/src/&lt;repo&gt;
+<span class="select-none" style="color:#7f8fa3">$ </span>jauntctl agent</pre></div><p class="mt-4 text-[15.5px] leading-7">The first run builds the agent image, which takes minutes (it says so first). Claude then opens right there in the pane, in a container, with only this checkout and a token for this one repo. To watch an agent that works on its own: <code class="font-mono text-[13px] text-ink">jauntctl agent --unattended "one-line prompt"</code> and <code class="font-mono text-[13px] text-ink">jauntctl agent logs --follow</code>.</p><p class="mt-4 text-[15.5px] leading-7">More on <a href="docs.html#agents" class="text-route hover:underline">agents</a> and <a href="docs.html#isolation" class="text-route hover:underline">what they cannot reach</a>.</p>
+</li>
+<li class="relative pl-12 pb-12 last:pb-0">
+  <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
+  <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">9</span>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Finish the day</h2>
+<p class="mt-4 text-[15.5px] leading-7"><code class="font-mono text-[13px] text-ink">jauntbox down</code> wraps up the agents, revokes tokens and deletes the box. The volume with your code stays. Forget it and the box deletes itself at 19:00, after 10 hours, or when idle.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>jauntbox down</pre></div><p class="mt-4 text-[15.5px] leading-7">Tomorrow, <code class="font-mono text-[13px] text-ink">jauntbox</code> builds a fresh box on the same <code class="font-mono text-[13px] text-ink">/home</code>.</p>
+</li>
+      </ol>
+      <div class="mt-16 rounded-2xl border-2 border-ink p-8">
+        <h2 class="font-display text-3xl font-extrabold uppercase leading-none">What next</h2>
+        <p class="mt-3 text-muted">Resize the box, tune limits, understand what the agent container can reach.</p>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <a href="docs.html" class="rounded-md bg-route px-5 py-3 font-semibold hover:opacity-90" style="color: var(--bg)">Read the docs</a>
+          <a href="roadmap.html" class="rounded-md border border-line px-5 py-3 font-semibold hover:border-ink">Roadmap</a>
+          <a href="https://github.com/WA-Systems-EU/jaunt" class="rounded-md border border-line px-5 py-3 font-semibold hover:border-ink">GitHub</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="gutter border-t border-line">
+  <div class="mx-auto max-w-6xl py-8 flex flex-wrap items-center justify-between gap-4 text-sm text-muted">
+    <span><span class="font-display text-lg font-extrabold text-ink">jauntbox</span> · MIT licensed · built by WA Systems · <a href="https://github.com/WA-Systems-EU/jaunt" class="text-route hover:underline">GitHub</a></span>
+    <span class="basis-full text-xs">WA Systems also builds an enterprise edition and a hosted control plane on top of jauntbox, in a separate repository.</span>
+    <span>Sibling of <a href="https://getodysseus.dev" class="text-route hover:underline">Odysseus</a>, the lean Rails deploy tool</span>
+  </div>
+</footer>
+</body>
+</html>

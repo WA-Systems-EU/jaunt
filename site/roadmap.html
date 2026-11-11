@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jauntbox roadmap</title>
+<meta name="description" content="The jauntbox roadmap: which plans are done, what is next and what is further out.">
+<meta property="og:title" content="jauntbox roadmap">
+<meta property="og:description" content="The jauntbox roadmap: which plans are done, what is next and what is further out.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#eef2f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1520" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='3' y='8' width='22' height='16' rx='3' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Cpath d='M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Crect x='3' y='14' width='22' height='3' fill='%23f0b928'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg: 'var(--bg)', surface: 'var(--surface)', ink: 'var(--ink)', muted: 'var(--muted)',
+          line: 'var(--line)', route: 'var(--route)', tag: 'var(--tag)', tagink: 'var(--tag-ink)',
+          board: 'var(--board)', boardink: 'var(--board-ink)', ok: 'var(--ok)', warn: 'var(--warn)'
+        },
+        fontFamily: {
+          display: ['"Big Shoulders Display"', 'Impact', '"Arial Narrow"', 'sans-serif'],
+          sans: ['"Public Sans"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace']
+        }
+      }
+    }
+  }
+</script>
+<style>
+  /* Layout: a travel document. Departures board as hero, then the trip in order: pack, depart, work, return, rebuild. */
+  :root {
+    --bg: #eef2f0;        /* cool off-white, slight green bias */
+    --surface: #ffffff;
+    --ink: #13233a;       /* route-map navy */
+    --muted: #55657a;
+    --line: #c9d3d6;
+    --route: #0d6d68;     /* trail teal: links, primary action */
+    --tag: #f0b928;       /* luggage-tag yellow, used sparingly */
+    --tag-ink: #2a1f00;
+    --board: #101a27;     /* departures board */
+    --board-ink: #f3d36b;
+    --ok: #3fb68b;
+    --warn: #e58f3c;
+    --plan: #6aa9e8;      /* planned work, on the dark board */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1520; --surface: #142131; --ink: #e5ecf2; --muted: #9aaabb; --line: #26384d;
+      --route: #4fc2b9; --tag: #f0b928; --tag-ink: #2a1f00; --board: #070c13; --board-ink: #f3d36b;
+      --ok: #4cc79a; --warn: #f0a052; --plan: #7db6ee; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1520; --surface: #142131; --ink: #e5ecf2; --muted: #9aaabb; --line: #26384d;
+    --route: #4fc2b9; --tag: #f0b928; --tag-ink: #2a1f00; --board: #070c13; --board-ink: #f3d36b;
+    --ok: #4cc79a; --warn: #f0a052; --plan: #7db6ee; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: "Public Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.6; }
+  .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1, h2, h3 { text-wrap: balance; }
+  .eyebrow { font-family: "JetBrains Mono", monospace; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; }
+  .tabnum { font-variant-numeric: tabular-nums; }
+  /* dashed route line between trip stops */
+  .route-line { background-image: linear-gradient(to bottom, var(--route) 50%, transparent 50%); background-size: 2px 10px; background-repeat: repeat-y; }
+  @media (min-width: 900px) {
+    .route-line-h { background-image: linear-gradient(to right, var(--route) 50%, transparent 50%); background-size: 10px 2px; background-repeat: repeat-x; background-position: 0 50%; }
+  }
+  /* luggage tag shape */
+  .tag { clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%); }
+  /* flap animation for the board, from a visible resting state */
+  @keyframes flap { 0% { transform: rotateX(0) } 40% { transform: rotateX(80deg) } 100% { transform: rotateX(0) } }
+  .flap { display: inline-block; animation: flap .6s ease-out both; transform-origin: 50% 60%; }
+  @media (prefers-reduced-motion: reduce) { .flap { animation: none; } }
+  @keyframes eyepulse { 0%, 100% { opacity: .55 } 50% { opacity: 1 } }
+  .scare-eyes { animation: eyepulse 3.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .scare-eyes { animation: none; } }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--route); outline-offset: 3px; border-radius: 4px; }
+  .board-row + .board-row { border-top: 1px dashed rgba(243, 211, 107, .18); }
+  /* status stamps: where each promise stands (on the dark board) */
+  .stamp { display: inline-flex; align-items: center; gap: .35em; font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; white-space: nowrap; vertical-align: middle; }
+  .st-live { color: var(--ok); }
+  .st-next { color: var(--board-ink); }
+  .st-plan { color: var(--plan); }
+  .st-later { color: rgba(232, 237, 243, .5); border-style: dashed; }
+  /* status stamps on light surfaces */
+  .lt.st-live { color: var(--route); }
+  .lt.st-next { color: #8a6400; }
+  .lt.st-plan { color: #2d5f95; }
+  .lt.st-later { color: var(--muted); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lt.st-next { color: var(--tag); } :root:not([data-theme="light"]) .lt.st-plan { color: var(--plan); } }
+  :root[data-theme="dark"] .lt.st-next { color: var(--tag); }
+  :root[data-theme="dark"] .lt.st-plan { color: var(--plan); }
+  /* multi-page additions */
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  [id] { scroll-margin-top: 1rem; }
+</style>
+</head>
+<body>
+<!-- NAV -->
+<header class="gutter border-b border-line">
+  <div class="mx-auto max-w-6xl flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3 md:py-4">
+    <a href="index.html" class="flex items-center gap-2 no-underline text-ink">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+        <rect x="3" y="8" width="22" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="3" y="14" width="22" height="3" fill="var(--tag)"/>
+      </svg>
+      <span class="font-display text-2xl font-extrabold tracking-wide">jauntbox</span>
+    </a>
+    <nav aria-label="Main" class="order-3 basis-full md:order-none md:basis-auto flex flex-wrap items-center gap-x-5 gap-y-0 md:gap-x-7 text-sm text-muted">
+      <a href="index.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Home</a>
+      <a href="quickstart.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Quick start</a>
+      <a href="docs.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Docs</a>
+      <a href="roadmap.html" aria-current="page" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Roadmap</a>
+      <a href="https://github.com/WA-Systems-EU/jaunt" class="py-1 hover:text-ink">GitHub</a>
+    </nav>
+    <a href="quickstart.html" class="text-sm font-semibold rounded-md bg-ink text-bg px-4 py-2 hover:opacity-90">Get started</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="gutter">
+    <div class="mx-auto max-w-6xl py-14 lg:py-20">
+      <p class="eyebrow text-route mb-3">Roadmap</p>
+      <h1 class="font-display text-5xl sm:text-6xl font-extrabold uppercase leading-none max-w-2xl">Where the trip stands.</h1>
+      <p class="mt-4 text-muted max-w-[40rem]">Built in plans, each one reviewed and tested before the next starts. Updated 11 November 2026. Plan files live in <a href="https://github.com/WA-Systems-EU/jaunt/tree/trunk/docs/superpowers/plans" class="text-route hover:underline">docs/superpowers/plans</a>; live test results in <a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/jauntbox/SMOKE.md" class="text-route hover:underline">SMOKE.md</a>.</p>
+      <ul class="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted">
+        <li><span class="stamp lt st-live">Done</span> built, merged and smoke-tested as noted</li>
+        <li><span class="stamp lt st-next">Next</span> planned next</li>
+        <li><span class="stamp lt st-later">Later</span> not planned yet</li>
+      </ul>
+      <ol class="mt-10 grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 01</span><span class="stamp lt st-live">Done</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Walking skeleton</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li><code class="font-mono text-[13px] text-ink">init</code>, <code class="font-mono text-[13px] text-ink">up</code>, <code class="font-mono text-[13px] text-ink">down</code>, <code class="font-mono text-[13px] text-ink">resize</code>, <code class="font-mono text-[13px] text-ink">status</code>, <code class="font-mono text-[13px] text-ink">night</code></li>
+            <li>On-box supervisor, limits and safety net</li>
+            <li>Bare <code class="font-mono text-[13px] text-ink">jauntbox</code> attaches a herdr session with one workspace per repo</li>
+            <li>Volume and Tailscale identity survive every rebuild</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: resize in about 2 minutes, self-delete, night sessions and volume survival passed. Four fixes landed from it.</p>
+          <p class="text-[13px]"><a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/superpowers/plans/2026-11-09-jauntbox-01-walking-skeleton.md" class="text-route hover:underline">Plan 01 on GitHub</a> · <a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/jauntbox/SMOKE.md" class="text-route hover:underline">Smoke test results</a></p>
+        </li>
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 02</span><span class="stamp lt st-live">Done</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Secrets and GitHub</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li><code class="font-mono text-[13px] text-ink">jauntbox setup github</code>: private App, rulesets</li>
+            <li>Single-repo tokens, revoked at teardown</li>
+            <li>Secrets pushed to box memory; locked until unlocked</li>
+            <li>On the box, commands answer to <code class="font-mono text-[13px] text-ink">jauntctl</code></li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: App setup, locked box after reboot, permission drift, token revocation and a clean volume passed. Six fixes landed from it.</p>
+          <p class="text-[13px]"><a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/superpowers/plans/2026-11-10-jauntbox-02-secrets-and-github.md" class="text-route hover:underline">Plan 02 on GitHub</a> · <a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/jauntbox/SMOKE.md" class="text-route hover:underline">Smoke test results</a></p>
+        </li>
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03a</span><span class="stamp lt st-live">Done</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Privilege split</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li>Root ssh from the laptop for jauntbox's own steps</li>
+            <li>Password sudo for you; passwordless only for a few <code class="font-mono text-[13px] text-ink">jauntctl</code> commands</li>
+            <li>Your own rootless Docker and Compose, no <code class="font-mono text-[13px] text-ink">docker</code> group</li>
+            <li>Metadata endpoint reachable only by root</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 11 Nov: root ssh install, the sudo split, rootless <code class="font-mono text-[13px] text-ink">docker run</code> and Compose, and the metadata block passed. One fix landed from it.</p>
+          <p class="text-[13px]"><a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/superpowers/plans/2026-11-10-jauntbox-03a-privilege-split.md" class="text-route hover:underline">Plan 03a on GitHub</a> · <a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/jauntbox/SMOKE.md" class="text-route hover:underline">Smoke test results</a></p>
+        </li>
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03</span><span class="stamp lt st-live">Done</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Agents in containers</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li><code class="font-mono text-[13px] text-ink">jauntctl agent</code> inside a repo checkout in a herdr pane, interactive or unattended</li>
+            <li>One container per run, one repo's token, no Docker socket</li>
+            <li>Metadata endpoint, tailnet and the box itself blocked</li>
+            <li>Wrap-up: the agent writes <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code> and pushes before the box goes down</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Built and merged. First live smoke on 11 Nov: image build, Claude in the pane and the isolation checks passed. Run handling, wrap-up and unattended runs are still to be smoke-tested.</p>
+          <p class="text-[13px]"><a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/superpowers/plans/2026-11-10-jauntbox-03-agent-containers.md" class="text-route hover:underline">Plan 03 on GitHub</a> · <a href="https://github.com/WA-Systems-EU/jaunt/blob/trunk/docs/jauntbox/SMOKE.md" class="text-route hover:underline">Smoke test results</a></p>
+        </li>
+        <li class="min-w-0 rounded-xl border-2 p-6 flex flex-col gap-3 bg-surface" style="border-color: var(--tag)">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 04</span><span class="stamp lt st-next">Next</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Services and project images</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li>Connect agents to your project's docker compose services</li>
+            <li>The agent reaches databases by name but cannot start, stop or inspect containers</li>
+            <li>Project images</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Planned next.</p>
+          <p class="text-[13px] text-muted">No plan file yet.</p>
+        </li>
+        <li class="min-w-0 rounded-xl border border-dashed border-line p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">After</span><span class="stamp lt st-later">Later</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Further out</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li>Dotfiles in containers</li>
+            <li>A clearer terminal UI: progress steps, colours, icons</li>
+            <li>tmux, Gitea/Forgejo, Headscale and NetBird adapters</li>
+            <li>arm64 and other flavours</li>
+            <li>A prebuilt base image for faster boots</li>
+            <li>Packaged installs</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Teams and fleets are a separate project.</p>
+        </li>
+      </ol>
+      <p class="mt-10 text-sm text-muted">Safety ideas on the list but not planned yet: an outbound allowlist (model API, registries and git host only), pinned agent tools with a deny-first permission config, and checks of the home volume's rc files and git hooks on mount.</p>
+      <div class="mt-10 flex flex-wrap gap-3">
+        <a href="quickstart.html" class="rounded-md bg-route px-5 py-3 font-semibold hover:opacity-90" style="color: var(--bg)">Get started</a>
+        <a href="docs.html" class="rounded-md border border-line px-5 py-3 font-semibold hover:border-ink">Read the docs</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="gutter border-t border-line">
+  <div class="mx-auto max-w-6xl py-8 flex flex-wrap items-center justify-between gap-4 text-sm text-muted">
+    <span><span class="font-display text-lg font-extrabold text-ink">jauntbox</span> · MIT licensed · built by WA Systems · <a href="https://github.com/WA-Systems-EU/jaunt" class="text-route hover:underline">GitHub</a></span>
+    <span class="basis-full text-xs">WA Systems also builds an enterprise edition and a hosted control plane on top of jauntbox, in a separate repository.</span>
+    <span>Sibling of <a href="https://getodysseus.dev" class="text-route hover:underline">Odysseus</a>, the lean Rails deploy tool</span>
+  </div>
+</footer>
+</body>
+</html>
