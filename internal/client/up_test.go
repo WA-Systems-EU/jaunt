@@ -224,7 +224,7 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 		t.Fatalf("order = %v", r.order)
 	}
 	want := "[" + installCmd("alice") + "]"
-	if r.cmds[0] != want || installCmd("alice") != "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && systemctl enable --now jauntbox-agent-net.service && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true && runuser -u alice -- git config --global diff.ignoreSubmodules all && runuser -u alice -- git config --global status.submoduleSummary false && runuser -u alice -- git config --global submodule.recurse false && runuser -u alice -- git config --global core.fsmonitor false" {
+	if r.cmds[0] != want || installCmd("alice") != "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true && runuser -u alice -- git config --global diff.ignoreSubmodules all && runuser -u alice -- git config --global status.submoduleSummary false && runuser -u alice -- git config --global submodule.recurse false && runuser -u alice -- git config --global core.fsmonitor false && { systemctl enable --now jauntbox-agent-net.service || true; }" {
 		t.Fatalf("cmd = %q", r.cmds[0])
 	}
 	assertRemoteUnused(t, d)
@@ -548,7 +548,6 @@ func TestPushBinaryRootRefusedFailsFast(t *testing.T) {
 func TestInstallCmdSetsHostGitGuards(t *testing.T) {
 	cmd := installCmd("alice")
 	for _, p := range []string{
-		"systemctl enable --now jauntbox-agent-net.service",
 		"runuser -u alice -- git config --global diff.ignoreSubmodules all",
 		"runuser -u alice -- git config --global status.submoduleSummary false",
 		"runuser -u alice -- git config --global submodule.recurse false",
@@ -557,5 +556,13 @@ func TestInstallCmdSetsHostGitGuards(t *testing.T) {
 		if !strings.Contains(cmd, p) {
 			t.Errorf("installCmd lacks %q: %s", p, cmd)
 		}
+	}
+	const step = "{ systemctl enable --now jauntbox-agent-net.service || true; }"
+	i := strings.Index(cmd, step)
+	if i < 0 {
+		t.Fatalf("agent-net step must be best-effort (|| true): %s", cmd)
+	}
+	if !strings.HasSuffix(cmd, step) || i < strings.Index(cmd, "core.fsmonitor false") {
+		t.Fatalf("agent-net step must come last, after the git guards: %s", cmd)
 	}
 }

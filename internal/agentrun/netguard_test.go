@@ -18,10 +18,10 @@ func (f *fakeRun) run(_ context.Context, name string, args ...string) error {
 	call := append([]string{name}, args...)
 	f.calls = append(f.calls, call)
 	joined := strings.Join(args, " ")
-	if f.failC && strings.HasPrefix(joined, "-C ") {
+	if f.failC && strings.HasPrefix(joined, "-w -C ") {
 		return errors.New("no such rule")
 	}
-	if f.failI && strings.HasPrefix(joined, "-I ") {
+	if f.failI && strings.HasPrefix(joined, "-w -I ") {
 		return errors.New("iptables broke")
 	}
 	return nil
@@ -33,12 +33,12 @@ func TestNetGuardInsertsMissingRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"iptables", "-C", "DOCKER-USER", "-d", "169.254.169.254/32", "-j", "DROP"},
-		{"iptables", "-I", "DOCKER-USER", "1", "-d", "169.254.169.254/32", "-j", "DROP"},
-		{"iptables", "-C", "DOCKER-USER", "-d", "100.64.0.0/10", "-j", "DROP"},
-		{"iptables", "-I", "DOCKER-USER", "1", "-d", "100.64.0.0/10", "-j", "DROP"},
-		{"ip6tables", "-C", "DOCKER-USER", "-d", "fd7a:115c:a1e0::/48", "-j", "DROP"},
-		{"ip6tables", "-I", "DOCKER-USER", "1", "-d", "fd7a:115c:a1e0::/48", "-j", "DROP"},
+		{"iptables", "-w", "-C", "DOCKER-USER", "-d", "169.254.169.254/32", "-j", "DROP"},
+		{"iptables", "-w", "-I", "DOCKER-USER", "1", "-d", "169.254.169.254/32", "-j", "DROP"},
+		{"iptables", "-w", "-C", "DOCKER-USER", "-d", "100.64.0.0/10", "-j", "DROP"},
+		{"iptables", "-w", "-I", "DOCKER-USER", "1", "-d", "100.64.0.0/10", "-j", "DROP"},
+		{"ip6tables", "-w", "-C", "DOCKER-USER", "-d", "fd7a:115c:a1e0::/48", "-j", "DROP"},
+		{"ip6tables", "-w", "-I", "DOCKER-USER", "1", "-d", "fd7a:115c:a1e0::/48", "-j", "DROP"},
 	}
 	if !reflect.DeepEqual(f.calls, want) {
 		t.Fatalf("calls = %v\nwant %v", f.calls, want)
@@ -54,7 +54,7 @@ func TestNetGuardIdempotent(t *testing.T) {
 		t.Fatalf("calls = %v", f.calls)
 	}
 	for _, c := range f.calls {
-		if c[1] != "-C" {
+		if c[2] != "-C" {
 			t.Fatalf("unexpected non-check call %v", c)
 		}
 	}

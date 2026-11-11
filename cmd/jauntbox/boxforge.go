@@ -99,7 +99,11 @@ func boxOnlyCmds() []*cobra.Command {
 				return errors.New("run with sudo")
 			}
 			return agentrun.EnsureNetGuard(cmd.Context(), func(ctx context.Context, name string, args ...string) error {
-				return exec.CommandContext(ctx, name, args...).Run()
+				out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+				}
+				return nil
 			})
 		},
 	}

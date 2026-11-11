@@ -24,11 +24,11 @@ var guardRules = []guardRule{
 // missing ones at the top. An insert failure is returned: callers fail closed.
 func EnsureNetGuard(ctx context.Context, run Runner) error {
 	for _, r := range guardRules {
-		check := append([]string{"-C", "DOCKER-USER"}, r.args...)
+		check := append([]string{"-w", "-C", "DOCKER-USER"}, r.args...)
 		if run(ctx, r.bin, check...) == nil {
 			continue
 		}
-		ins := append([]string{"-I", "DOCKER-USER", "1"}, r.args...)
+		ins := append([]string{"-w", "-I", "DOCKER-USER", "1"}, r.args...)
 		if err := run(ctx, r.bin, ins...); err != nil {
 			return err
 		}
