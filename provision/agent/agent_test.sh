@@ -133,9 +133,26 @@ eq fbtmp2-not-pushed "$(git -C "$c/origin.git" rev-parse feat/x)" "$before"
 [ ! -e "$JAUNT_WORK/CONTINUATION.md" ] || bad "fbtmp2-note-written"
 # --- unattended
 mk un
-out=$(JAUNT_PROMPT= sh "$here/jaunt-unattended" 2>&1); rc=$?
+out=$(sh "$here/jaunt-unattended" 2>&1); rc=$?
 [ "$rc" -ne 0 ] || bad "unattended-noprompt rc"
-case "$out" in *JAUNT_PROMPT*) ;; *) bad "unattended-noprompt msg: $out";; esac
+case "$out" in *"no prompt"*) ;; *) bad "unattended-noprompt msg: $out";; esac
+: >"$JAUNT_RUN_DIR/prompt"
+out=$(sh "$here/jaunt-unattended" 2>&1); rc=$?
+[ "$rc" -ne 0 ] || bad "unattended-emptyprompt rc"
+# a fake claude records its arguments and the prompt it reads on stdin
+mkdir -p "$tmp/fakebin"
+cat >"$tmp/fakebin/claude" <<'S'
+#!/bin/sh
+echo "$*" >"$JAUNT_TMP/claude-args"
+cat >"$JAUNT_TMP/claude-stdin"
+pwd >"$JAUNT_TMP/claude-cwd"
+S
+chmod +x "$tmp/fakebin/claude"
+printf 'first line\n\n  second "quoted" $HOME line\n-dash\n' >"$JAUNT_RUN_DIR/prompt"
+PATH="$tmp/fakebin:$PATH" sh "$here/jaunt-unattended" || bad "unattended rc"
+cmp -s "$JAUNT_RUN_DIR/prompt" "$JAUNT_TMP/claude-stdin" || bad "unattended-prompt not byte-for-byte"
+eq unattended-cwd "$(cat "$JAUNT_TMP/claude-cwd")" "$JAUNT_WORK"
+case "$(cat "$JAUNT_TMP/claude-args")" in *first*) bad "unattended-prompt in argv";; esac
 
 # --- init
 mk init

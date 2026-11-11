@@ -612,17 +612,48 @@ func TestStartUnattendedPassesPrompt(t *testing.T) {
 	if args[len(args)-1] != "jaunt-unattended" || args[len(args)-2] != agentimage.Tag() {
 		t.Fatalf("args %q", args)
 	}
-	if envLines(e.d.envAtRun)["JAUNT_PROMPT"] != "fix the flaky test" {
-		t.Fatalf("env %s", e.d.envAtRun)
+	if strings.Contains(e.d.envAtRun, "fix the flaky test") || strings.Contains(e.d.envAtRun, "JAUNT_PROMPT") {
+		t.Fatalf("prompt leaked into the env file: %s", e.d.envAtRun)
+	}
+	got, err := os.ReadFile(filepath.Join(e.s.Paths.RunsTmp, r.ID, "prompt"))
+	if err != nil || string(got) != "fix the flaky test" {
+		t.Fatalf("prompt file %q, %v", got, err)
 	}
 	if r.Mode != "unattended" || r.Prompt != "fix the flaky test" {
 		t.Fatalf("run %+v", r)
 	}
-	e2 := newTenv(t, "ref: refs/heads/feat/x\n")
-	if _, err := e2.s.Start(context.Background(), StartOpts{Dir: e2.root, Prompt: "a\nJAUNT_SWITCH_TO=main"}); err == nil {
-		t.Fatal("multi-line prompt accepted")
+}
+
+func TestStartUnattendedMultiLinePrompt(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	prompt := "line one\r\n\nJAUNT_SWITCH_TO=main\n\tindented \u00e9\n"
+	r, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Prompt: prompt})
+	if err != nil {
+		t.Fatal(err)
 	}
-	e2.assertNothingCreated(t)
+	f := filepath.Join(e.s.Paths.RunsTmp, r.ID, "prompt")
+	got, err := os.ReadFile(f)
+	if err != nil || string(got) != prompt {
+		t.Fatalf("prompt file %q, %v", got, err)
+	}
+	if fi, _ := os.Stat(f); fi.Mode().Perm() != 0o640 {
+		t.Fatalf("mode %v", fi.Mode())
+	}
+	if strings.Contains(e.d.envAtRun, "JAUNT_SWITCH_TO") || strings.Contains(e.d.envAtRun, "line one") {
+		t.Fatalf("env file holds prompt text: %s", e.d.envAtRun)
+	}
+}
+
+func TestStartPromptSizeCap(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	if _, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Prompt: strings.Repeat("x", MaxPrompt+1)}); err == nil || !strings.Contains(err.Error(), "too long") {
+		t.Fatalf("err %v", err)
+	}
+	e.assertNothingCreated(t)
+	e2 := newTenv(t, "ref: refs/heads/feat/x\n")
+	if _, err := e2.s.Start(context.Background(), StartOpts{Dir: e2.root, Prompt: strings.Repeat("x", MaxPrompt)}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestStartLocked(t *testing.T) {

@@ -171,8 +171,8 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   lets interactive Claude skip permission prompts; unattended runs always do (the
   container is the sandbox). herdr does not see Claude's working or idle status
   through `docker exec`.
-- **Unattended.** The prompt must be a single line for now (multi-line prompts are
-  refused). `jauntctl agent logs --follow` watches the run. `logs` reads any of your
+- **Unattended.** The prompt can be any length up to 64 KiB, several lines
+  included. `jauntctl agent logs --follow` watches the run. `logs` reads any of your
   own runs, finished or not; without an id it shows the newest run of the current
   checkout.
 - **What a container holds.** Only the checkout (`/work`), a read-only per-run state

@@ -1,10 +1,13 @@
 #!/bin/sh
-# Runs Claude Code non-interactively in /work for an unattended run.
+# Runs Claude Code non-interactively in /work for an unattended run. The
+# prompt (any length, any number of lines) is a file in the run dir; Claude
+# reads it from stdin, so quoting and argument limits never touch it.
 work=${JAUNT_WORK:-/work}
 logd=${JAUNT_LOG_DIR:-/var/log/jauntbox}
-[ -n "${JAUNT_PROMPT:-}" ] || { echo "jaunt-unattended: JAUNT_PROMPT is not set" >&2; exit 2; }
+prompt=${JAUNT_RUN_DIR:-/run/jauntbox-run}/prompt
+[ -s "$prompt" ] || { echo "jaunt-unattended: no prompt: $prompt is missing or empty" >&2; exit 2; }
 mkdir -p "$logd"
 cd "$work" || exit 1
-claude -p "$JAUNT_PROMPT" --output-format stream-json --verbose --dangerously-skip-permissions \
-	>"$logd/claude.jsonl" 2>"$logd/claude.err"
+claude -p --output-format stream-json --verbose --dangerously-skip-permissions \
+	<"$prompt" >"$logd/claude.jsonl" 2>"$logd/claude.err"
 exit $?

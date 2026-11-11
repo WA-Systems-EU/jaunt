@@ -39,6 +39,9 @@ const (
 	// MaxRunMax bounds a run's --max (the same bound as the config's
 	// agent.max_duration).
 	MaxRunMax = 24 * time.Hour
+
+	// MaxPrompt bounds an unattended prompt, in bytes.
+	MaxPrompt = 64 << 10
 )
 
 // CheckMax validates a per-run --max.
@@ -272,8 +275,11 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	if err != nil {
 		return run, err
 	}
-	if !singleLine(o.Prompt) {
-		return run, errors.New("the prompt must be a single line")
+	if len(o.Prompt) > MaxPrompt {
+		return run, fmt.Errorf("the prompt is too long (%d bytes, at most %d)", len(o.Prompt), MaxPrompt)
+	}
+	if strings.ContainsRune(o.Prompt, 0) {
+		return run, errors.New("the prompt must not contain NUL bytes")
 	}
 	if o.Branch != "" && !validBranch(o.Branch) {
 		return run, fmt.Errorf("invalid branch name %q", o.Branch)
@@ -442,6 +448,14 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 		return Run{}, err
 	}
 
+	// The prompt may span lines, which an env file cannot hold: it goes in
+	// a file next to the token (read-only mount at /run/jauntbox-run).
+	if mode == ModeUnattended {
+		if err := writeNew(filepath.Join(tmpDir, "prompt"), []byte(o.Prompt), 0o640, -1, s.GID); err != nil {
+			return Run{}, err
+		}
+	}
+
 	labels := map[string]string{"jauntbox.agent": "1", "jauntbox.run": run.ID, "jauntbox.repo": run.Repo}
 	if err := s.Docker.NetworkCreate(ctx, name, labels); err != nil {
 		return Run{}, fmt.Errorf("create network %s: %w", name, err)
@@ -454,9 +468,6 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 		kv{"GIT_COMMITTER_NAME", gitName}, kv{"GIT_COMMITTER_EMAIL", gitEmail})
 	if switchTo != "" {
 		env = append(env, kv{"JAUNT_SWITCH_TO", switchTo})
-	}
-	if mode == ModeUnattended {
-		env = append(env, kv{"JAUNT_PROMPT", o.Prompt})
 	}
 	var envb strings.Builder
 	for _, e := range env {
