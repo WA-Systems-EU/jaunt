@@ -1,7 +1,5 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive DISABLE_AUTOUPDATER=1
-# names for the run's arbitrary uid; jaunt-agent-init writes these files
-ENV LD_PRELOAD=libnss_wrapper.so NSS_WRAPPER_PASSWD=/tmp/jauntbox-passwd NSS_WRAPPER_GROUP=/tmp/jauntbox-group
 ENV MISE_TRUSTED_CONFIG_PATHS=/work PATH=/home/agent/.local/share/mise/shims:$PATH
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates curl jq ripgrep less vim-tiny build-essential tini libnss-wrapper \
@@ -30,5 +28,8 @@ RUN chmod 0644 /etc/claude-code/managed-settings.json
 COPY jaunt-agent-init jaunt-git-credential jaunt-hook jaunt-unattended jaunt-wrapup-fallback /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/jaunt-*
 WORKDIR /work
+# names for the run's arbitrary uid; jaunt-agent-init writes these files (set after the last RUN so the build is unaffected)
+# A docker exec before init has written the files sees no names (harmless).
+ENV LD_PRELOAD=libnss_wrapper.so NSS_WRAPPER_PASSWD=/tmp/jauntbox-passwd NSS_WRAPPER_GROUP=/tmp/jauntbox-group
 ENTRYPOINT ["/usr/local/bin/jaunt-agent-init"]
 CMD ["sleep","infinity"]

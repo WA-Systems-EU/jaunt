@@ -11,6 +11,7 @@ say() { echo "jaunt-agent-init: $*" >>"$log"; }
 # Best effort: a failure here never stops init.
 uid=$(id -u); gid=$(id -g)
 names() { # names <src> <dest> <field-3 id> <line to add if absent>
+	[ -r "$1" ] || return 1
 	n_t=$(mktemp "$tmpd/.jauntbox-names.XXXXXX") || return 1
 	{
 		cat "$1" 2>/dev/null
