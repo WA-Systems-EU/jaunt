@@ -129,7 +129,7 @@ func waitProvisioned(ctx context.Context, d Deps, host string) error {
 			announced = true
 		}
 		if !nowFn().Before(deadline) {
-			return fmt.Errorf("%s is not provisioned after %s (herdr missing); look with `jauntbox ssh` and `sudo cloud-init status --long`", host, provisionWait)
+			return fmt.Errorf("%s is not provisioned after %s (herdr missing); look with `jauntbox ssh` and `cloud-init status --long`", host, provisionWait)
 		}
 		if err := sleepFn(ctx, provisionPoll); err != nil {
 			return err

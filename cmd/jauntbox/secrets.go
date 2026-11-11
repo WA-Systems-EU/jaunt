@@ -42,7 +42,7 @@ func secretsCmd(cfgPath *string) *cobra.Command {
 				return err
 			}
 			if val == "" {
-				return errors.New("empty value")
+				return fmt.Errorf("empty value for %s", args[0])
 			}
 			if err := (secrets.Store{Dir: secrets.DirFor(*cfgPath)}).SetEnv(args[0], val); err != nil {
 				return err

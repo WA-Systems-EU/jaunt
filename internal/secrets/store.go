@@ -121,6 +121,9 @@ func (s Store) SetEnv(key, value string) error {
 	if strings.ContainsAny(value, "\r\n") {
 		return fmt.Errorf("the value for %s must be a single line", key)
 	}
+	if key == BoxSudoPassword && value == "" {
+		return fmt.Errorf("%s must not be empty", key)
+	}
 	b, err := s.Get(AgentEnvFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

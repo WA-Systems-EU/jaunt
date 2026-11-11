@@ -7,8 +7,10 @@ import (
 	"os/exec"
 )
 
-// ErrRootSSH is matched (errors.Is) by every error that comes back from a
-// Deps.Root call. Root steps are never retried through Deps.Remote (the box
+// ErrRootSSH is matched (errors.Is) by a Deps.Root failure that looks like a
+// refused or unreachable root login: ssh's own exit status 255 or an error
+// with no exit status at all, and every Copy error. Any other remote exit
+// status is reported as a command failure, not ErrRootSSH. Root steps are never retried through Deps.Remote (the box
 // user has no sudo for them), so the only remedy is the tailnet policy.
 var ErrRootSSH = errors.New("root ssh failed")
 
@@ -23,9 +25,10 @@ func (e *rootSSHError) Error() string {
 func (e *rootSSHError) Unwrap() error        { return e.err }
 func (e *rootSSHError) Is(target error) bool { return target == ErrRootSSH }
 
-// rootErr wraps err (nil stays nil). The Runner interface cannot tell a
-// refused root login from a failing remote command, so every error is wrapped
-// and the underlying error stays in the chain.
+// rootErr wraps err as ErrRootSSH (nil stays nil) and keeps the underlying
+// error in the chain. Run/RunInput go through rootCmdErr, which only wraps
+// the 255/no-exit-status cases; rootCopy wraps every error because a failed
+// copy carries no remote exit status to tell the cases apart.
 func rootErr(d Deps, err error) error {
 	if err == nil {
 		return nil

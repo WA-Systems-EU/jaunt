@@ -215,7 +215,7 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 		t.Fatalf("order = %v", r.order)
 	}
 	want := "[" + installCmd("alice") + "]"
-	if r.cmds[0] != want || installCmd("alice") != "install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true" {
+	if r.cmds[0] != want || installCmd("alice") != "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true" {
 		t.Fatalf("cmd = %q", r.cmds[0])
 	}
 	assertRemoteUnused(t, d)
@@ -441,6 +441,9 @@ func TestSupervisorCheckNeedsJauntctl(t *testing.T) {
 
 func TestInstallCmdRunsAsRoot(t *testing.T) {
 	cmd := installCmd("alice")
+	if !strings.HasPrefix(cmd, "cd / && install ") {
+		t.Fatalf("installCmd must start with cd /: %q", cmd)
+	}
 	if strings.Contains(cmd, "sudo") {
 		t.Fatalf("installCmd must not use sudo: %q", cmd)
 	}
@@ -476,6 +479,7 @@ func TestRootSSHFailureNamesACLSnippet(t *testing.T) {
 		d, p, _, r, _, _ := newDeps(t)
 		withSecrets(t, &d, "agents.env", "K=v\n")
 		withBox(p)
+		p.waitErr = errors.New("still there") // down: the box is not already gone
 		r.err, r.inputErr = cause, cause
 		osExecutable = func() (string, error) { return "/bin/true", nil }
 		var err error
@@ -501,5 +505,33 @@ func assertRemoteUnused(t *testing.T, d Deps) {
 	t.Helper()
 	if rem := d.Remote.(*fakeRemote); len(rem.order) != 0 {
 		t.Fatalf("Remote received calls (no sudo fallback allowed): %v", rem.cmds)
+	}
+}
+
+type rootRefusedRemote struct {
+	fakeRemote
+	copies int
+}
+
+func (r *rootRefusedRemote) Copy(context.Context, string, string, string) error {
+	r.copies++
+	return mkExit(255)
+}
+
+func TestPushBinaryRootRefusedFailsFast(t *testing.T) {
+	oldP, oldR := pollInterval, rootSSHWait
+	pollInterval, rootSSHWait = time.Millisecond, 20*time.Millisecond
+	defer func() { pollInterval, rootSSHWait = oldP, oldR }()
+	d, _, _, _, _, _ := newDeps(t)
+	r := &rootRefusedRemote{}
+	d.Root = r
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	start := time.Now()
+	err := PushBinary(context.Background(), d, time.Hour)
+	if !errors.Is(err, ErrRootSSH) || !strings.Contains(err.Error(), "acl-snippet") {
+		t.Fatalf("err = %v", err)
+	}
+	if time.Since(start) > 5*time.Second || r.copies < 2 {
+		t.Fatalf("took %v, copies %d", time.Since(start), r.copies)
 	}
 }

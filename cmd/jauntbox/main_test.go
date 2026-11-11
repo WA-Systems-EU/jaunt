@@ -160,6 +160,9 @@ func TestSecretsListNeverPrintsValues(t *testing.T) {
 	if _, err := run("\n", "secrets", "set", "EMPTY"); err == nil {
 		t.Fatal("empty value accepted")
 	}
+	if _, err := run("\n", "secrets", "set", "BOX_SUDO_PASSWORD"); err == nil || !strings.Contains(err.Error(), "BOX_SUDO_PASSWORD") {
+		t.Fatalf("empty box password: %v", err)
+	}
 }
 
 func TestSecretsAreClientOnly(t *testing.T) {

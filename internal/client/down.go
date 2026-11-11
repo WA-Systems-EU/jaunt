@@ -10,6 +10,10 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 )
 
+// goneCheckWait is how long Down waits to see whether the box is already gone
+// before reporting a refused root ssh login.
+var goneCheckWait = 30 * time.Second
+
 // Down deletes the box. Unless force is set it first asks the box to wrap up
 // and delete itself, then waits up to WrapUpGrace+3m; if the box cannot be
 // reached (or does not disappear in time) the box is deleted through the
@@ -39,6 +43,16 @@ func Down(ctx context.Context, d Deps, force bool) error {
 		}
 		if errors.Is(runErr, ErrRootSSH) {
 			if online, oerr := d.Mesh.DeviceOnline(ctx, hostname(d.Cfg.User)); oerr != nil || online {
+				// The ssh session may have been cut by the box deleting itself: look briefly.
+				gctx, cancel := context.WithTimeout(ctx, goneCheckWait)
+				gone := d.Prov.WaitDeleted(gctx, box.ID)
+				cancel()
+				if gone == nil {
+					return nil
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				return fmt.Errorf("%w\n(`jauntbox down --force` deletes the box without the wrap-up)", runErr)
 			}
 		}

@@ -114,3 +114,14 @@ func TestBundleEmptyDir(t *testing.T) {
 		t.Fatalf("%v %v", b, err)
 	}
 }
+
+func TestSetEnvRefusesEmptyBoxSudoPassword(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	err := s.SetEnv(BoxSudoPassword, "")
+	if err == nil || !strings.Contains(err.Error(), BoxSudoPassword) {
+		t.Fatalf("err = %v", err)
+	}
+	if keys, _ := s.EnvKeys(); len(keys) != 0 {
+		t.Fatalf("stored: %v", keys)
+	}
+}

@@ -212,15 +212,28 @@ func TestDownGracefulTimeoutForcesDelete(t *testing.T) {
 func TestDownRootRefusedOnOnlineBoxFailsWithFix(t *testing.T) {
 	d, p, _, r, _, _ := newDeps(t)
 	withBox(p) // online by default
+	p.waitErr = errors.New("still there")
 	r.err = exitErr(t, 255)
 	err := Down(context.Background(), d, false)
 	if !errors.Is(err, ErrRootSSH) || !strings.Contains(err.Error(), "jauntbox acl-snippet") || !strings.Contains(err.Error(), "jauntbox down --force") {
 		t.Fatalf("err = %v", err)
 	}
-	if p.count("delete") != 0 || p.count("waitdeleted") != 0 {
+	if p.count("delete") != 0 {
 		t.Fatalf("deleted despite online box: %v", p.calls)
 	}
 	assertRemoteUnused(t, d)
+}
+
+func TestDownRootRefusedButBoxAlreadyGoneSucceeds(t *testing.T) {
+	d, p, _, r, _, _ := newDeps(t)
+	withBox(p) // online by default; WaitDeleted succeeds: the box is gone
+	r.err = exitErr(t, 255)
+	if err := Down(context.Background(), d, false); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if p.count("delete") != 0 || p.count("waitdeleted") != 1 {
+		t.Fatalf("calls = %v", p.calls)
+	}
 }
 
 func TestRootErrorClassification(t *testing.T) {

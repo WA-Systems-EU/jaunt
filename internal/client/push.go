@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -11,14 +12,22 @@ var pollInterval = 10 * time.Second
 
 var osExecutable = os.Executable
 
+// rootSSHWait bounds how long PushBinary keeps retrying a refused root ssh
+// login. Unlike a box that is still provisioning, a tailnet policy that
+// denies root will not fix itself, so fail soon and name the fix.
+var rootSSHWait = 60 * time.Second
+
+var pushErr = func() *os.File { return os.Stderr }
+
 // DefaultPushWait is how long PushBinary waits for the box to join the tailnet.
 const DefaultPushWait = 15 * time.Minute
 
 // installCmd runs as root on the box. The git settings belong to the box user,
 // so they run as that user.
 func installCmd(user string) string {
+	// cd / first: git exits 128 when the cwd (/root over ssh) is unreadable for the user.
 	git := "runuser -u " + user + " -- git config --global "
-	return "install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && " +
+	return "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && " +
 		git + "--replace-all credential.https://github.com.helper '' && " +
 		git + "--add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && " +
 		git + "credential.https://github.com.useHttpPath true"
@@ -105,8 +114,11 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 		case <-time.After(pollInterval):
 		}
 	}
-	// Right after the tailnet join the engineer user may not exist yet (dev-setup.sh
-	// creates it), so ssh/scp fail until then: retry to the same deadline.
+	// Right after the tailnet join dev-setup.sh may not have created the box user
+	// yet, so the runuser steps fail until then: retry those to the same deadline.
+	// A refused root ssh login is different (stale tailnet policy): it gets its
+	// own short budget and the first error is printed while it retries.
+	var rootSince time.Time
 	for {
 		err := rootCopy(ctx, d, bin, "/tmp/jauntbox")
 		if err != nil {
@@ -116,6 +128,17 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 		} else {
 			tryUnlock(ctx, d)
 			return nil
+		}
+		if errors.Is(err, ErrRootSSH) {
+			if rootSince.IsZero() {
+				rootSince = time.Now()
+				fmt.Fprintf(pushErr(), "%v\nretrying for up to %s\n", err, rootSSHWait)
+			}
+			if time.Since(rootSince) > rootSSHWait {
+				return err
+			}
+		} else {
+			rootSince = time.Time{}
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("%s joined the tailnet but is not accepting ssh within %s: %w", host, wait, err)
