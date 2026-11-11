@@ -261,3 +261,23 @@ func TestRecorderCloseAndEnd(t *testing.T) {
 		t.Errorf("got %q want %q", r.Events, want)
 	}
 }
+
+func TestPlainCloseThreeOpen(t *testing.T) {
+	var buf bytes.Buffer
+	clk := &fakeClock{t: time.Unix(0, 0)}
+	s := NewPlain(&buf, clk.now)
+	a, b, c := s.Start("A"), s.Start("B"), s.Start("C")
+	clk.adv(2 * time.Second)
+	s.Close()
+	want := "– A 2.0s interrupted\n– B 2.0s interrupted\n– C 2.0s interrupted\n"
+	if buf.String() != want {
+		t.Fatalf("got %q want %q", buf.String(), want)
+	}
+	b.Done()
+	a.Skip("x")
+	c.Fail(errors.New("late"), "")
+	s.Close()
+	if buf.String() != want {
+		t.Errorf("later calls printed: %q", buf.String())
+	}
+}

@@ -9,10 +9,11 @@ import (
 )
 
 type plain struct {
-	mu   sync.Mutex
-	w    io.Writer
-	now  func() time.Time
-	open []*plainStep // started, not yet finished, in start order
+	mu     sync.Mutex
+	w      io.Writer
+	now    func() time.Time
+	open   []*plainStep // started, not yet finished, in start order
+	closed bool
 }
 
 // NewPlain returns a renderer that prints one line per finished step, with no
@@ -66,9 +67,15 @@ func (p *plain) End(ok bool, summary string, lines ...string) {
 func (p *plain) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, s := range p.open {
+	if p.closed {
+		return
+	}
+	p.closed = true
+	pending := append([]*plainStep(nil), p.open...) // writeLocked edits p.open
+	for _, s := range pending {
 		s.writeLocked("–", true, "interrupted")
 	}
+	p.open = nil
 }
 
 type plainStep struct {
