@@ -113,13 +113,24 @@ func (c *CLI) do(ctx context.Context, args ...string) ([]byte, error) {
 	return out, err
 }
 
-func notFound(err error) bool {
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), "no such")
+// notFound reports whether a failed docker command's stderr is the daemon
+// saying the object does not exist (and not, say, a missing socket: "connect:
+// no such file or directory").
+func notFound(err error, stderr []byte, kinds ...string) bool {
+	if err == nil {
+		return false
+	}
+	for _, k := range kinds {
+		if bytes.Contains(stderr, []byte("No such "+k)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *CLI) ImageExists(ctx context.Context, tag string) (bool, error) {
-	_, err := c.do(ctx, "image", "inspect", "--format", "{{.Id}}", tag)
-	if notFound(err) {
+	_, stderr, err := c.run(ctx, nil, "image", "inspect", "--format", "{{.Id}}", tag)
+	if notFound(err, stderr, "image", "object") {
 		return false, nil
 	}
 	return err == nil, err
@@ -161,8 +172,8 @@ func (c *CLI) Exec(ctx context.Context, container, user string, args ...string) 
 const inspectFormat = `{{.State.Running}} {{.State.ExitCode}}{{range .NetworkSettings.Networks}} {{.IPAddress}}{{end}}`
 
 func (c *CLI) Inspect(ctx context.Context, name string) (State, error) {
-	out, err := c.do(ctx, "container", "inspect", "--format", inspectFormat, name)
-	if notFound(err) {
+	out, stderr, err := c.run(ctx, nil, "container", "inspect", "--format", inspectFormat, name)
+	if notFound(err, stderr, "container", "object") {
 		return State{}, nil
 	}
 	if err != nil {

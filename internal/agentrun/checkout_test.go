@@ -139,6 +139,33 @@ func TestFindCheckout(t *testing.T) {
 			t.Fatalf("err %v", err)
 		}
 	})
+	t.Run("outside home: same error whether or not it exists", func(t *testing.T) {
+		home := realTemp(t)
+		other := realTemp(t)
+		_, e1 := FindCheckout(other, home)
+		_, e2 := FindCheckout(filepath.Join(other, "nope"), home)
+		_, e3 := FindCheckout(filepath.Join(home, "..", filepath.Base(other), "nope"), home)
+		for _, e := range []error{e1, e2, e3} {
+			if e == nil || !strings.Contains(e.Error(), "outside") || strings.Contains(e.Error(), "no such file") {
+				t.Fatalf("err %v", e)
+			}
+		}
+		// a dangling link inside home to a missing outside path
+		if err := os.Symlink(filepath.Join(other, "nope"), filepath.Join(home, "dangling")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := FindCheckout(filepath.Join(home, "dangling"), home); err == nil || !strings.Contains(err.Error(), "outside") {
+			t.Fatalf("err %v", err)
+		}
+	})
+	t.Run("colon in path refused", func(t *testing.T) {
+		home := realTemp(t)
+		root := filepath.Join(home, "a:b")
+		mkCheckout(t, root, "https://github.com/o/r", "ref: refs/heads/main\n")
+		if _, err := FindCheckout(root, home); err == nil || !strings.Contains(err.Error(), "':'") {
+			t.Fatalf("err %v", err)
+		}
+	})
 	t.Run("detached HEAD", func(t *testing.T) {
 		home := realTemp(t)
 		root := filepath.Join(home, "r")

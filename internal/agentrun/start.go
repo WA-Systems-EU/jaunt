@@ -2,6 +2,8 @@ package agentrun
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -61,6 +64,73 @@ type Starter struct {
 	DefaultMax time.Duration // the box's agent.max_duration; 0 means DefaultMax
 
 	poll time.Duration
+	// rootUID/rootGID own the shared state directories (0 in production;
+	// tests use their own ids).
+	rootUID, rootGID int
+}
+
+// rootDirs are the shared directories run state is created under, parents
+// first: /home/.jauntbox, its runs and agents, /run/jauntbox and its runs.
+func (s *Starter) rootDirs() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, d := range []string{filepath.Dir(s.Paths.RunsVol), s.Paths.RunsVol, filepath.Dir(s.Paths.Agents), s.Paths.Agents,
+		filepath.Dir(s.Paths.RunsTmp), s.Paths.RunsTmp} {
+		if d = filepath.Clean(d); !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// ensureRootDirs creates each missing shared directory 0755 root:root and
+// refuses one that is a symlink, not root's, or writable by group or others:
+// the user could otherwise swap what root creates under it.
+func (s *Starter) ensureRootDirs() error {
+	for _, d := range s.rootDirs() {
+		fi, err := os.Lstat(d)
+		if errors.Is(err, os.ErrNotExist) {
+			if err := os.Mkdir(d, 0o755); err != nil {
+				return err
+			}
+			if err := setOwnerMode(d, s.rootUID, s.rootGID, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !fi.IsDir() {
+			return fmt.Errorf("%s is not a directory (a symlink?); refusing to keep agent state there", d)
+		}
+		uid := int(fi.Sys().(*syscall.Stat_t).Uid)
+		if uid != s.rootUID || fi.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("%s must be owned by root and not writable by group or others (owner uid %d, mode %v); fix it with `sudo chown root:root %s && sudo chmod go-w %s`",
+				d, uid, fi.Mode().Perm(), d, d)
+		}
+	}
+	return nil
+}
+
+// lockCheckout takes an exclusive, non-blocking lock for one checkout. The
+// lock file lives in the root-only RunsTmp; closing it releases the lock.
+func (s *Starter) lockCheckout(root string) (func(), error) {
+	sum := sha256.Sum256([]byte(root))
+	p := filepath.Join(s.Paths.RunsTmp, "checkout-"+hex.EncodeToString(sum[:8])+".lock")
+	fd, err := unix.Open(p, unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: p, Err: err}
+	}
+	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		unix.Close(fd)
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, fmt.Errorf("a run is being started in %s; wait for it, then reopen it with `jauntctl agent attach`", root)
+		}
+		return nil, &os.PathError{Op: "flock", Path: p, Err: err}
+	}
+	return func() { unix.Close(fd) }, nil
 }
 
 func (s *Starter) home() string {
@@ -233,9 +303,6 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 		branch = switchTo
 	}
 
-	if err := s.checkNoActiveRun(ctx, co.Root); err != nil {
-		return run, err
-	}
 	gitName, gitEmail, err := s.gitIdentity()
 	if err != nil {
 		return run, err
@@ -247,6 +314,21 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	}
 	if max <= 0 {
 		max = DefaultMax
+	}
+
+	// Everything below is created under these; they must be root's alone.
+	if err := s.ensureRootDirs(); err != nil {
+		return run, err
+	}
+	// Held until Save, so a concurrent start in this checkout cannot also
+	// pass the active-run check.
+	unlock, err := s.lockCheckout(co.Root)
+	if err != nil {
+		return run, err
+	}
+	defer unlock()
+	if err := s.checkNoActiveRun(ctx, co.Root); err != nil {
+		return run, err
 	}
 
 	if err := EnsureNetGuard(ctx, s.Net); err != nil {
@@ -269,7 +351,8 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	}
 	started := now()
 	run = Run{ID: NewRunID(repo.Name, started), Repo: repo.FullName(), Checkout: co.Root, Branch: branch,
-		DefaultBranch: repo.DefaultBranch, Mode: mode, Prompt: o.Prompt, StartedAt: started, Max: max}
+		DefaultBranch: repo.DefaultBranch, Mode: mode, Prompt: o.Prompt, SkipPermissions: o.SkipPermissions,
+		StartedAt: started, Max: max}
 	if !validID(run.ID) {
 		return Run{}, fmt.Errorf("invalid run id %q", run.ID)
 	}
@@ -288,9 +371,6 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	name := ContainerName(run.ID)
 
 	// volume: <RunsVol>/<id>/ (root 0755) and log/ (user 0750); kept on failure
-	if err := os.MkdirAll(s.Paths.RunsVol, 0o755); err != nil {
-		return Run{}, err
-	}
 	volDir := filepath.Join(s.Paths.RunsVol, run.ID)
 	if err := os.Mkdir(volDir, 0o755); errors.Is(err, os.ErrExist) {
 		return Run{}, fmt.Errorf("run %s already exists; try again in a second", run.ID)
@@ -303,9 +383,6 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	}
 
 	// tmpfs: <RunsTmp>/<id>/ (root:<gid> 0750) with token (root:<gid> 0640)
-	if err := os.MkdirAll(s.Paths.RunsTmp, 0o755); err != nil {
-		return Run{}, err
-	}
 	tmpDir := filepath.Join(s.Paths.RunsTmp, run.ID)
 	if err := os.Mkdir(tmpDir, 0o750); err != nil {
 		return Run{}, err

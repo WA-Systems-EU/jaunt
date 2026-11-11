@@ -11,10 +11,11 @@ import (
 )
 
 type recRunner struct {
-	calls [][]string
-	stdin []byte
-	out   string
-	err   error
+	calls  [][]string
+	stdin  []byte
+	out    string
+	stderr string
+	err    error
 }
 
 func (r *recRunner) run(_ context.Context, stdin io.Reader, args ...string) ([]byte, []byte, error) {
@@ -22,7 +23,7 @@ func (r *recRunner) run(_ context.Context, stdin io.Reader, args ...string) ([]b
 	if stdin != nil {
 		r.stdin, _ = io.ReadAll(stdin)
 	}
-	return []byte(r.out), nil, r.err
+	return []byte(r.out), []byte(r.stderr), r.err
 }
 
 func TestDockerCLIArgs(t *testing.T) {
@@ -71,13 +72,22 @@ func TestDockerCLIImageExists(t *testing.T) {
 	if !reflect.DeepEqual(r.calls[0], []string{"image", "inspect", "--format", "{{.Id}}", "t"}) {
 		t.Fatalf("%q", r.calls[0])
 	}
-	r.err = errors.New("docker image: exit status 1: Error: No such image: t")
+	r.err, r.stderr = errors.New("exit status 1"), "Error response from daemon: No such image: t\n"
 	if ok, err := c.ImageExists(ctx, "t"); ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	r.err = errors.New("docker image: cannot connect to the daemon")
+	r.err, r.stderr = errors.New("docker image: cannot connect to the daemon"), "Cannot connect to the Docker daemon"
 	if _, err := c.ImageExists(ctx, "t"); err == nil {
 		t.Fatal("daemon error swallowed")
+	}
+	// a missing socket says "no such file or directory": not "image absent"
+	sock := "failed to connect to the docker API at unix:///var/run/docker.sock: dial unix /var/run/docker.sock: connect: no such file or directory"
+	r.err, r.stderr = errors.New("docker image: exit status 1: "+sock), sock
+	if _, err := c.ImageExists(ctx, "t"); err == nil {
+		t.Fatal("connect error read as image absent")
+	}
+	if _, err := c.Inspect(ctx, "x"); err == nil {
+		t.Fatal("connect error read as container absent")
 	}
 }
 
@@ -96,11 +106,11 @@ func TestDockerCLIInspectAndList(t *testing.T) {
 	if st, err := c.Inspect(ctx, "x"); err != nil || st != (State{Exists: true, ExitCode: 137}) {
 		t.Fatal(st, err)
 	}
-	r.out, r.err = "", errors.New("Error: No such container: x")
+	r.out, r.err, r.stderr = "", errors.New("exit status 1"), "Error: No such container: x\n"
 	if st, err := c.Inspect(ctx, "x"); err != nil || st.Exists {
 		t.Fatal(st, err)
 	}
-	r.out, r.err = "a-1\n\nb-2\n", nil
+	r.out, r.err, r.stderr = "a-1\n\nb-2\n", nil, ""
 	ids, err := c.ListRuns(ctx)
 	if err != nil || !reflect.DeepEqual(ids, []string{"a-1", "b-2"}) {
 		t.Fatal(ids, err)

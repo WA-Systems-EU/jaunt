@@ -47,9 +47,20 @@ func TestPathsStore(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(p.RunsVol, "c-20261110-080000", "log"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// a corrupt record is skipped and reported, never fatal
+	if err := os.MkdirAll(filepath.Join(p.RunsVol, "d-20261110-070000"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.RunsVol, "d-20261110-070000", "run.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	all, err := p.All()
 	if err != nil || len(all) != 2 || all[0].ID != r2.ID || all[1].ID != r1.ID {
 		t.Fatalf("all %+v %v", all, err)
+	}
+	_, bad, err := p.Scan()
+	if err != nil || len(bad) != 1 || bad[0] != "d-20261110-070000" {
+		t.Fatalf("bad %v %v", bad, err)
 	}
 	if DefaultPaths() != (Paths{RunsTmp: "/run/jauntbox/runs", RunsVol: "/home/.jauntbox/runs", Agents: "/home/.jauntbox/agents"}) {
 		t.Fatal("default paths")

@@ -32,12 +32,23 @@ func FindCheckout(dir, home string) (Checkout, error) {
 	if err != nil {
 		return c, fmt.Errorf("home %s: %w", home, err)
 	}
-	start, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		return c, err
+	// FindCheckout runs as root on a directory the caller chose: before
+	// touching the file system, the path must lie under home, and every
+	// failure to stay there reads the same whether or not the path exists.
+	outside := fmt.Errorf("%s is outside %s; agents only run in checkouts under your home", dir, home)
+	abs, err := filepath.Abs(dir)
+	if err != nil || !within(abs, home, realHome) {
+		return c, outside
+	}
+	start, err := filepath.EvalSymlinks(abs)
+	if err != nil || !within(start, realHome) {
+		return c, outside
 	}
 	root := start
 	for {
+		if root == realHome {
+			return c, fmt.Errorf("%s is not inside a git checkout", dir)
+		}
 		fi, err := os.Lstat(filepath.Join(root, ".git"))
 		if err == nil {
 			switch {
@@ -53,14 +64,13 @@ func FindCheckout(dir, home string) (Checkout, error) {
 		if !errors.Is(err, os.ErrNotExist) {
 			return c, err
 		}
-		parent := filepath.Dir(root)
-		if parent == root {
-			return c, fmt.Errorf("%s is not inside a git checkout", dir)
-		}
-		root = parent
+		root = filepath.Dir(root)
 	}
 	if !strings.HasPrefix(root, realHome+string(filepath.Separator)) {
-		return c, fmt.Errorf("the checkout %s is outside %s; agents only run in checkouts under your home", root, home)
+		return c, outside
+	}
+	if strings.Contains(root, ":") {
+		return c, fmt.Errorf("the checkout path %s contains ':', which Docker cannot mount; move or rename it", root)
 	}
 	c.Root = root
 
@@ -91,6 +101,18 @@ func FindCheckout(dir, home string) (Checkout, error) {
 		c.Detached = true
 	}
 	return c, nil
+}
+
+// within reports whether p (clean, absolute) is one of bases or under one.
+func within(p string, bases ...string) bool {
+	p = filepath.Clean(p)
+	for _, b := range bases {
+		b = filepath.Clean(b)
+		if p == b || strings.HasPrefix(p, b+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 const maxGitFile = 1 << 20

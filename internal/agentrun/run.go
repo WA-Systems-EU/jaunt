@@ -14,19 +14,21 @@ import (
 
 // Run is one agent run, stored as run.json in its volume directory.
 type Run struct {
-	ID            string        `json:"id"`
-	Repo          string        `json:"repo"`
-	Checkout      string        `json:"checkout"`
-	Branch        string        `json:"branch"`
-	DefaultBranch string        `json:"default_branch"`
-	Mode          string        `json:"mode"` // "interactive" or "unattended"
-	Prompt        string        `json:"prompt,omitempty"`
-	StartedAt     time.Time     `json:"started_at"`
-	Max           time.Duration `json:"max"`
-	WrapUpAt      time.Time     `json:"wrapup_at,omitzero"`
-	WrapUpReason  string        `json:"wrapup_reason,omitempty"`
-	FinishedAt    time.Time     `json:"finished_at,omitzero"`
-	ExitCode      int           `json:"exit_code"`
+	ID            string `json:"id"`
+	Repo          string `json:"repo"`
+	Checkout      string `json:"checkout"`
+	Branch        string `json:"branch"`
+	DefaultBranch string `json:"default_branch"`
+	Mode          string `json:"mode"` // "interactive" or "unattended"
+	Prompt        string `json:"prompt,omitempty"`
+	// SkipPermissions is the interactive permissions choice; attach reuses it.
+	SkipPermissions bool          `json:"skip_permissions"`
+	StartedAt       time.Time     `json:"started_at"`
+	Max             time.Duration `json:"max"`
+	WrapUpAt        time.Time     `json:"wrapup_at,omitzero"`
+	WrapUpReason    string        `json:"wrapup_reason,omitempty"`
+	FinishedAt      time.Time     `json:"finished_at,omitzero"`
+	ExitCode        int           `json:"exit_code"`
 }
 
 const (
@@ -115,17 +117,24 @@ func (p Paths) Save(r Run) error {
 	return os.Rename(tmp, filepath.Join(dir, "run.json"))
 }
 
-// All returns every saved run, oldest first. Directories without run.json
-// (a start that failed before saving) are skipped.
+// All returns every readable saved run, oldest first; see Scan.
 func (p Paths) All() ([]Run, error) {
+	runs, _, err := p.Scan()
+	return runs, err
+}
+
+// Scan returns every saved run, oldest first, and the ids whose run.json
+// could not be read or parsed (skipped, so one bad record blocks nothing).
+// Directories without run.json (a start that failed before saving) are
+// neither. Only an unreadable RunsVol is an error.
+func (p Paths) Scan() (runs []Run, bad []string, err error) {
 	ents, err := os.ReadDir(p.RunsVol)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var runs []Run
 	for _, e := range ents {
 		if !e.IsDir() || !validID(e.Name()) {
 			continue
@@ -134,11 +143,12 @@ func (p Paths) All() ([]Run, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		if err != nil {
-			return nil, err
+		if err != nil || r.ID != e.Name() {
+			bad = append(bad, e.Name())
+			continue
 		}
 		runs = append(runs, r)
 	}
 	sort.SliceStable(runs, func(i, j int) bool { return runs[i].StartedAt.Before(runs[j].StartedAt) })
-	return runs, nil
+	return runs, bad, nil
 }

@@ -31,6 +31,8 @@ type fakeDocker struct {
 	initLog    string // written to the log mount by Run
 	runErr     error
 	imageOK    bool
+	inExec     chan struct{} // if set, Exec signals it once, then waits on gate
+	gate       chan struct{}
 }
 
 func (f *fakeDocker) rec(s string) { f.calls = append(f.calls, s) }
@@ -78,6 +80,13 @@ func (f *fakeDocker) Run(_ context.Context, spec ContainerSpec) error {
 }
 func (f *fakeDocker) Exec(_ context.Context, container, user string, args ...string) ([]byte, error) {
 	f.rec("Exec " + container + " " + user + " " + strings.Join(args, " "))
+	if f.gate != nil {
+		select {
+		case f.inExec <- struct{}{}:
+		default:
+		}
+		<-f.gate
+	}
 	if f.stopped || f.neverReady {
 		return nil, errors.New("exit 1")
 	}
@@ -171,6 +180,8 @@ func newTenv(t *testing.T, head string) *tenv {
 		Events:    e.ev,
 		ReadyWait: 200 * time.Millisecond,
 		poll:      time.Millisecond,
+		rootUID:   os.Getuid(),
+		rootGID:   os.Getgid(),
 	}
 	return e
 }
@@ -197,9 +208,13 @@ func (e *tenv) assertNothingCreated(t *testing.T) {
 	if len(e.d.calls) != 0 {
 		t.Errorf("docker calls: %v", e.d.calls)
 	}
+	// the shared root dirs may exist (empty but for checkout locks)
 	for _, p := range []string{e.s.Paths.RunsTmp, e.s.Paths.RunsVol, e.s.Paths.Agents} {
-		if _, err := os.Lstat(p); err == nil {
-			t.Errorf("%s was created", p)
+		ents, _ := os.ReadDir(p)
+		for _, d := range ents {
+			if !(p == e.s.Paths.RunsTmp && strings.HasSuffix(d.Name(), ".lock")) {
+				t.Errorf("%s/%s was created", p, d.Name())
+			}
 		}
 	}
 	for _, p := range []string{".git/hooks", ".git/commondir"} {
@@ -235,7 +250,7 @@ func modeOf(t *testing.T, p string) (os.FileMode, int) {
 
 func TestStartHappyPath(t *testing.T) {
 	e := newTenv(t, "ref: refs/heads/feat/x\n")
-	r, err := e.s.Start(context.Background(), StartOpts{Dir: filepath.Join(e.root)})
+	r, err := e.s.Start(context.Background(), StartOpts{Dir: filepath.Join(e.root), SkipPermissions: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,12 +336,22 @@ func TestStartHappyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantRun := Run{ID: wantID, Repo: "acme/widget", Checkout: e.root, Branch: "feat/x", DefaultBranch: "main",
-		Mode: "interactive", StartedAt: at, Max: 8 * time.Hour}
+		Mode: "interactive", StartedAt: at, Max: 8 * time.Hour, SkipPermissions: true}
 	if !reflect.DeepEqual(got, wantRun) || !reflect.DeepEqual(r, wantRun) {
 		t.Fatalf("run\n got %+v\nwant %+v", got, wantRun)
 	}
 	if m, _ := modeOf(t, filepath.Join(p.RunsVol, wantID, "run.json")); m.Perm() != 0o600 {
 		t.Fatalf("run.json mode %v", m)
+	}
+	if b, _ := os.ReadFile(filepath.Join(p.RunsVol, wantID, "run.json")); !strings.Contains(string(b), `"skip_permissions": true`) {
+		t.Fatalf("run.json %s", b)
+	}
+	// shared root dirs created 0755, owned by "root" (the test's own uid)
+	for _, d := range []string{p.RunsVol, p.Agents, p.RunsTmp} {
+		fi, err := os.Lstat(d)
+		if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o755 || int(fi.Sys().(*syscall.Stat_t).Uid) != os.Getuid() {
+			t.Fatalf("%s: %v %v", d, fi, err)
+		}
 	}
 	if len(e.ev.ev) != 1 || e.ev.ev[0].Kind != "agent.started" ||
 		!reflect.DeepEqual(e.ev.ev[0].Fields, map[string]string{"run": wantID, "repo": "acme/widget", "branch": "feat/x", "mode": "interactive"}) {
@@ -741,4 +766,80 @@ func TestStartNetGuardFailureRefuses(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 	e.assertNothingCreated(t)
+}
+
+func TestStartRootDirs(t *testing.T) {
+	t.Run("group-writable refused", func(t *testing.T) {
+		e := newTenv(t, "ref: refs/heads/feat/x\n")
+		if err := os.Mkdir(e.s.Paths.Agents, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(e.s.Paths.Agents, 0o775); err != nil {
+			t.Fatal(err)
+		}
+		_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root})
+		if err == nil || !strings.Contains(err.Error(), e.s.Paths.Agents+" must be owned by root") {
+			t.Fatalf("err %v", err)
+		}
+		e.assertNothingCreated(t)
+		if e.netCall != 0 {
+			t.Fatal("went on after the refusal")
+		}
+	})
+	t.Run("not root-owned refused", func(t *testing.T) {
+		e := newTenv(t, "ref: refs/heads/feat/x\n")
+		e.s.rootUID = os.Getuid() + 1
+		_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root})
+		parent := filepath.Dir(e.s.Paths.RunsVol)
+		if err == nil || !strings.Contains(err.Error(), parent+" must be owned by root") {
+			t.Fatalf("err %v", err)
+		}
+		e.assertNothingCreated(t)
+	})
+	t.Run("symlink refused", func(t *testing.T) {
+		e := newTenv(t, "ref: refs/heads/feat/x\n")
+		elsewhere := realTemp(t)
+		if err := os.Symlink(elsewhere, e.s.Paths.RunsVol); err != nil {
+			t.Fatal(err)
+		}
+		_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root})
+		if err == nil || !strings.Contains(err.Error(), e.s.Paths.RunsVol+" is not a directory") {
+			t.Fatalf("err %v", err)
+		}
+		if ents, _ := os.ReadDir(elsewhere); len(ents) != 0 {
+			t.Fatal("wrote through the link")
+		}
+	})
+}
+
+func TestStartConcurrentStartInCheckoutRefused(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	e.d.inExec, e.d.gate = make(chan struct{}, 1), make(chan struct{})
+	type res struct {
+		r   Run
+		err error
+	}
+	first := make(chan res, 1)
+	go func() {
+		r, err := e.s.Start(context.Background(), StartOpts{Dir: e.root})
+		first <- res{r, err}
+	}()
+	<-e.d.inExec // the first start holds the lock, waiting for ready
+	_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root})
+	want := "a run is being started in " + e.root + "; wait for it, then reopen it with `jauntctl agent attach`"
+	if err == nil || err.Error() != want {
+		t.Fatalf("second start: %v", err)
+	}
+	close(e.d.gate)
+	if r := <-first; r.err != nil || r.r.ID != wantID {
+		t.Fatalf("first start: %+v", r)
+	}
+	if n := e.dockerCalls("Run "); n != 1 {
+		t.Fatalf("%d containers started", n)
+	}
+	// after the first start finished, the lock is free and the active-run check answers
+	_, err = e.s.Start(context.Background(), StartOpts{Dir: e.root})
+	if err == nil || !strings.Contains(err.Error(), "is already active") {
+		t.Fatalf("third start: %v", err)
+	}
 }
