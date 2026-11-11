@@ -21,6 +21,8 @@ const (
 	NightAuthorised = "night.authorised"
 	// SupervisorTick is emitted only when the verdict changes.
 	SupervisorTick = "supervisor.tick"
+	// AgentStarted: an agent run's container is up (fields run, repo, branch, mode).
+	AgentStarted = "agent.started"
 )
 
 // Event is one entry in the event stream.
