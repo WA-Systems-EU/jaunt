@@ -33,7 +33,8 @@ type fakeProv struct {
 	racedBox             *provider.Box // appears after CreateBox fails
 	seq                  *[]string     // optional shared call log across fakes
 	deleted              []int64
-	waitErr              error // WaitDeleted fails while set
+	waitErr              error           // WaitDeleted fails while set
+	waitBudgets          []time.Duration // time left on each WaitDeleted ctx (0: no deadline)
 	clearWaitErrOnDelete bool
 	// Volume attachment simulation: while volAttached, WaitVolumeDetached
 	// "polls" volDetachPolls times then detaches; volNeverDetaches blocks until
@@ -108,7 +109,12 @@ func (f *fakeProv) DeleteBox(_ context.Context, id int64) error {
 	}
 	return nil
 }
-func (f *fakeProv) WaitDeleted(context.Context, int64) error {
+func (f *fakeProv) WaitDeleted(ctx context.Context, _ int64) error {
+	if dl, ok := ctx.Deadline(); ok {
+		f.waitBudgets = append(f.waitBudgets, time.Until(dl))
+	} else {
+		f.waitBudgets = append(f.waitBudgets, 0)
+	}
 	f.rec("waitdeleted")
 	f.log("waitdeleted")
 	if f.waitErr != nil {

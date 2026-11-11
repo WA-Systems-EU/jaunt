@@ -48,7 +48,7 @@ jauntbox                            # up + wait + attach (reconnects after netwo
 jauntbox ssh                        # a plain shell on the box
 jauntbox night --until 07:00        # let agents keep the box overnight
 jauntbox resize big                 # swap to another profile; /home persists
-jauntbox down                       # wrap up and delete the box (the volume stays)
+jauntbox down                       # wrap up and delete the box (the volume stays; waits up to wrapup_grace + 14 min)
 ```
 
 Not yet live-tested end to end: see [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).

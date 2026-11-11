@@ -214,9 +214,9 @@ func TestTickCorruptRecordReportedOnce(t *testing.T) {
 }
 
 func TestTickAndFinishAllShareOneDeadline(t *testing.T) {
-	old1, old2, old3 := TickTimeout, FinishAllTimeout, FallbackTimeout
-	defer func() { TickTimeout, FinishAllTimeout, FallbackTimeout = old1, old2, old3 }()
-	TickTimeout, FinishAllTimeout, FallbackTimeout = 200*time.Millisecond, 200*time.Millisecond, 10*time.Second
+	old1, old2, old3, old4 := TickTimeout, FinishAllTimeout, FallbackTimeout, MinFinishBudget
+	defer func() { TickTimeout, FinishAllTimeout, FallbackTimeout, MinFinishBudget = old1, old2, old3, old4 }()
+	TickTimeout, FinishAllTimeout, FallbackTimeout, MinFinishBudget = 200*time.Millisecond, 200*time.Millisecond, 10*time.Second, 0
 	for name, run := range map[string]func(e *mtEnv) error{
 		"tick":      func(e *mtEnv) error { return e.m.Tick(context.Background(), at.Add(time.Hour)) },
 		"finishall": func(e *mtEnv) error { return e.m.FinishAll(context.Background()) },
@@ -331,9 +331,9 @@ func TestWrapUpAllAndFinishAll(t *testing.T) {
 }
 
 func TestTickSlowFallbackStillFinishesWithLiveTeardown(t *testing.T) {
-	old1, old3 := TickTimeout, FallbackTimeout
-	defer func() { TickTimeout, FallbackTimeout = old1, old3 }()
-	TickTimeout, FallbackTimeout = 200*time.Millisecond, 10*time.Second
+	old1, old3, old4 := TickTimeout, FallbackTimeout, MinFinishBudget
+	defer func() { TickTimeout, FallbackTimeout, MinFinishBudget = old1, old3, old4 }()
+	TickTimeout, FallbackTimeout, MinFinishBudget = 200*time.Millisecond, 10*time.Second, 0
 	e := newMT(t, running())
 	e.d.execHang = true
 	e.d.requireLive = true
@@ -380,5 +380,52 @@ func TestTickNoMintWithoutTokenFile(t *testing.T) {
 	e.m.Tick(context.Background(), at.Add(time.Minute))
 	if e.n != 0 {
 		t.Fatalf("minted %d times", e.n)
+	}
+}
+
+// TestTickSkipsLateFinishWithoutBudget: when the first grace-elapsed
+// fallback leaves less than MinFinishBudget on the Tick deadline, the second
+// run is not finished this tick (no truncated push); it stays due and the
+// next tick finishes it.
+func TestTickSkipsLateFinishWithoutBudget(t *testing.T) {
+	old1, old3, old4 := TickTimeout, FallbackTimeout, MinFinishBudget
+	defer func() { TickTimeout, FallbackTimeout, MinFinishBudget = old1, old3, old4 }()
+	TickTimeout, FallbackTimeout, MinFinishBudget = 600*time.Millisecond, 10*time.Second, 400*time.Millisecond
+	e := newMT(t, running())
+	id2 := "alpha-20261110-000000"
+	saveRun(t, e.p, Run{ID: id2, Repo: "acme/alpha", Mode: ModeInteractive, StartedAt: at, Max: 8 * time.Hour})
+	os.MkdirAll(filepath.Join(e.p.RunsTmp, id2), 0o750)
+	e.d.states[ContainerName(id2)] = running()
+	for _, id := range []string{stopID, id2} {
+		if err := RequestWrapUp(e.p, id, "run-max", at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.d.execOut = []byte("pushed")
+	e.d.execDelay = 300 * time.Millisecond // the first fallback eats the budget
+	if err := e.m.Tick(context.Background(), at.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var done, due []string
+	for _, id := range []string{stopID, id2} {
+		r, _ := e.p.Load(id)
+		if r.FinishedAt.IsZero() {
+			due = append(due, id)
+		} else {
+			done = append(done, id)
+		}
+	}
+	if len(done) != 1 || len(due) != 1 {
+		t.Fatalf("after the first tick: finished %v, still due %v", done, due)
+	}
+	if n := strings.Count(strings.Join(e.d.calls, "\n"), "jaunt-wrapup-fallback"); n != 1 {
+		t.Fatalf("%d fallbacks ran, want 1", n)
+	}
+	e.d.execDelay = 0
+	if err := e.m.Tick(context.Background(), at.Add(time.Hour+2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := e.p.Load(due[0]); r.FinishedAt.IsZero() {
+		t.Fatalf("run %s not finished on the next tick", due[0])
 	}
 }

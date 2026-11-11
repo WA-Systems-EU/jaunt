@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/WA-Systems-EU/jaunt/internal/agentrun"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
+	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
 )
 
 func withBox(p *fakeProv) { p.box = &provider.Box{ID: 9, Name: "jauntbox-alice", Status: "running"} }
@@ -30,6 +34,59 @@ func TestDownGraceful(t *testing.T) {
 	if len(s.kinds) != 1 || s.kinds[0] != events.BoxDownRequested {
 		t.Fatalf("events = %v", s.kinds)
 	}
+}
+
+// TestDownWaitsForAgentTeardown: the graceful wait covers the wrap-up
+// grace, one supervise timer interval, a whole supervisor pass and a margin,
+// and says on screen what it waits for.
+func TestDownWaitsForAgentTeardown(t *testing.T) {
+	d, p, _, _, _, _ := newDeps(t)
+	withBox(p)
+	out := captureStdout(t, func() {
+		if err := Down(context.Background(), d, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	pol, err := d.Policy.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	grace := time.Duration(pol.Limits.WrapUpGrace)
+	want := grace + supervisor.TimerInterval + supervisor.PassTimeout + 2*time.Minute
+	if downWait(grace) != want {
+		t.Fatalf("downWait = %v, want %v", downWait(grace), want)
+	}
+	// the box needs grace + 2 min timer + Tick + FinishAll + revoke at least
+	if min := grace + 2*time.Minute + agentrun.TickTimeout + agentrun.FinishAllTimeout + supervisor.RevokeTimeout; want <= min {
+		t.Fatalf("wait %v does not exceed the box's worst case %v", want, min)
+	}
+	if len(p.waitBudgets) != 1 || p.waitBudgets[0] > want || p.waitBudgets[0] < want-time.Minute {
+		t.Fatalf("wait budgets %v, want about %v", p.waitBudgets, want)
+	}
+	line := fmt.Sprintf("waiting up to %d min for agents to wrap up and the box to delete itself\n", int(want/time.Minute))
+	if !strings.Contains(out, line) {
+		t.Fatalf("stdout %q lacks %q", out, line)
+	}
+}
+
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	defer func() { os.Stdout = old }()
+	f()
+	w.Close()
+	os.Stdout = old
+	return <-done
 }
 
 func TestDownFallsBackToForce(t *testing.T) {

@@ -53,8 +53,9 @@ lifecycle limits. Never point it at a Hetzner project that holds other resources
    so `night` without a running agent means "delete as soon as I leave" (the
    `agents-done` verdict).
 
-8. **Down.** `jauntbox down`: the box is gone within the grace period
-   (`wrapup_grace` + 3 min). Also try `jauntbox resize big` once on a live box:
+8. **Down.** `jauntbox down`: it prints how long it waits (`wrapup_grace` + 14 min:
+   one supervise timer interval, a whole supervisor pass, a margin) and the box is
+   gone within that; with no agents running it goes much faster. Also try `jauntbox resize big` once on a live box:
    old box deleted, new one created, `/home` intact, and the box's MagicDNS name
    is still `jauntbox-<user>` (no `-1` suffix: node identity survived).
 

@@ -32,10 +32,19 @@ const (
 // TickTimeout is the overall deadline of one Tick; FinishAllTimeout that of
 // FinishAll (all runs together; each run's fallback gets what is left of it,
 // capped by FallbackTimeout). They bound a supervisor pass; the supervise
-// unit's TimeoutStartSec must exceed them plus the revoke timeout.
+// unit's TimeoutStartSec must exceed them plus the revoke timeout plus, per
+// run, two TeardownTimeouts (each Finish tears down on its own detached
+// deadline, and a run can be torn down by both Tick and FinishAll); see
+// supervisor.MaxPassBudget.
+//
+// MinFinishBudget is the least a grace-elapsed finish needs left on the Tick
+// deadline to start: with less, the fallback's push could be cut short and
+// the run end without it, so the finish is left due for the next pass (or
+// FinishAll). A var only so tests can scale it with TickTimeout.
 var (
 	TickTimeout      = 2 * time.Minute
 	FinishAllTimeout = 5 * time.Minute
+	MinFinishBudget  = 60 * time.Second
 )
 
 // BoxReasonPrefix marks wrap-ups requested for the whole box, so cancelling
@@ -80,7 +89,8 @@ func (m *Maintainer) active(now time.Time) ([]Run, error) {
 // finished (no fallback; an unattended run that exited also emits
 // agent.finished with its exit code); a running one gets its token
 // refreshed, is asked to wrap up at its max duration, and is finished once
-// the grace after the wrap-up request has elapsed. A failure of one run is
+// the grace after the wrap-up request has elapsed and at least
+// MinFinishBudget is left of the Tick deadline. A failure of one run is
 // reported as an event and does not stop the others; only an unreadable
 // runs directory is an error.
 func (m *Maintainer) Tick(ctx context.Context, now time.Time) error {
@@ -100,7 +110,7 @@ func (m *Maintainer) Tick(ctx context.Context, now time.Time) error {
 		}
 	}
 	for _, f := range late {
-		if ctx.Err() != nil {
+		if dl, ok := ctx.Deadline(); ctx.Err() != nil || ok && time.Until(dl) < MinFinishBudget {
 			break // out of time: the grace is still elapsed next pass
 		}
 		f()

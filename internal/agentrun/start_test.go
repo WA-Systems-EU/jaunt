@@ -36,6 +36,7 @@ type fakeDocker struct {
 	states     map[string]State // per-container Inspect result, overrides the rest
 	execOut    []byte           // output of exec jaunt-wrapup-fallback
 	execHang   bool             // exec jaunt-wrapup-fallback blocks until its context ends
+	execDelay  time.Duration    // exec jaunt-wrapup-fallback takes this long (bounded by its context)
 	stopKeeps  bool             // Stop leaves a states entry running
 	// requireLive counts Inspect/Stop/Remove/NetworkRemove calls made on a done context.
 	requireLive  bool
@@ -98,6 +99,13 @@ func (f *fakeDocker) Exec(ctx context.Context, container, user string, args ...s
 		if f.execHang {
 			<-ctx.Done()
 			return nil, ctx.Err()
+		}
+		if f.execDelay > 0 {
+			select {
+			case <-time.After(f.execDelay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 		return f.execOut, nil
 	}
