@@ -7,7 +7,8 @@ import (
 )
 
 // Steps reports a command's progress. Implementations: plain lines, a live
-// animated block, a recorder for tests, and Nop.
+// animated block, a recorder for tests, and Nop. Implementations are safe
+// for concurrent use.
 type Steps interface {
 	Header(title, context string)
 	Plan(labels ...string)

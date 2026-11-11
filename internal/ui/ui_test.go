@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -105,7 +106,7 @@ func TestRecorderEvents(t *testing.T) {
 		"start B", "warn B: careful", "done B",
 		"start C", "skip C: nope",
 		"start D", "fail D: bad",
-		"note n", "end ok Ready in 1s.",
+		"note n", "end ok Ready in 1s.", "close",
 	}
 	if !reflect.DeepEqual(r.Events, want) {
 		t.Errorf("events:\n%q\nwant:\n%q", r.Events, want)
@@ -171,5 +172,92 @@ func TestLiveModeDecision(t *testing.T) {
 	}
 	if Live(&bytes.Buffer{}, false, env(nil), tty) {
 		t.Error("non-file writer must not be live")
+	}
+}
+
+func TestPlainConcurrentSingleOutcome(t *testing.T) {
+	var buf bytes.Buffer
+	s := NewPlain(&buf, time.Now)
+	st := s.Start("X")
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			st.Detail("d")
+			st.Warn("w")
+			st.Done()
+			st.Fail(errors.New("e"), "h")
+		}()
+	}
+	wg.Wait()
+	s.Close()
+	lines := 0
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(l, "✓ ") || strings.HasPrefix(l, "! ") || strings.HasPrefix(l, "✕ ") {
+			lines++
+		}
+	}
+	if lines != 1 {
+		t.Errorf("want exactly one outcome line, got %d in %q", lines, buf.String())
+	}
+}
+
+func TestRecorderConcurrent(t *testing.T) {
+	r := &Recorder{}
+	st := r.Start("X")
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.Note("n")
+			st.Done()
+			st.Fail(errors.New("e"), "")
+		}()
+	}
+	wg.Wait()
+	n := 0
+	for _, e := range r.Events {
+		if e == "done X" || strings.HasPrefix(e, "fail X") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("want one outcome, got %d: %q", n, r.Events)
+	}
+}
+
+func TestPlainCloseInterrupted(t *testing.T) {
+	var buf bytes.Buffer
+	clk := &fakeClock{t: time.Unix(0, 0)}
+	s := NewPlain(&buf, clk.now)
+	a := s.Start("A")
+	b := s.Start("B")
+	c := s.Start("C")
+	clk.adv(3 * time.Second)
+	b.Done()
+	clk.adv(2 * time.Second)
+	s.Close()
+	s.Close()
+	a.Done()
+	c.Fail(errors.New("late"), "")
+	want := "✓ B 3.0s\n– A 5.0s interrupted\n– C 5.0s interrupted\n"
+	if buf.String() != want {
+		t.Errorf("got %q want %q", buf.String(), want)
+	}
+}
+
+func TestRecorderCloseAndEnd(t *testing.T) {
+	r := &Recorder{}
+	a := r.Start("A")
+	r.Start("B").Done()
+	r.End(true, "Ready.", "l1", "l2")
+	r.End(false, "x", "l1", "l2")
+	r.Close()
+	a.Done()
+	want := []string{"start A", "start B", "done B", "end ok Ready. | l1 | l2", "end fail | l1 | l2", "close", "interrupted A"}
+	if !reflect.DeepEqual(r.Events, want) {
+		t.Errorf("got %q want %q", r.Events, want)
 	}
 }
