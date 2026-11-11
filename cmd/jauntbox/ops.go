@@ -30,6 +30,7 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 		return func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			context.AfterFunc(ctx, stop) // a second Ctrl-C kills the process
 			cmd.SetContext(ctx)
 			d, err := load(*cfgPath)
 			if err != nil {
@@ -45,6 +46,7 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 		return func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			context.AfterFunc(ctx, stop) // a second Ctrl-C kills the process
 			cmd.SetContext(ctx)
 			d, err := load(*cfgPath)
 			if err != nil {
@@ -109,7 +111,7 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			if err := client.Resize(cmd.Context(), d, args[0]); err != nil {
 				return err
 			}
-			finishUp(steps, d.Cfg, startedAt, d.Now())
+			finishUp(steps, d.Cfg, startedAt, d.Now(), startedAt)
 			return nil
 		}),
 	}

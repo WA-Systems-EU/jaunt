@@ -251,7 +251,7 @@ func TestReadyLines(t *testing.T) {
 	cfg.Limits.MaxUptime = config.Duration(12 * time.Hour)
 	loc, _ := time.LoadLocation("Europe/Paris")
 	up := time.Date(2026, 6, 2, 9, 0, 0, 0, loc)
-	sum, lines := readyLinesAt(cfg, up, up.Add(41*time.Second), "alice")
+	sum, lines := readyLinesAt(cfg, up, up.Add(41*time.Second), up, "alice")
 	if sum != "Ready in 41s." {
 		t.Fatalf("summary %q", sum)
 	}
@@ -273,10 +273,9 @@ func TestUpInterruptAfterCreateHandsOff(t *testing.T) {
 		cancel() // Ctrl-C while the foreground push waits for the tailnet
 		return false
 	}
-	rec := withRecorder(t)
-	_, _, err := f.run(ctx, "up")
-	if err == nil {
-		t.Fatal("interrupt must be an error exit")
+	_, stderr, err := f.run(ctx, "up")
+	if !errors.Is(err, errReported) {
+		t.Fatalf("want errReported (exit 1, nothing more printed), got %v", err)
 	}
 	if f.log.count("spawn:internal-push") != 1 {
 		t.Fatalf("spawns: %v", f.log.lines)
@@ -284,17 +283,35 @@ func TestUpInterruptAfterCreateHandsOff(t *testing.T) {
 	if f.log.index("spawn:internal-push") < f.log.index("poll") {
 		t.Fatalf("spawned before the foreground push returned: %v", f.log.lines)
 	}
-	found := false
-	for _, e := range rec.Events {
-		if strings.HasPrefix(e, "note ") && strings.Contains(e, "push.log") {
-			found = true
+	iv := strings.Index(stderr, "Joined the tailnet")
+	ii := strings.Index(stderr, "interrupted")
+	in := strings.Index(stderr, "the box keeps getting ready in the background; log: ")
+	if ii < 0 || in < ii || iv < 0 || !strings.Contains(stderr, "push.log") {
+		t.Fatalf("want the interrupted line, then the note:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "context canceled") {
+		t.Fatalf("context canceled printed:\n%s", stderr)
+	}
+}
+
+func TestUpExistingBoxDeadlineUsesBoxClock(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Paris")
+	for name, created := range map[string]time.Time{
+		"same day":     time.Date(2026, 6, 2, 8, 0, 0, 0, loc),
+		"previous day": time.Date(2026, 6, 1, 8, 0, 0, 0, loc),
+	} {
+		f := newFx(t)
+		f.d.Cfg.Limits.MaxUptime = config.Duration(10 * time.Hour)
+		f.d.Cfg.Limits.EveningCutoff = "19:00"
+		f.d.Now = func() time.Time { return time.Date(2026, 6, 2, 12, 0, 0, 0, loc) }
+		f.prov.box = &provider.Box{ID: 5, Name: "jauntbox-alice", Status: "running", Created: created}
+		_, stderr, err := f.run(context.Background(), "up")
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if !found {
-		t.Fatalf("no push.log note: %v", rec.Events)
-	}
-	if !strings.Contains(strings.Join(rec.Events, "\n"), "interrupted Joined the tailnet") {
-		t.Fatalf("running step not finalised: %v", rec.Events)
+		if !strings.Contains(stderr, "Deletes itself at 18:00 (max uptime) or after 2h idle.") {
+			t.Errorf("%s:\n%s", name, stderr)
+		}
 	}
 }
 

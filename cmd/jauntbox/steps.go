@@ -75,27 +75,29 @@ func (s *trackedStep) Warn(msg string) {
 // readyLines is the closing text of up/resize/attach: the summary and the
 // lines under it, with the time measured from upAt to now.
 func readyLines(cfg config.Config, upAt time.Time, user string) (string, []string) {
-	return readyLinesAt(cfg, upAt, time.Now(), user)
+	return readyLinesAt(cfg, upAt, time.Now(), upAt, user)
 }
 
-func readyLinesAt(cfg config.Config, upAt, now time.Time, user string) (string, []string) {
+// readyLinesAt measures "Ready in" from elapsedFrom (the command start) and
+// the deletion deadline from deadlineFrom (when the box itself came up).
+func readyLinesAt(cfg config.Config, elapsedFrom, now, deadlineFrom time.Time, user string) (string, []string) {
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		loc = time.Local
 	}
-	dl, reason := lifecycle.Deadline(upAt, cfg.Limits, loc)
+	dl, reason := lifecycle.Deadline(deadlineFrom, cfg.Limits, loc)
 	reason = strings.ReplaceAll(reason, "-", " ")
 	lines := []string{
 		fmt.Sprintf("Deletes itself at %s (%s) or after %s idle.", dl.In(loc).Format("15:04"), reason, shortDuration(time.Duration(cfg.Limits.IdleDay))),
 		"ssh " + hostnameFor(user),
 	}
-	return "Ready in " + ui.FormatDuration(now.Sub(upAt)) + ".", lines
+	return "Ready in " + ui.FormatDuration(now.Sub(elapsedFrom)) + ".", lines
 }
 
 // finishUp ends the stream with the Ready line; warned turns the final
 // full stop into ", with warnings."
-func finishUp(t *tracked, cfg config.Config, upAt, now time.Time) {
-	summary, lines := readyLinesAt(cfg, upAt, now, cfg.User)
+func finishUp(t *tracked, cfg config.Config, startedAt, now, boxUpAt time.Time) {
+	summary, lines := readyLinesAt(cfg, startedAt, now, boxUpAt, cfg.User)
 	if t.warned.Load() {
 		summary = strings.TrimSuffix(summary, ".") + ", with warnings."
 	}
@@ -124,6 +126,7 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			context.AfterFunc(ctx, stop) // a second Ctrl-C kills the process
 			d, err := load(*cfgPath)
 			if err != nil {
 				return err
@@ -145,8 +148,7 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 			d = client.WithoutSpawn(d)
 			res, err := client.Up(ctx, d, profile)
 			if err != nil && !res.Created {
-				handOff(ctx, spawn, steps, res)
-				return err
+				return handOff(ctx, cmd, spawn, steps, res, err)
 			}
 			if err != nil { // the box exists; its step already carries the warning
 				steps.warned.Store(true)
@@ -158,10 +160,13 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 				err = client.InstallSupervisor(ctx, d, true)
 			}
 			if err != nil {
-				handOff(ctx, spawn, steps, res)
-				return err
+				return handOff(ctx, cmd, spawn, steps, res, err)
 			}
-			finishUp(steps, d.Cfg, startedAt, d.Now())
+			boxUpAt := startedAt
+			if !res.Created && !res.Box.Created.IsZero() {
+				boxUpAt = res.Box.Created // a running box dies by its own clock
+			}
+			finishUp(steps, d.Cfg, startedAt, d.Now(), boxUpAt)
 			return nil
 		},
 	}
@@ -173,16 +178,20 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 
 // handOff is Ctrl-C after the server exists: the foreground push has returned
 // (it was cancelled), so start exactly one background push to finish the job.
-// Before the server exists nothing is spawned.
-func handOff(ctx context.Context, spawn func(...string) error, steps ui.Steps, res client.UpResult) {
+// The steps are closed first (the interrupted step line), then one note line is
+// printed and the exit is reported without another message. Before the server
+// exists nothing is spawned and err is returned as it is.
+func handOff(ctx context.Context, cmd *cobra.Command, spawn func(...string) error, steps ui.Steps, res client.UpResult, err error) error {
 	if ctx.Err() == nil || (!res.Created && res.Box.Name == "") {
-		return
+		return err
 	}
-	if err := spawn("internal-push"); err != nil {
-		steps.Note("could not start the background install: " + err.Error() + " (run `jauntbox internal-push`)")
-		return
+	steps.Close()
+	if serr := spawn("internal-push"); serr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "could not start the background install: %v (run `jauntbox internal-push`)\n", serr)
+		return errReported
 	}
-	steps.Note("the box keeps getting ready in the background; log: " + filepath.Join(stateDir(), "push.log"))
+	fmt.Fprintln(cmd.ErrOrStderr(), "the box keeps getting ready in the background; log: "+filepath.Join(stateDir(), "push.log"))
+	return errReported
 }
 
 func upDetached(ctx context.Context, cmd *cobra.Command, d client.Deps, steps *tracked, profile string) error {

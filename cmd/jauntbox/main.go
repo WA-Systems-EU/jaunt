@@ -361,6 +361,7 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			context.AfterFunc(ctx, stop) // a second Ctrl-C kills the process
 			d, err := load(cfgPath)
 			if err != nil {
 				return err
@@ -382,7 +383,7 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 			// Attach writes its own warnings and reconnect notes.
 			d.BeforeAttach = func(created bool) {
 				if created {
-					finishUp(steps, d.Cfg, startedAt, d.Now())
+					finishUp(steps, d.Cfg, startedAt, d.Now(), startedAt)
 				}
 				steps.Close()
 			}
