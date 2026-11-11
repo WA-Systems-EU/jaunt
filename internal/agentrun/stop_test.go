@@ -14,6 +14,8 @@ import (
 
 const stopID = "widget-20261110-233000"
 
+var finAt = at.Add(3 * time.Hour)
+
 func activeRun(t *testing.T, p Paths) Run {
 	t.Helper()
 	r := Run{ID: stopID, Repo: "acme/widget", Checkout: "/home/alice/src/widget", Branch: "feat/x", Mode: ModeInteractive,
@@ -82,7 +84,7 @@ func TestFinishRunsFallbackBeforeStop(t *testing.T) {
 	name := ContainerName(stopID)
 	d := &fakeDocker{states: map[string]State{name: {Exists: true, Running: true}}, execOut: []byte("pushed\n")}
 	ev := &sinkRec{}
-	if err := Finish(context.Background(), d, p, stopID, ev); err != nil {
+	if err := Finish(context.Background(), d, p, stopID, ev, finAt); err != nil {
 		t.Fatal(err)
 	}
 	var order []string
@@ -99,14 +101,14 @@ func TestFinishRunsFallbackBeforeStop(t *testing.T) {
 		t.Errorf("tmpfs run dir kept: %v", err)
 	}
 	r, _ := p.Load(stopID)
-	if r.FinishedAt.IsZero() {
-		t.Error("FinishedAt not set")
+	if !r.FinishedAt.Equal(finAt) || r.ExitCode != 143 {
+		t.Errorf("record FinishedAt %v exit %d", r.FinishedAt, r.ExitCode)
 	}
-	if len(ev.ev) != 1 || ev.ev[0].Kind != events.AgentStopped {
+	if len(ev.ev) != 1 || ev.ev[0].Kind != events.AgentStopped || !ev.ev[0].Time.Equal(finAt) {
 		t.Fatalf("events %+v", ev.ev)
 	}
 	f := ev.ev[0].Fields
-	if f["run"] != stopID || f["repo"] != "acme/widget" || f["fallback"] != "pushed" || f["reason"] != "stop-requested" {
+	if f["run"] != stopID || f["repo"] != "acme/widget" || f["fallback"] != "pushed" || f["reason"] != "stop-requested" || f["exit_code"] != "143" {
 		t.Fatalf("fields %v", f)
 	}
 }
@@ -116,7 +118,7 @@ func TestFinishWhenContainerGone(t *testing.T) {
 	activeRun(t, p)
 	d := &fakeDocker{} // no container
 	ev := &sinkRec{}
-	if err := Finish(context.Background(), d, p, stopID, ev); err != nil {
+	if err := Finish(context.Background(), d, p, stopID, ev, finAt); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range d.calls {
@@ -136,7 +138,7 @@ func TestFinishWhenContainerGone(t *testing.T) {
 	}
 	// Finishing again is a no-op.
 	n := len(d.calls)
-	if err := Finish(context.Background(), d, p, stopID, ev); err != nil || len(d.calls) != n || len(ev.ev) != 1 {
+	if err := Finish(context.Background(), d, p, stopID, ev, finAt); err != nil || len(d.calls) != n || len(ev.ev) != 1 {
 		t.Fatalf("second finish: err=%v calls=%v events=%d", err, d.calls[n:], len(ev.ev))
 	}
 }
@@ -146,7 +148,7 @@ func TestFinishExitedContainerGetsNoFallback(t *testing.T) {
 	activeRun(t, p)
 	name := ContainerName(stopID)
 	d := &fakeDocker{states: map[string]State{name: {Exists: true, ExitCode: 3}}}
-	if err := Finish(context.Background(), d, p, stopID, &sinkRec{}); err != nil {
+	if err := Finish(context.Background(), d, p, stopID, &sinkRec{}, finAt); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range d.calls {
@@ -157,5 +159,53 @@ func TestFinishExitedContainerGetsNoFallback(t *testing.T) {
 	r, _ := p.Load(stopID)
 	if r.ExitCode != 3 {
 		t.Errorf("exit code %d", r.ExitCode)
+	}
+}
+
+func TestFinishFallbackTimeout(t *testing.T) {
+	old := FallbackTimeout
+	FallbackTimeout = 20 * time.Millisecond
+	defer func() { FallbackTimeout = old }()
+	p := testPaths(t)
+	activeRun(t, p)
+	name := ContainerName(stopID)
+	d := &fakeDocker{states: map[string]State{name: {Exists: true, Running: true}}, execHang: true}
+	ev := &sinkRec{}
+	if err := Finish(context.Background(), d, p, stopID, ev, finAt); err != nil {
+		t.Fatal(err)
+	}
+	if got := ev.ev[0].Fields["fallback"]; got != "failed: timeout" {
+		t.Fatalf("fallback %q", got)
+	}
+	if d.calls[len(d.calls)-1] != "NetworkRemove "+name {
+		t.Fatalf("teardown did not go on: %q", d.calls)
+	}
+	if r, _ := p.Load(stopID); r.FinishedAt.IsZero() {
+		t.Fatal("not finished")
+	}
+}
+
+func TestFinishUnknownExitCodeOmitted(t *testing.T) {
+	p := testPaths(t)
+	activeRun(t, p)
+	name := ContainerName(stopID)
+	// the container still reads as running after the stop: no exit code
+	d := &fakeDocker{states: map[string]State{name: {Exists: true, Running: true}}, stopKeeps: true, execOut: []byte("pushed")}
+	ev := &sinkRec{}
+	if err := Finish(context.Background(), d, p, stopID, ev, finAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ev.ev[0].Fields["exit_code"]; ok {
+		t.Fatalf("exit_code reported for a force-stopped container: %v", ev.ev[0].Fields)
+	}
+	// a gone container has none either
+	p2 := testPaths(t)
+	activeRun(t, p2)
+	ev2 := &sinkRec{}
+	if err := Finish(context.Background(), &fakeDocker{}, p2, stopID, ev2, finAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ev2.ev[0].Fields["exit_code"]; ok {
+		t.Fatalf("exit_code reported for a gone container: %v", ev2.ev[0].Fields)
 	}
 }

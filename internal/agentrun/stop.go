@@ -16,6 +16,9 @@ import (
 // StopTimeout is how long `docker stop` waits before killing the container.
 const StopTimeout = 10 * time.Second
 
+// FallbackTimeout bounds the in-container mechanical wrap-up.
+var FallbackTimeout = 3 * time.Minute
+
 // RequestWrapUp raises the wrap-up flag of an active run: it writes the
 // run's tmpfs `wrapup` file (0644, content = reason), which the in-container
 // hooks turn into an instruction, and records WrapUpAt. A run already asked
@@ -57,8 +60,11 @@ func writeFlag(dir, name string, data []byte, mode os.FileMode) error {
 // pushes, so it must run before tokens are revoked); an exited or missing
 // container gets none. Then the container and its network are removed, the
 // tmpfs run dir is deleted, FinishedAt is recorded and agent.stopped is
-// emitted. Finishing a finished run does nothing.
-func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink) error {
+// emitted, all stamped with now. The fallback gets FallbackTimeout; on
+// timeout it reads "failed: timeout" and the teardown goes on. The exit code
+// is recorded only when the container exited (a running one is inspected
+// again after the stop). Finishing a finished run does nothing.
+func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink, now time.Time) error {
 	r, err := p.Load(id)
 	if err != nil {
 		return err
@@ -78,23 +84,35 @@ func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink) e
 	fields := map[string]string{"run": r.ID, "repo": r.Repo, "reason": reason}
 
 	if st.Running {
-		out, err := d.Exec(ctx, name, "", "jaunt-wrapup-fallback", reason)
+		fctx, cancel := context.WithTimeout(ctx, FallbackTimeout)
+		out, err := d.Exec(fctx, name, "", "jaunt-wrapup-fallback", reason)
+		timedOut := errors.Is(fctx.Err(), context.DeadlineExceeded)
+		cancel()
 		msg := strings.TrimSpace(string(out))
-		if err != nil && msg == "" {
+		switch {
+		case timedOut:
+			msg = "failed: timeout"
+		case err != nil && msg == "":
 			msg = "failed: " + err.Error()
 		}
 		fields["fallback"] = msg
 	}
 
 	var errs []error
+	exitKnown := false
 	if st.Exists {
 		// rm -f below kills it if the graceful stop fails.
 		_ = d.Stop(ctx, name, StopTimeout)
+		if st.Running {
+			// The exit code of a container we stopped is the stop's.
+			if st2, err := d.Inspect(ctx, name); err == nil && st2.Exists && !st2.Running {
+				r.ExitCode, exitKnown = st2.ExitCode, true
+			}
+		} else {
+			r.ExitCode, exitKnown = st.ExitCode, true
+		}
 		if err := d.Remove(ctx, name); err != nil {
 			errs = append(errs, fmt.Errorf("remove container %s: %w", name, err))
-		}
-		if !st.Running {
-			r.ExitCode = st.ExitCode
 		}
 	}
 	// The network outlives a container that is already gone; a missing
@@ -112,12 +130,13 @@ func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink) e
 		return errors.Join(errs...)
 	}
 
-	now := time.Now()
 	r.FinishedAt = now
 	if err := p.Save(r); err != nil {
 		return err
 	}
-	fields["exit_code"] = strconv.Itoa(r.ExitCode)
+	if exitKnown {
+		fields["exit_code"] = strconv.Itoa(r.ExitCode)
+	}
 	if ev != nil {
 		_ = ev.Emit(events.Event{Time: now.UTC(), Kind: events.AgentStopped, Fields: fields})
 	}

@@ -61,7 +61,8 @@ type agentDeps struct {
 	docker     agentrun.Docker
 	paths      agentrun.Paths
 	lookupUser func() (sudoUser, error)
-	newStarter func(u sudoUser) (*agentrun.Starter, error)
+	// startRun is the root part of `jauntctl agent` (Starter.Start).
+	startRun func(ctx context.Context, u sudoUser, o agentrun.StartOpts) (agentrun.Run, error)
 	events     events.Sink
 	adapter    agent.Adapter
 	now        func() time.Time
@@ -84,7 +85,13 @@ func defaultAgentDeps() *agentDeps {
 		now:        time.Now,
 		poll:       500 * time.Millisecond,
 	}
-	d.newStarter = d.starter
+	d.startRun = func(ctx context.Context, u sudoUser, o agentrun.StartOpts) (agentrun.Run, error) {
+		s, err := d.starter(u)
+		if err != nil {
+			return agentrun.Run{}, err
+		}
+		return s.Start(ctx, o)
+	}
 	return d
 }
 
@@ -233,6 +240,41 @@ func (d *agentDeps) resolveRun(ctx context.Context, u sudoUser, id, dir string) 
 	return r, nil
 }
 
+// readRun finds the run a read-only root command (logs) shows: id, or
+// without one the newest run of the checkout dir is in, finished or not. It
+// needs only a valid id and a root-written record whose checkout is under
+// u's home; the container may be gone. Anything else is "no such run".
+func (d *agentDeps) readRun(u sudoUser, id, dir string) (agentrun.Run, error) {
+	var r agentrun.Run
+	if id != "" {
+		if !agentrun.ValidRunID(id) {
+			return r, fmt.Errorf("invalid run id %q", id)
+		}
+		r, err := d.paths.Load(id)
+		if err != nil || r.ID != id || !u.owns(r) {
+			return agentrun.Run{}, noSuchRun(id)
+		}
+		return r, nil
+	}
+	co, err := agentrun.FindCheckout(dir, u.Home)
+	if err != nil {
+		return r, err
+	}
+	runs, err := d.paths.All()
+	if err != nil {
+		return r, err
+	}
+	for _, x := range runs {
+		if x.Checkout == co.Root && u.owns(x) {
+			r = x // newest wins: runs are oldest first
+		}
+	}
+	if r.ID == "" {
+		return r, fmt.Errorf("no run in %s; start one there with `jauntctl agent`", co.Root)
+	}
+	return r, nil
+}
+
 // idOrDir is the tail of a user-side re-exec's root command line: the run
 // id if given (checked first), else --dir <cwd>.
 func (d *agentDeps) idOrDir(args []string) ([]string, error) {
@@ -352,13 +394,9 @@ func startRunCmd(d *agentDeps) *cobra.Command {
 			if o.Dir == "" {
 				return errors.New("--dir is required")
 			}
-			s, err := d.newStarter(u)
-			if err != nil {
-				return err
-			}
 			ctx, stop := signalCtx(cmd)
 			defer stop()
-			run, err := s.Start(ctx, o)
+			run, err := d.startRun(ctx, u, o)
 			if err != nil {
 				return err
 			}
@@ -570,7 +608,10 @@ func stopAgentCmd(d *agentDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := agentrun.RequestWrapUp(d.paths, r.ID, "stop-requested", d.now()); err != nil {
+			// --now finishes the run even when its tmpfs dir (and so the
+			// flag) is gone.
+			if err := agentrun.RequestWrapUp(d.paths, r.ID, "stop-requested", d.now()); err != nil &&
+				!(now && errors.Is(err, os.ErrNotExist)) {
 				return err
 			}
 			w := cmd.OutOrStdout()
@@ -578,7 +619,7 @@ func stopAgentCmd(d *agentDeps) *cobra.Command {
 				fmt.Fprintf(w, "asked run %s to wrap up; the supervisor stops it after the grace period (or run `jauntctl agent stop --now %s`)\n", r.ID, r.ID)
 				return nil
 			}
-			if err := agentrun.Finish(ctx, d.docker, d.paths, r.ID, d.events); err != nil {
+			if err := agentrun.Finish(ctx, d.docker, d.paths, r.ID, d.events, d.now()); err != nil {
 				return err
 			}
 			fmt.Fprintf(w, "run %s stopped\n", r.ID)
@@ -624,7 +665,7 @@ func logsCmd(d *agentDeps) *cobra.Command {
 			}
 			ctx, stop := signalCtx(cmd)
 			defer stop()
-			r, err := d.resolveRun(ctx, u, id, wd)
+			r, err := d.readRun(u, id, wd)
 			if err != nil {
 				return err
 			}

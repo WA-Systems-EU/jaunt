@@ -35,6 +35,8 @@ type fakeDocker struct {
 	gate       chan struct{}
 	states     map[string]State // per-container Inspect result, overrides the rest
 	execOut    []byte           // output of exec jaunt-wrapup-fallback
+	execHang   bool             // exec jaunt-wrapup-fallback blocks until its context ends
+	stopKeeps  bool             // Stop leaves a states entry running
 }
 
 func (f *fakeDocker) rec(s string) { f.calls = append(f.calls, s) }
@@ -80,9 +82,13 @@ func (f *fakeDocker) Run(_ context.Context, spec ContainerSpec) error {
 	}
 	return nil
 }
-func (f *fakeDocker) Exec(_ context.Context, container, user string, args ...string) ([]byte, error) {
+func (f *fakeDocker) Exec(ctx context.Context, container, user string, args ...string) ([]byte, error) {
 	f.rec("Exec " + container + " " + user + " " + strings.Join(args, " "))
 	if len(args) > 0 && args[0] == "jaunt-wrapup-fallback" {
+		if f.execHang {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
 		return f.execOut, nil
 	}
 	if f.gate != nil {
@@ -121,6 +127,9 @@ func (f *fakeDocker) Remove(_ context.Context, name string) error {
 }
 func (f *fakeDocker) Stop(_ context.Context, name string, _ time.Duration) error {
 	f.rec("Stop " + name)
+	if st, ok := f.states[name]; ok && st.Running && !f.stopKeeps {
+		f.states[name] = State{Exists: true, ExitCode: 143}
+	}
 	return nil
 }
 func (f *fakeDocker) ListRuns(context.Context) ([]string, error) {

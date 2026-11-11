@@ -77,6 +77,7 @@ type agentEnv struct {
 	execs  []execCall
 	sudos  [][]string
 	out    *bytes.Buffer
+	errOut *bytes.Buffer
 	reply  agentrun.Run // what the fake `sudo … start-run` prints
 }
 
@@ -107,7 +108,7 @@ func newAgentEnv(t *testing.T, euid int, head string) *agentEnv {
 		t.Fatal(err)
 	}
 	base := realTempDir(t)
-	e := &agentEnv{docker: &agentFakeDocker{running: map[string]bool{}}, home: home, root: root, out: &bytes.Buffer{}}
+	e := &agentEnv{docker: &agentFakeDocker{running: map[string]bool{}}, home: home, root: root, out: &bytes.Buffer{}, errOut: &bytes.Buffer{}}
 	e.d = &agentDeps{
 		euid:     func() int { return euid },
 		getwd:    func() (string, error) { return root, nil },
@@ -136,8 +137,9 @@ func (e *agentEnv) run(t *testing.T, args ...string) error {
 	t.Helper()
 	c := agentCmd(e.d)
 	c.SetArgs(args)
+	c.SilenceUsage, c.SilenceErrors = true, true // as under the jauntctl root
 	c.SetOut(e.out)
-	c.SetErr(e.out)
+	c.SetErr(e.errOut)
 	return c.Execute()
 }
 
@@ -315,13 +317,26 @@ func TestAgentRefusesOtherUsersRuns(t *testing.T) {
 	r := e.addRun(t, runID)
 	e.docker.labeled = []string{bob.ID}
 
+	// acting on a container needs the label too; reading needs only ownership
 	for _, id := range []string{bob.ID, r.ID, "nosuch-20261111-090000"} {
 		for _, args := range [][]string{{"attach", id}, {"stop", id}, {"logs", id}} {
+			if args[0] == "logs" && id == r.ID {
+				continue
+			}
 			err := e.run(t, args...)
 			if err == nil || err.Error() != "no such run "+id {
 				t.Errorf("%v: err = %v", args, err)
 			}
 		}
+	}
+	e.d.lookupUser = func() (sudoUser, error) {
+		return sudoUser{Name: "alice", Home: e.home, UID: os.Getuid(), GID: os.Getgid()}, nil
+	}
+	logDir := filepath.Join(e.d.paths.RunsVol, r.ID, "log")
+	os.MkdirAll(logDir, 0o750)
+	os.WriteFile(filepath.Join(logDir, "claude.jsonl"), []byte("mine\n"), 0o640)
+	if err := e.run(t, "logs", r.ID); err != nil || e.out.String() != "mine\n" {
+		t.Fatalf("own unlabelled run's log: err=%v out=%q", err, e.out.String())
 	}
 	if len(e.execs) != 0 {
 		t.Fatalf("exec'd %v", e.execs)
@@ -465,5 +480,88 @@ func TestJauntctlHasAgent(t *testing.T) {
 	v, _ := names(rootFor("jauntctl"))
 	if !v["agent"] {
 		t.Fatal("jauntctl lacks agent")
+	}
+}
+
+func TestAgentLogsOfFinishedRun(t *testing.T) {
+	e := newAgentEnv(t, 0, "ref: refs/heads/feat/x\n")
+	e.d.lookupUser = func() (sudoUser, error) {
+		return sudoUser{Name: "alice", Home: e.home, UID: os.Getuid(), GID: os.Getgid()}, nil
+	}
+	older := e.addRun(t, "widget-20261111-080000")
+	r := e.addRun(t, runID)
+	for _, x := range []agentrun.Run{older, r} {
+		x.FinishedAt = x.StartedAt.Add(time.Hour)
+		if err := e.d.paths.Save(x); err != nil {
+			t.Fatal(err)
+		}
+		logDir := filepath.Join(e.d.paths.RunsVol, x.ID, "log")
+		if err := os.MkdirAll(logDir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(logDir, "claude.jsonl"), []byte(x.ID+"\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// containers removed by Finish: no container, no label
+	e.docker.running, e.docker.labeled = map[string]bool{}, nil
+	for _, args := range [][]string{{"logs", runID}, {"logs"}, {"logs", "--follow"}} {
+		e.out.Reset()
+		if err := e.run(t, args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if e.out.String() != runID+"\n" {
+			t.Fatalf("%v: %q", args, e.out.String())
+		}
+	}
+}
+
+func TestAgentStopNowWithoutTmpfsDir(t *testing.T) {
+	e := newAgentEnv(t, 0, "ref: refs/heads/feat/x\n")
+	e.addRun(t, runID)
+	if err := os.RemoveAll(filepath.Join(e.d.paths.RunsTmp, runID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, "stop", runID); err == nil {
+		t.Fatal("stop without --now and without a run dir succeeded")
+	}
+	if err := e.run(t, "stop", runID, "--now"); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := e.d.paths.Load(runID)
+	if !r.FinishedAt.Equal(e.d.now()) {
+		t.Fatalf("FinishedAt %v", r.FinishedAt)
+	}
+}
+
+func TestStartRunJSONIsTheOnlyStdout(t *testing.T) {
+	e := newAgentEnv(t, 0, "ref: refs/heads/feat/x\n")
+	var got agentrun.StartOpts
+	e.d.startRun = func(_ context.Context, u sudoUser, o agentrun.StartOpts) (agentrun.Run, error) {
+		got = o
+		return agentrun.Run{ID: runID, Repo: "acme/widget", Checkout: e.root, Branch: "feat/x", Mode: agentrun.ModeUnattended, Prompt: "p"}, nil
+	}
+	if err := e.run(t, "start-run", "--dir", e.root, "--unattended", "p", "--max", "2h", "--skip-permissions", "--json"); err != nil {
+		t.Fatal(err)
+	}
+	if got.Dir != e.root || got.Prompt != "p" || got.Max != 2*time.Hour || !got.SkipPermissions {
+		t.Fatalf("opts %+v", got)
+	}
+	dec := json.NewDecoder(bytes.NewReader(e.out.Bytes()))
+	dec.DisallowUnknownFields()
+	var r agentrun.Run
+	if err := dec.Decode(&r); err != nil || r.ID != runID {
+		t.Fatalf("stdout %q: %v", e.out.String(), err)
+	}
+	if rest, _ := io.ReadAll(dec.Buffered()); strings.TrimSpace(string(rest)) != "" || dec.More() {
+		t.Fatalf("stdout has more than one JSON object: %q", e.out.String())
+	}
+	// errors go to the caller (stderr via main), never stdout
+	e.out.Reset()
+	e.d.startRun = func(context.Context, sudoUser, agentrun.StartOpts) (agentrun.Run, error) {
+		return agentrun.Run{}, errors.New("boom")
+	}
+	if err := e.run(t, "start-run", "--dir", e.root, "--json"); err == nil || err.Error() != "boom" || e.out.Len() != 0 {
+		t.Fatalf("err=%v stdout=%q", err, e.out.String())
 	}
 }
