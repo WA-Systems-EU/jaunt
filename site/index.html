@@ -78,6 +78,9 @@
   @keyframes flap { 0% { transform: rotateX(0) } 40% { transform: rotateX(80deg) } 100% { transform: rotateX(0) } }
   .flap { display: inline-block; animation: flap .6s ease-out both; transform-origin: 50% 60%; }
   @media (prefers-reduced-motion: reduce) { .flap { animation: none; } }
+  @keyframes eyepulse { 0%, 100% { opacity: .55 } 50% { opacity: 1 } }
+  .scare-eyes { animation: eyepulse 3.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .scare-eyes { animation: none; } }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--route); outline-offset: 3px; border-radius: 4px; }
   .board-row + .board-row { border-top: 1px dashed rgba(243, 211, 107, .18); }
   /* status stamps: where each promise stands (on the dark board) */
@@ -109,6 +112,7 @@
       <span class="font-display text-2xl font-extrabold tracking-wide">jauntbox</span>
     </a>
     <nav class="hidden md:flex items-center gap-7 text-sm text-muted">
+      <a href="#scare" class="hidden xl:inline hover:text-ink">The scare</a>
       <a href="#isolation" class="hover:text-ink">Isolation</a>
       <a href="#agents" class="hover:text-ink">Agents</a>
       <a href="#roadmap" class="hover:text-ink">Roadmap</a>
@@ -212,6 +216,107 @@
           <h3 class="font-semibold mb-2">Day one lasts a week</h3>
           <p class="text-muted text-[15px]">A new hire spends days installing the right Ruby, Postgres and secrets before the first commit, and still ends up with a setup nobody else has.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE SCARE -->
+  <section id="scare" class="gutter">
+    <div class="mx-auto max-w-6xl py-20 grid lg:grid-cols-[1fr_1.15fr] gap-12 items-start">
+      <div class="min-w-0">
+        <p class="eyebrow text-route mb-3">The scare</p>
+        <h2 class="font-display text-4xl sm:text-5xl font-extrabold uppercase leading-none">No need to panic, but let's be cautious…ly pragmatic.</h2>
+        <p class="mt-5 text-muted max-w-[32rem]">A coding agent can be prompt-injected by a README, an issue, a dependency or a web page. A compromised or careless agent will try what any script can try. So jauntbox assumes the worst about the thing running in the container, and limits what it can reach.</p>
+
+        <div class="mt-8 min-w-0 rounded-xl bg-board overflow-hidden shadow-[0_24px_60px_-30px_rgba(10,20,35,.6)]">
+          <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10" style="color: #e8edf3">
+            <span class="h-3 w-3 rounded-full" style="background:#ff5f57" aria-hidden="true"></span>
+            <span class="h-3 w-3 rounded-full" style="background:#febc2e" aria-hidden="true"></span>
+            <span class="h-3 w-3 rounded-full" style="background:#28c840" aria-hidden="true"></span>
+            <span class="ml-2 font-mono text-xs text-white/55 truncate">agent@box: ~/src/repo</span>
+          </div>
+          <svg class="block w-full h-auto" viewBox="0 0 480 320" role="img" aria-label="A terminal window. A hooded, shadowy figure with two glowing red eyes looms out of the dark: the rogue AI model. Faint command lines fade behind it, such as a curl to the cloud metadata address." preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <radialGradient id="scare-halo" cx="50%" cy="42%" r="55%">
+                <stop offset="0" stop-color="#3a0d12" stop-opacity=".75"/>
+                <stop offset="1" stop-color="#3a0d12" stop-opacity="0"/>
+              </radialGradient>
+              <linearGradient id="scare-body" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#020407"/>
+                <stop offset=".75" stop-color="#03050a"/>
+                <stop offset="1" stop-color="#03050a" stop-opacity="0"/>
+              </linearGradient>
+              <filter id="scare-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3.5"/></filter>
+              <filter id="scare-rim" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>
+              <filter id="scare-glow" x="-200%" y="-300%" width="500%" height="700%"><feGaussianBlur stdDeviation="6"/></filter>
+              <filter id="scare-eye" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1.2"/></filter>
+            </defs>
+            <rect width="480" height="320" fill="url(#scare-halo)"/>
+            <g font-family="'JetBrains Mono', ui-monospace, monospace" font-size="11" fill="#9fb0c4">
+              <text x="14" y="26" opacity=".75"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> curl http://169.254.169.254/…</text>
+              <text x="14" y="50" opacity=".55"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> ssh 100.64.0.7</text>
+              <text x="14" y="74" opacity=".4"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> psql -h 172.17.0.1</text>
+              <text x="14" y="98" opacity=".28"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> git push origin main</text>
+              <text x="14" y="122" opacity=".16"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> echo "hello?"</text>
+            </g>
+            <!-- red rim light behind the hood -->
+            <path d="M240 36 C186 36 164 92 162 144 C160 186 132 220 92 310 L388 310 C348 220 320 186 318 144 C316 92 294 36 240 36 Z" fill="#7a1018" opacity=".5" filter="url(#scare-rim)"/>
+            <!-- hooded figure, soft edges -->
+            <g filter="url(#scare-soft)">
+              <path d="M240 40 C192 40 172 92 170 142 C168 182 142 214 102 310 L378 310 C338 214 312 182 310 142 C308 92 288 40 240 40 Z" fill="url(#scare-body)" opacity=".97"/>
+              <ellipse cx="240" cy="138" rx="42" ry="50" fill="#000"/>
+            </g>
+            <!-- eyes -->
+            <g class="scare-eyes">
+              <ellipse cx="222" cy="134" rx="9" ry="5" fill="#ff2a2a" filter="url(#scare-glow)"/>
+              <ellipse cx="258" cy="134" rx="9" ry="5" fill="#ff2a2a" filter="url(#scare-glow)"/>
+            </g>
+            <ellipse cx="222" cy="134" rx="6" ry="2.6" fill="#ff5a4d" filter="url(#scare-eye)" transform="rotate(8 222 134)"/>
+            <ellipse cx="258" cy="134" rx="6" ry="2.6" fill="#ff5a4d" filter="url(#scare-eye)" transform="rotate(-8 258 134)"/>
+            <ellipse cx="222" cy="134" rx="2.6" ry="1" fill="#ffd6c9" transform="rotate(8 222 134)"/>
+            <ellipse cx="258" cy="134" rx="2.6" ry="1" fill="#ffd6c9" transform="rotate(-8 258 134)"/>
+            <text x="14" y="306" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="11" fill="#9fb0c4" opacity=".6"><tspan fill="#ff5a4d">agent@box:~/src/repo$</tspan> _</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="min-w-0">
+      <p class="eyebrow text-muted mb-4">What it might try, and what stops it</p>
+      <dl class="grid gap-x-8 gap-y-6">
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Read your cloud metadata, grab cloud credentials</dt>
+          <dd class="text-muted text-[15px] mt-1">Containers can't reach the metadata service, and the Hetzner token never enters the box's agent containers.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Wander your tailnet or other machines</dt>
+          <dd class="text-muted text-[15px] mt-1">Tailnet ranges are dropped from agent containers.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Poke services on the box itself: dev databases, sshd</dt>
+          <dd class="text-muted text-[15px] mt-1">Traffic from agent networks to the host is dropped.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Steal your other repos</dt>
+          <dd class="text-muted text-[15px] mt-1">Each run gets a short-lived (1 h) token for its one repo only. The GitHub App private key stays out of the container.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Push to main</dt>
+          <dd class="text-muted text-[15px] mt-1">Rulesets keep the default branch for humans, where GitHub allows it, and the wrap-up never pushes to the default branch.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Plant a git hook or fsmonitor so your own git runs its code</dt>
+          <dd class="text-muted text-[15px] mt-1"><code class="font-mono text-[13px] text-ink">.git/config</code>, hooks, modules and commondir are read-only inside the container, and <code class="font-mono text-[13px] text-ink">.git</code> itself can't be swapped.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Escalate</dt>
+          <dd class="text-muted text-[15px] mt-1">No Docker socket, all capabilities dropped, no-new-privileges, running as your uid. You use password sudo.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Run forever</dt>
+          <dd class="text-muted text-[15px] mt-1">A maximum duration (default 8 h), then a wrap-up into a pushed <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code>. The box deletes itself.</dd>
+        </div>
+      </dl>
+      <p class="mt-6 border-t border-line pt-4 font-semibold">This doesn't make an agent safe. It limits what a bad day can cost. And run agent-changed code inside the container, not on the host.</p>
       </div>
     </div>
   </section>
