@@ -5,7 +5,18 @@ work=${JAUNT_WORK:-/work}
 logd=${JAUNT_LOG_DIR:-/var/log/jauntbox}
 cd "$work" || { echo "failed: cannot enter $work"; exit 1; }
 
-branch=$(git symbolic-ref --short HEAD 2>/dev/null) || { echo "failed: detached HEAD"; exit 1; }
+fail() { echo "failed: $(printf '%s' "$1" | tr '\n' ' ')"; exit 1; }
+
+# Never push WIP to the default branch: on it (or on a detached HEAD) the
+# work goes to a fresh agent/<repo>-wrapup-<UTC stamp> branch instead.
+branch=$(git symbolic-ref --short HEAD 2>/dev/null) || branch=
+own_branch=
+if [ -z "$branch" ] || [ "$branch" = "${JAUNT_DEFAULT_BRANCH:-}" ]; then
+	repo=${JAUNT_REPO:-}
+	repo=${repo##*/}
+	[ -n "$repo" ] || repo=$(basename "$work")
+	own_branch=agent/$repo-wrapup-$(date -u +%Y%m%d-%H%M%S)
+fi
 
 is_done() {
 	[ -f CONTINUATION.md ] || return 1
@@ -15,13 +26,22 @@ is_done() {
 	[ -z "$ahead" ]
 }
 
-if is_done; then
+if [ -n "$branch" ] && is_done; then
 	echo already-done
 	exit 0
 fi
 
+if [ -n "$own_branch" ]; then
+	# --no-track: no config writes (.git/config is read-only in the container)
+	msg=$(git switch -q --no-track -c "$own_branch" 2>&1) || fail "$msg"
+	branch=$own_branch
+fi
+
 if [ ! -f CONTINUATION.md ]; then
 	mkdir -p "$logd" 2>/dev/null
+	# The note is built outside the checkout (so git status does not list
+	# it) in the container's tmp; no note means no push.
+	tmpf=$(mktemp "${TMPDIR:-/tmp}/continuation.XXXXXX" 2>/dev/null) || fail "cannot create a temp file for CONTINUATION.md in ${TMPDIR:-/tmp}"
 	logf=
 	for f in "$logd/claude.jsonl" "$logd/init.log"; do
 		[ -f "$f" ] && { logf=$f; break; }
@@ -48,13 +68,17 @@ if [ ! -f CONTINUATION.md ]; then
 		echo '```'
 		[ -n "$logf" ] && tail -n 40 "$logf"
 		echo '```'
-	} >"$logd/continuation.tmp" && mv "$logd/continuation.tmp" CONTINUATION.md
+	} >"$tmpf" || { rm -f "$tmpf"; fail "cannot write the CONTINUATION.md temp file $tmpf"; }
+	cat "$tmpf" >CONTINUATION.md || { rm -f "$tmpf"; fail "cannot write CONTINUATION.md"; }
+	rm -f "$tmpf"
 fi
-
-fail() { echo "failed: $(printf '%s' "$1" | tr '\n' ' ')"; exit 1; }
 msg=$(git add -A 2>&1) || fail "$msg"
 if ! git diff --cached --quiet; then
 	msg=$(git commit -q --no-verify -m "wip(jauntbox): mechanical wrap-up ($reason)" 2>&1) || fail "$msg"
 fi
 msg=$(git push --no-verify origin HEAD 2>&1) || fail "$msg"
-echo pushed
+if [ -n "$own_branch" ]; then
+	echo "pushed $own_branch"
+else
+	echo pushed
+fi

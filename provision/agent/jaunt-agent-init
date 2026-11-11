@@ -12,6 +12,9 @@ git -C "$work" rev-parse --git-dir >>"$log" 2>&1 || { say "$work is not a git ch
 if [ -n "${JAUNT_SWITCH_TO:-}" ]; then
 	if git -C "$work" show-ref --verify --quiet "refs/heads/$JAUNT_SWITCH_TO"; then
 		git -C "$work" switch "$JAUNT_SWITCH_TO" >>"$log" 2>&1 || { say "switch to $JAUNT_SWITCH_TO refused"; exit 1; }
+	elif git -C "$work" show-ref --verify --quiet "refs/remotes/origin/$JAUNT_SWITCH_TO"; then
+		# only on origin: start from its tip, without tracking (no config write)
+		git -C "$work" switch --no-track -c "$JAUNT_SWITCH_TO" "origin/$JAUNT_SWITCH_TO" >>"$log" 2>&1 || { say "creating $JAUNT_SWITCH_TO from origin/$JAUNT_SWITCH_TO refused"; exit 1; }
 	else
 		git -C "$work" switch --no-track -c "$JAUNT_SWITCH_TO" >>"$log" 2>&1 || { say "creating $JAUNT_SWITCH_TO refused"; exit 1; }
 	fi

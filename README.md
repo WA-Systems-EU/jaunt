@@ -134,7 +134,8 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 - **Where it works.** The container mounts the checkout you are in, with your uid, so
   you see its changes live and its files stay yours. The agent stays on your current
   branch. On the repo's default branch (or a detached HEAD) the run switches the
-  checkout to `agent/<repo>-<YYYYMMDD>` and says so; `--branch b` switches to `b`.
+  checkout to `agent/<repo>-<YYYYMMDD>` and says so; `--branch b` switches to `b`
+  (created from `origin/b` when only the remote has it, else from your current commit).
   Uncommitted changes go along; a switch git refuses fails the start.
 - **Several repos at once, one run per checkout.** Each repo under `~/src` can have its
   own run, container and token. A second `jauntctl agent` in a checkout that already
@@ -187,7 +188,9 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   instruction and block stopping until it is pushed. If nothing appears within
   `limits.wrapup_grace` (default 5 min), the box writes a mechanical `CONTINUATION.md`
   (git status, diff summary, last log lines) and pushes it itself, with `--no-verify` so your repo's hooks
-  don't block it. Teardown order: wrap-up agents, revoke tokens, stop containers, sync,
+  don't block it. It never pushes to the default branch: if the checkout is on it (or on a
+  detached HEAD) by then, the work goes to a new `agent/<repo>-wrapup-<UTC stamp>` branch.
+  If it cannot write the note it pushes nothing. Teardown order: wrap-up agents, revoke tokens, stop containers, sync,
   delete the box.
 - **Box wrap-ups.** Wrap-ups the box starts carry a reason prefixed `box-` (for example
   `box-night`). Putting the box back to "keep" (cancelling the wrap-up) clears those,

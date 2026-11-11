@@ -91,6 +91,46 @@ printf '#!/bin/sh\nexit 1\n' >"$JAUNT_WORK/.git/hooks/pre-commit"; cp "$JAUNT_WO
 chmod +x "$JAUNT_WORK/.git/hooks/pre-commit" "$JAUNT_WORK/.git/hooks/pre-push"
 echo dirty >"$JAUNT_WORK/new.txt"
 eq fb-hooks-bypassed "$(fb hooks)" pushed
+
+# on the default branch: WIP goes to a fresh agent/<repo>-wrapup-<stamp> branch
+mk fbdef
+git -C "$JAUNT_WORK" checkout -q main
+main_before=$(git -C "$c/origin.git" rev-parse main)
+cp "$JAUNT_WORK/.git/config" "$tmp/fbdef.config"
+echo dirty >"$JAUNT_WORK/new.txt"
+out=$(fb night); rc=$?
+eq fbdef-rc "$rc" 0
+case "$out" in "pushed agent/alpha-wrapup-"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) ;; *) bad "fbdef output: $out";; esac
+nb=${out#pushed }
+eq fbdef-main-unchanged "$(git -C "$c/origin.git" rev-parse main)" "$main_before"
+eq fbdef-local-branch "$(git -C "$JAUNT_WORK" branch --show-current)" "$nb"
+git -C "$c/origin.git" show "$nb:new.txt" >/dev/null 2>&1 || bad "fbdef-wip-on-branch"
+case "$(git -C "$c/origin.git" show "$nb:CONTINUATION.md")" in *"- Branch: $nb"*) ;; *) bad "fbdef-note-branch";; esac
+cmp -s "$tmp/fbdef.config" "$JAUNT_WORK/.git/config" || bad "fbdef-config changed"
+# detached HEAD: same
+mk fbdet
+git -C "$JAUNT_WORK" checkout -q --detach main
+echo dirty >"$JAUNT_WORK/new.txt"
+out=$(fb night)
+case "$out" in "pushed agent/alpha-wrapup-"*) ;; *) bad "fbdet output: $out";; esac
+git -C "$c/origin.git" show "${out#pushed }:new.txt" >/dev/null 2>&1 || bad "fbdet-wip-on-branch"
+eq fbdet-main-unchanged "$(git -C "$c/origin.git" rev-parse main)" "$(git -C "$JAUNT_WORK" rev-parse main)"
+
+# the note's temp lives in $TMPDIR, not the log dir: an unwritable log dir
+# still gets a note; no temp file means no push
+mk fbtmp
+echo dirty >"$JAUNT_WORK/new.txt"
+eq fbtmp-logdir-unwritable "$(JAUNT_LOG_DIR="$JAUNT_WORK/f.txt/log" TMPDIR="$c/tmp" fb x)" pushed
+git -C "$c/origin.git" show feat/x:CONTINUATION.md >/dev/null 2>&1 || bad "fbtmp-note-pushed"
+[ -z "$(ls -A "$c/tmp")" ] || bad "fbtmp-temp-left: $(ls -A "$c/tmp")"
+mk fbtmp2
+echo dirty >"$JAUNT_WORK/new.txt"
+before=$(git -C "$c/origin.git" rev-parse feat/x)
+out=$(TMPDIR="$c/missing" fb x); rc=$?
+case "$out" in "failed: "*) ;; *) bad "fbtmp2 output: $out";; esac
+eq fbtmp2-rc "$rc" 1
+eq fbtmp2-not-pushed "$(git -C "$c/origin.git" rev-parse feat/x)" "$before"
+[ ! -e "$JAUNT_WORK/CONTINUATION.md" ] || bad "fbtmp2-note-written"
 # --- unattended
 mk un
 out=$(JAUNT_PROMPT= sh "$here/jaunt-unattended" 2>&1); rc=$?
@@ -117,6 +157,19 @@ cmp -s "$tmp/config.before" "$JAUNT_WORK/.git/config" || bad "init-config change
 [ -f "$JAUNT_WORK/uncommitted.txt" ] || bad "init-uncommitted lost"
 JAUNT_SWITCH_TO=feat/x ini "$tmp/true" || bad "init-switch-existing rc"
 eq init-existing "$(git -C "$JAUNT_WORK" branch --show-current)" feat/x
+# a branch only on origin is created from origin/<b>, without tracking
+git -C "$JAUNT_WORK" switch -q --no-track -c tmp-remote
+echo remote >"$JAUNT_WORK/r.txt"; git -C "$JAUNT_WORK" add r.txt; git -C "$JAUNT_WORK" commit -q -m remote
+git -C "$JAUNT_WORK" push -q origin tmp-remote:remote-only 2>/dev/null
+git -C "$JAUNT_WORK" fetch -q origin
+remote_tip=$(git -C "$JAUNT_WORK" rev-parse tmp-remote)
+git -C "$JAUNT_WORK" switch -q feat/x && git -C "$JAUNT_WORK" branch -q -D tmp-remote
+cp "$JAUNT_WORK/.git/config" "$tmp/config.remote"
+JAUNT_SWITCH_TO=remote-only ini "$tmp/true" || bad "init-remote-only rc"
+eq init-remote-only-branch "$(git -C "$JAUNT_WORK" branch --show-current)" remote-only
+eq init-remote-only-tip "$(git -C "$JAUNT_WORK" rev-parse HEAD)" "$remote_tip"
+cmp -s "$tmp/config.remote" "$JAUNT_WORK/.git/config" || bad "init-remote-only config changed"
+git -C "$JAUNT_WORK" switch -q feat/x
 # refused switch: a tracked file that would be overwritten
 git -C "$JAUNT_WORK" checkout -q -b other && echo other >"$JAUNT_WORK/f.txt" && git -C "$JAUNT_WORK" commit -q -am other
 git -C "$JAUNT_WORK" checkout -q feat/x
