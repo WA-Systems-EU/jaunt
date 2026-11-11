@@ -143,10 +143,10 @@ jauntctl agent                          # Claude opens right there, in a contain
 ```
 
 ```sh
-jauntctl agent [--branch b] [--max 2h] [--skip-permissions]   # start an interactive run in this checkout
+jauntctl agent [--branch b] [--max 2h] [--skip-permissions] [--host-port <n>]   # start an interactive run in this checkout
 jauntctl agent --unattended "one-line prompt"                 # start a run that works on its own
 jauntctl agent attach [<run>] [--shell]   # reopen Claude (it continues) or open bash in the container
-jauntctl agent list                       # runs with state, limit and container IP
+jauntctl agent list                       # runs with state, limit, container IP and host ports
 jauntctl agent stop [<run>] [--now]       # ask for a wrap-up; --now also stops the container
 jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 ```
@@ -212,10 +212,9 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
      Docker can only publish ports 1024 and up. Your laptop reaches the same port over
      the tailnet as before.
   3. List the ports. In the config, `agent.host_ports: [5432, 6379]` applies to every
-     run. It takes effect on the next box (`jauntbox down`, then `jauntbox up`), or, on the
-     running box, edit `agent.host_ports` in `/etc/jauntbox/box.json` (with sudo) and run
-     `sudo jauntctl agent-net`. For one run only, use
-     `jauntctl agent --host-port 5432` (repeat the flag, or write `--host-port 5432,6379`).
+     run. It takes effect on the next box (`jauntbox down`, then `jauntbox up`). For a port
+     right now, or for one run only, use `jauntctl agent --host-port 5432` (repeat the
+     flag, or write `--host-port 5432,6379`).
      That port closes when the run ends.
   4. In the app's config inside the container, use the host name `host.jauntbox`, for
      example `postgres://app:app@host.jauntbox:5432/app` or `redis://host.jauntbox:6379`.

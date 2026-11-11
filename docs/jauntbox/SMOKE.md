@@ -223,7 +223,7 @@ says otherwise. Fill in the result column.
 | 4. `nc -zv -w 5 <box tailscale IP> 5432` connects (the rules match the port, not the address: record it) | |
 | 5. Per run: `jauntctl agent --host-port 6379` in a second checkout: 6379 connects from that run; from the first run it still times out; `jauntctl agent list` shows `5432,6379` for the second run and `5432` for the first | |
 | 6. `jauntctl agent stop <second run> --now`: `sudo iptables -S JAUNTBOX-RUNS` no longer has the run's `br-jb...` rule; 5432 still works from the first run | |
-| 7. Republish Postgres as `127.0.0.1:5432:5432`, then `jauntctl agent` in another checkout: the loopback warning is printed and the agent can't connect; restore `5432:5432`. With the service stopped, the nothing-listens warning is printed | |
+| 7. Republish Postgres as `127.0.0.1:5432:5432`, then `jauntctl agent` in another checkout: the loopback warning is printed and the agent can't connect (record whether the warning is visible for an interactive start too, where Claude's screen opens right after, as well as for `--unattended`); restore `5432:5432`. With the service stopped, the nothing-listens warning is printed | |
 | 8. From the laptop: `psql -h jauntbox-<user> -p 5432 ...` still connects while agents run | |
 | 9. `sudo systemctl restart docker` with a run active: the run reads `gone` / finished in `jauntctl agent list`, its `JAUNTBOX-RUNS` rules are gone, and a new `jauntctl agent` reaches 5432. After `sudo reboot`, `sudo iptables -S INPUT` again shows row 1's order before any agent start | |
 
