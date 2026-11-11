@@ -155,7 +155,7 @@
             <span class="h-3 w-3 rounded-full" style="background:#28c840" aria-hidden="true"></span>
             <span class="ml-2 font-mono text-xs text-white/55 truncate">agent@box: ~/src/repo</span>
           </div>
-          <svg class="block w-full h-auto" viewBox="0 0 480 320" role="img" aria-label="A terminal window. A dark robot, a droid dome over an angular face plate with two glowing red eyes, looms out of the dark: the rogue AI model. Faint command lines fade behind it, such as a curl to the cloud metadata address." preserveAspectRatio="xMidYMid meet">
+          <svg class="block w-full h-auto" viewBox="0 0 480 320" role="img" aria-label="A terminal window. A dark robot, a droid dome over a sharp, armoured face with two glowing red slit eyes, looms out of the dark: the rogue AI model. Faint command lines fade behind it, such as a curl to the cloud metadata address." preserveAspectRatio="xMidYMid meet">
             <defs>
               <radialGradient id="scare-halo" cx="50%" cy="42%" r="55%">
                 <stop offset="0" stop-color="#3a0d12" stop-opacity=".75"/>
@@ -179,39 +179,95 @@
               <text x="14" y="98" opacity=".28"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> git push origin main</text>
               <text x="14" y="122" opacity=".16"><tspan fill="#4fc2b9">agent@box:~/src/repo$</tspan> echo "hello?"</text>
             </g>
+            <defs>
+              <linearGradient id="bot-dome" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#3a4558"/>
+                <stop offset=".35" stop-color="#151c27"/>
+                <stop offset="1" stop-color="#05080c"/>
+              </linearGradient>
+              <linearGradient id="bot-face" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#232c3a"/>
+                <stop offset=".5" stop-color="#0e131b"/>
+                <stop offset="1" stop-color="#05070b"/>
+              </linearGradient>
+              <linearGradient id="bot-armour" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#1b2330"/>
+                <stop offset=".6" stop-color="#080b11"/>
+                <stop offset="1" stop-color="#03050a" stop-opacity="0"/>
+              </linearGradient>
+              <radialGradient id="bot-spill" cx="50%" cy="0%" r="100%">
+                <stop offset="0" stop-color="#ff2a2a" stop-opacity=".55"/>
+                <stop offset="1" stop-color="#ff2a2a" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
             <!-- red rim light behind the robot -->
-            <path d="M240 44 C196 44 178 74 178 108 L182 150 L150 222 L96 236 L80 310 L400 310 L384 236 L330 222 L298 150 L302 108 C302 74 284 44 240 44 Z" fill="#7a1018" opacity=".45" filter="url(#scare-rim)"/>
-            <!-- robot: droid dome over an angular face plate -->
-            <g stroke="#2a3546" stroke-width="1.2" stroke-linejoin="round">
-              <!-- shoulders and chest -->
-              <path d="M100 310 L112 246 L170 228 L210 222 L270 222 L310 228 L368 246 L380 310 Z" fill="url(#scare-body)"/>
-              <path d="M112 246 L170 228 L186 256 L132 272 Z" fill="#0a0f17"/>
-              <path d="M368 246 L310 228 L294 256 L348 272 Z" fill="#0a0f17"/>
-              <path d="M214 240 L266 240 L258 284 L222 284 Z" fill="#05080d"/>
-              <!-- neck pistons -->
-              <path d="M224 196 L230 224 M256 196 L250 224 M240 200 L240 226" stroke="#3a4658" stroke-width="3" fill="none"/>
-              <!-- dome -->
-              <path d="M184 112 C184 72 208 48 240 48 C272 48 296 72 296 112 Z" fill="#0c121b"/>
-              <path d="M188 98 L292 98" fill="none" stroke="#33415a"/>
-              <circle cx="266" cy="76" r="5" fill="#05080d" stroke="#3a4658"/>
-              <circle cx="266" cy="76" r="1.8" fill="#ff3b30" opacity=".85"/>
-              <path d="M214 60 L214 96 M240 50 L240 96" fill="none" stroke="#1f2938"/>
-              <!-- face plate: brow ridge, cheeks, chin -->
-              <path d="M184 112 L296 112 L292 152 L272 186 L240 204 L208 186 L188 152 Z" fill="#070b11"/>
-              <path d="M188 113 L240 125 L292 113 L290 121 L240 131 L190 121 Z" fill="#141b27"/>
-              <path d="M206 158 L224 176 M274 158 L256 176" fill="none" stroke="#233043"/>
-              <!-- mouth grille -->
-              <path d="M226 180 L254 180 M228 186 L252 186 M231 192 L249 192" fill="none" stroke="#3b1418" stroke-width="1.6"/>
+            <path d="M240 40 C198 40 178 70 178 110 L180 150 L200 196 L150 222 L92 240 L78 310 L402 310 L388 240 L330 222 L280 196 L300 150 L302 110 C302 70 282 40 240 40 Z" fill="#8a1018" opacity=".5" filter="url(#scare-rim)"/>
+            <!-- shoulders and chest armour -->
+            <path d="M84 310 L96 252 C110 236 140 228 176 224 L210 218 L270 218 L304 224 C340 228 370 236 384 252 L396 310 Z" fill="url(#bot-armour)"/>
+            <path d="M96 252 C110 236 140 228 176 224 L190 232 L178 262 L118 278 Z" fill="#141b26"/>
+            <path d="M384 252 C370 236 340 228 304 224 L290 232 L302 262 L362 278 Z" fill="#0a0e15"/>
+            <path d="M98 252 C112 237 142 229 176 225" fill="none" stroke="#ff4a3d" stroke-opacity=".45" stroke-width="1.2"/>
+            <path d="M382 252 C368 237 338 229 304 225" fill="none" stroke="#ff4a3d" stroke-opacity=".3" stroke-width="1.2"/>
+            <circle cx="132" cy="262" r="2" fill="#2f3a4b"/><circle cx="160" cy="254" r="2" fill="#2f3a4b"/>
+            <circle cx="348" cy="262" r="2" fill="#1d2633"/><circle cx="320" cy="254" r="2" fill="#1d2633"/>
+            <path d="M206 236 L274 236 L262 290 L218 290 Z" fill="#05080d"/>
+            <path d="M226 252 L254 252 L250 262 L230 262 Z" fill="#ff2a2a" opacity=".35" filter="url(#scare-eye)"/>
+            <path d="M232 255 L248 255" stroke="#ff6a5c" stroke-opacity=".6" stroke-width="1"/>
+            <!-- segmented neck -->
+            <path d="M222 196 L258 196 L254 226 L226 226 Z" fill="#070a10"/>
+            <g stroke="#2a3444" stroke-width="2">
+              <path d="M223 203 L257 203"/><path d="M224 210 L256 210"/><path d="M225 217 L255 217"/>
             </g>
+            <!-- ear discs -->
+            <circle cx="182" cy="126" r="13" fill="#0b1017"/>
+            <circle cx="182" cy="126" r="8" fill="none" stroke="#323d4f" stroke-width="1.5"/>
+            <circle cx="298" cy="126" r="13" fill="#06090d"/>
+            <circle cx="298" cy="126" r="8" fill="none" stroke="#1d2634" stroke-width="1.5"/>
+            <!-- dome -->
+            <path d="M186 112 C186 70 208 46 240 46 C272 46 294 70 294 112 Z" fill="url(#bot-dome)"/>
+            <path d="M196 84 C204 62 220 52 238 50" fill="none" stroke="#8ea0b8" stroke-opacity=".35" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M188 100 L292 100 L294 112 L186 112 Z" fill="#0a0e15"/>
+            <circle cx="206" cy="106" r="1.6" fill="#ff3b30" opacity=".9"/>
+            <circle cx="214" cy="106" r="1.6" fill="#ff3b30" opacity=".5"/>
+            <circle cx="222" cy="106" r="1.6" fill="#ff3b30" opacity=".25"/>
+            <circle cx="266" cy="74" r="7" fill="#05080d"/>
+            <circle cx="266" cy="74" r="4" fill="#1a0507"/>
+            <circle cx="266" cy="74" r="2" fill="#ff3b30"/>
+            <circle cx="266" cy="74" r="6" fill="#ff2a2a" opacity=".35" filter="url(#scare-eye)"/>
+            <path d="M226 52 L226 98" stroke="#0c1119" stroke-width="1.2"/>
+            <!-- face plate -->
+            <path d="M186 112 L294 112 L291 150 L278 178 L256 200 L240 207 L224 200 L202 178 L189 150 Z" fill="url(#bot-face)"/>
+            <path d="M186 112 L189 150 L202 178 L224 200 L240 207" fill="none" stroke="#ff4a3d" stroke-opacity=".4" stroke-width="1.2"/>
+            <!-- red glow spilling under the eyes -->
+            <path d="M196 138 L236 146 L232 172 L204 160 Z" fill="url(#bot-spill)" opacity=".7"/>
+            <path d="M284 138 L244 146 L248 172 L276 160 Z" fill="url(#bot-spill)" opacity=".5"/>
+            <!-- cheek plates and nose ridge -->
+            <path d="M192 150 L218 164 L230 194" fill="none" stroke="#6f7f96" stroke-opacity=".35" stroke-width="1.2"/>
+            <path d="M288 150 L262 164 L250 194" fill="none" stroke="#1f2836" stroke-width="1.2"/>
+            <path d="M240 134 L240 170" stroke="#5a6a80" stroke-opacity=".35" stroke-width="1.2"/>
+            <!-- heavy brow -->
+            <path d="M184 110 L240 122 L296 110 L294 119 L240 131 L186 119 Z" fill="#1e2633"/>
+            <path d="M186 111 L240 123" stroke="#9fb0c4" stroke-opacity=".4" stroke-width="1"/>
+            <!-- eye sockets -->
+            <path d="M198 124 L236 132 L234 143 L204 141 Z" fill="#000"/>
+            <path d="M282 124 L244 132 L246 143 L276 141 Z" fill="#000"/>
+            <!-- mouth slats -->
+            <g fill="#2a0709">
+              <rect x="229" y="178" width="3" height="16" rx="1"/>
+              <rect x="235" y="178" width="3" height="19" rx="1"/>
+              <rect x="242" y="178" width="3" height="19" rx="1"/>
+              <rect x="248" y="178" width="3" height="16" rx="1"/>
+            </g>
+            <rect x="228" y="180" width="24" height="12" fill="#ff2a2a" opacity=".22" filter="url(#scare-eye)"/>
             <!-- eyes -->
             <g class="scare-eyes">
-              <ellipse cx="222" cy="134" rx="9" ry="5" fill="#ff2a2a" filter="url(#scare-glow)"/>
-              <ellipse cx="258" cy="134" rx="9" ry="5" fill="#ff2a2a" filter="url(#scare-glow)"/>
+              <ellipse cx="220" cy="136" rx="11" ry="5" fill="#ff2a2a" filter="url(#scare-glow)"/>
+              <ellipse cx="260" cy="136" rx="11" ry="5" fill="#ff2a2a" filter="url(#scare-glow)"/>
             </g>
-            <ellipse cx="222" cy="134" rx="6" ry="2.6" fill="#ff5a4d" filter="url(#scare-eye)" transform="rotate(8 222 134)"/>
-            <ellipse cx="258" cy="134" rx="6" ry="2.6" fill="#ff5a4d" filter="url(#scare-eye)" transform="rotate(-8 258 134)"/>
-            <ellipse cx="222" cy="134" rx="2.6" ry="1" fill="#ffd6c9" transform="rotate(8 222 134)"/>
-            <ellipse cx="258" cy="134" rx="2.6" ry="1" fill="#ffd6c9" transform="rotate(-8 258 134)"/>
+            <path d="M204 133 L233 137 L231 140 L207 139 Z" fill="#ff4a3d" filter="url(#scare-eye)"/>
+            <path d="M276 133 L247 137 L249 140 L273 139 Z" fill="#ff4a3d" filter="url(#scare-eye)"/>
+            <path d="M210 135 L229 138" stroke="#ffd6c9" stroke-width="1.2" stroke-linecap="round"/>
+            <path d="M270 135 L251 138" stroke="#ffd6c9" stroke-width="1.2" stroke-linecap="round"/>
             <text x="14" y="306" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="11" fill="#9fb0c4" opacity=".6"><tspan fill="#ff5a4d">agent@box:~/src/repo$</tspan> _</text>
           </svg>
         </div>
