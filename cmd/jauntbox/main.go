@@ -383,7 +383,7 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 			// Attach writes its own warnings and reconnect notes.
 			d.BeforeAttach = func(created bool) {
 				if created {
-					finishUp(steps, d.Cfg, startedAt, d.Now(), startedAt)
+					finishUp(ctx, steps, d, startedAt, startedAt)
 				}
 				steps.Close()
 			}

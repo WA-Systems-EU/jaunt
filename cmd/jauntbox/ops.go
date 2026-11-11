@@ -111,7 +111,7 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			if err := client.Resize(cmd.Context(), d, args[0]); err != nil {
 				return err
 			}
-			finishUp(steps, d.Cfg, startedAt, d.Now(), startedAt)
+			finishUp(cmd.Context(), steps, d, startedAt, startedAt)
 			return nil
 		}),
 	}

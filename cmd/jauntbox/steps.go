@@ -75,29 +75,61 @@ func (s *trackedStep) Warn(msg string) {
 // readyLines is the closing text of up/resize/attach: the summary and the
 // lines under it, with the time measured from upAt to now.
 func readyLines(cfg config.Config, upAt time.Time, user string) (string, []string) {
-	return readyLinesAt(cfg, upAt, time.Now(), upAt, user)
+	return readyLinesAt(cfg, cfg.Limits, upAt, time.Now(), upAt, user)
 }
 
 // readyLinesAt measures "Ready in" from elapsedFrom (the command start) and
-// the deletion deadline from deadlineFrom (when the box itself came up).
-func readyLinesAt(cfg config.Config, elapsedFrom, now, deadlineFrom time.Time, user string) (string, []string) {
+// the deletion deadline from deadlineFrom (when the box itself came up), under
+// the limits the supervisor enforces.
+func readyLinesAt(cfg config.Config, lim config.Limits, elapsedFrom, now, deadlineFrom time.Time, user string) (string, []string) {
 	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		loc = time.Local
 	}
-	dl, reason := lifecycle.Deadline(deadlineFrom, cfg.Limits, loc)
+	dl, reason := lifecycle.Deadline(deadlineFrom, lim, loc)
 	reason = strings.ReplaceAll(reason, "-", " ")
-	lines := []string{
-		fmt.Sprintf("Deletes itself at %s (%s) or after %s idle.", dl.In(loc).Format("15:04"), reason, shortDuration(time.Duration(cfg.Limits.IdleDay))),
-		"ssh " + hostnameFor(user),
+	dl, nowL := dl.In(loc), now.In(loc)
+	day := func(t time.Time) string { // "" today, else yesterday/tomorrow/Mon 3 Jun
+		y, m, d := t.Date()
+		ny, nm, nd := nowL.Date()
+		diff := int(time.Date(y, m, d, 12, 0, 0, 0, loc).Sub(time.Date(ny, nm, nd, 12, 0, 0, 0, loc)).Hours() / 24)
+		switch {
+		case diff == 0:
+			return ""
+		case diff == -1:
+			return "yesterday"
+		case diff == 1:
+			return "tomorrow"
+		}
+		return t.Format("Mon 2 Jan")
 	}
+	var first string
+	if dl.After(nowL) {
+		at := dl.Format("15:04")
+		if dd := day(dl); dd != "" {
+			at = dd + " " + at
+		}
+		first = fmt.Sprintf("Deletes itself at %s (%s) or after %s idle.", at, reason, shortDuration(time.Duration(lim.IdleDay)))
+	} else {
+		at := dl.Format("15:04")
+		if dd := day(dl); dd != "" {
+			at += " " + dd
+		}
+		first = fmt.Sprintf("Past its deadline (%s, %s); deletes itself once you're idle for %s.", at, reason, shortDuration(time.Duration(lim.HumanActiveWindow)))
+	}
+	lines := []string{first, "ssh " + hostnameFor(user)}
 	return "Ready in " + ui.FormatDuration(now.Sub(elapsedFrom)) + ".", lines
 }
 
 // finishUp ends the stream with the Ready line; warned turns the final
 // full stop into ", with warnings."
-func finishUp(t *tracked, cfg config.Config, startedAt, now, boxUpAt time.Time) {
-	summary, lines := readyLinesAt(cfg, startedAt, now, boxUpAt, cfg.User)
+func finishUp(ctx context.Context, t *tracked, d client.Deps, startedAt, boxUpAt time.Time) {
+	lim := d.Cfg.Limits
+	if pol, err := d.Policy.Load(ctx); err == nil { // what the supervisor enforces
+		lim = pol.Limits
+	}
+	cfg := d.Cfg
+	summary, lines := readyLinesAt(cfg, lim, startedAt, d.Now(), boxUpAt, cfg.User)
 	if t.warned.Load() {
 		summary = strings.TrimSuffix(summary, ".") + ", with warnings."
 	}
@@ -166,7 +198,7 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 			if !res.Created && !res.Box.Created.IsZero() {
 				boxUpAt = res.Box.Created // a running box dies by its own clock
 			}
-			finishUp(steps, d.Cfg, startedAt, d.Now(), boxUpAt)
+			finishUp(ctx, steps, d, startedAt, boxUpAt)
 			return nil
 		},
 	}

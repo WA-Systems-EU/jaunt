@@ -251,7 +251,7 @@ func TestReadyLines(t *testing.T) {
 	cfg.Limits.MaxUptime = config.Duration(12 * time.Hour)
 	loc, _ := time.LoadLocation("Europe/Paris")
 	up := time.Date(2026, 6, 2, 9, 0, 0, 0, loc)
-	sum, lines := readyLinesAt(cfg, up, up.Add(41*time.Second), up, "alice")
+	sum, lines := readyLinesAt(cfg, cfg.Limits, up, up.Add(41*time.Second), up, "alice")
 	if sum != "Ready in 41s." {
 		t.Fatalf("summary %q", sum)
 	}
@@ -294,24 +294,62 @@ func TestUpInterruptAfterCreateHandsOff(t *testing.T) {
 	}
 }
 
-func TestUpExistingBoxDeadlineUsesBoxClock(t *testing.T) {
+func TestUpExistingBoxDeadlineWording(t *testing.T) {
 	loc, _ := time.LoadLocation("Europe/Paris")
-	for name, created := range map[string]time.Time{
-		"same day":     time.Date(2026, 6, 2, 8, 0, 0, 0, loc),
-		"previous day": time.Date(2026, 6, 1, 8, 0, 0, 0, loc),
-	} {
+	at := func(d, h int) time.Time { return time.Date(2026, 6, d, h, 0, 0, 0, loc) }
+	cases := []struct {
+		name         string
+		created, now time.Time
+		want         string
+		noCutoff     bool
+		maxUp        time.Duration
+	}{
+		{"future today", at(2, 8), at(2, 12), "Deletes itself at 18:00 (max uptime) or after 2h idle.", false, 0},
+		{"future another day", at(2, 16), at(2, 17), "Deletes itself at tomorrow 02:00 (max uptime) or after 2h idle.", true, 0},
+		{"future in three days", at(2, 8), at(2, 9), "Deletes itself at Thu 4 Jun 20:00 (max uptime) or after 2h idle.", true, 60 * time.Hour},
+		{"passed yesterday", at(1, 8), at(2, 12), "Past its deadline (18:00 yesterday, max uptime); deletes itself once you're idle for 30m.", false, 0},
+		{"passed today", at(2, 8), at(2, 20), "Past its deadline (18:00, max uptime); deletes itself once you're idle for 30m.", false, 0},
+		{"passed days ago", at(1, 8), at(4, 12), "Past its deadline (18:00 Mon 1 Jun, max uptime); deletes itself once you're idle for 30m.", false, 0},
+	}
+	for _, c := range cases {
 		f := newFx(t)
 		f.d.Cfg.Limits.MaxUptime = config.Duration(10 * time.Hour)
 		f.d.Cfg.Limits.EveningCutoff = "19:00"
-		f.d.Now = func() time.Time { return time.Date(2026, 6, 2, 12, 0, 0, 0, loc) }
-		f.prov.box = &provider.Box{ID: 5, Name: "jauntbox-alice", Status: "running", Created: created}
+		if c.noCutoff {
+			f.d.Cfg.Limits.EveningCutoff = ""
+		}
+		if c.maxUp > 0 {
+			f.d.Cfg.Limits.MaxUptime = config.Duration(c.maxUp)
+		}
+		f.d.Policy = policy.Local{Cfg: f.d.Cfg}
+		now := c.now
+		f.d.Now = func() time.Time { return now }
+		f.prov.box = &provider.Box{ID: 5, Name: "jauntbox-alice", Status: "running", Created: c.created}
 		_, stderr, err := f.run(context.Background(), "up")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(stderr, "Deletes itself at 18:00 (max uptime) or after 2h idle.") {
-			t.Errorf("%s:\n%s", name, stderr)
+		if !strings.Contains(stderr, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.name, c.want, stderr)
 		}
+	}
+}
+
+func TestUpReadyUsesPolicyLimits(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Paris")
+	f := newFx(t)
+	f.d.Cfg.Limits.MaxUptime = config.Duration(10 * time.Hour)
+	f.d.Cfg.Limits.EveningCutoff = "23:00"
+	pl := f.d.Cfg.Limits
+	pl.MaxUptime = config.Duration(4 * time.Hour)
+	f.d.Policy = policy.Local{Cfg: func() config.Config { c := f.d.Cfg; c.Limits = pl; return c }()}
+	f.d.Now = func() time.Time { return time.Date(2026, 6, 2, 9, 0, 0, 0, loc) }
+	_, stderr, err := f.run(context.Background(), "up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "Deletes itself at 13:00 (max uptime)") {
+		t.Fatalf("policy limits not used:\n%s", stderr)
 	}
 }
 
