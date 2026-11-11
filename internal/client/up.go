@@ -17,6 +17,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
 	"github.com/WA-Systems-EU/jaunt/internal/secrets"
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
 )
 
 // volumeDetachTimeout bounds how long Up waits for the home volume to be
@@ -41,6 +42,16 @@ type Deps struct {
 	Spawn func(args ...string) error
 	// HetznerToken is embedded in user-data so the box can delete itself.
 	HetznerToken string
+	// Steps reports progress; nil means silent (ui.Nop).
+	Steps ui.Steps
+}
+
+// steps returns the progress reporter, never nil.
+func (d Deps) steps() ui.Steps {
+	if d.Steps == nil {
+		return ui.Nop()
+	}
+	return d.Steps
 }
 
 // UpResult reports what Up did.
@@ -58,24 +69,32 @@ func labels(user, role string) map[string]string {
 // Up idempotently provisions the box. If a box already exists it returns it
 // with Created=false and no further side effects.
 func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
+	steps := d.steps()
+	failed := func(st ui.Step, err error) error {
+		st.Fail(err, "")
+		return err
+	}
+	st := steps.Start("Policy and limits")
 	pol, err := d.Policy.Load(ctx)
 	if err != nil {
-		return UpResult{}, fmt.Errorf("load policy: %w", err)
+		return UpResult{}, failed(st, fmt.Errorf("load policy: %w", err))
 	}
 	prof, ok := pol.Profiles[profile]
 	if !ok {
-		return UpResult{}, fmt.Errorf("unknown profile %q", profile)
+		return UpResult{}, failed(st, fmt.Errorf("unknown profile %q", profile))
 	}
+	st.Done()
 	user := d.Cfg.User
 	name := hostname(user)
 
+	st = steps.Start("SSH key, firewall, volume")
 	keyID, err := d.Prov.EnsureSSHKey(ctx, name, d.Cfg.SSHPublicKey, labels(user, "key"))
 	if err != nil {
-		return UpResult{}, fmt.Errorf("ssh key: %w", err)
+		return UpResult{}, failed(st, fmt.Errorf("ssh key: %w", err))
 	}
 	fwID, err := d.Prov.EnsureFirewall(ctx, name, labels(user, "fw"))
 	if err != nil {
-		return UpResult{}, fmt.Errorf("firewall: %w", err)
+		return UpResult{}, failed(st, fmt.Errorf("firewall: %w", err))
 	}
 	ensureVol := func() (provider.Volume, error) {
 		return d.Prov.EnsureVolume(ctx, name+"-home", d.Cfg.VolumeSizeGB, d.Cfg.Location, labels(user, "home"))
@@ -85,17 +104,25 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 		// A concurrent `jauntbox up` may have created it first; look it up once more.
 		var err2 error
 		if vol, err2 = ensureVol(); err2 != nil {
-			return UpResult{}, fmt.Errorf("volume: %w (re-run `jauntbox up`)", err)
+			return UpResult{}, failed(st, fmt.Errorf("volume: %w (re-run `jauntbox up`)", err))
 		}
 	}
+	st.Done()
 	existing, err := d.Prov.FindBox(ctx, labels(user, "box"))
 	if err != nil {
-		return UpResult{}, fmt.Errorf("find box: %w", err)
+		return UpResult{}, failed(steps.Start("Box found"), fmt.Errorf("find box: %w", err))
+	}
+	found := func(b provider.Box) UpResult {
+		fs := steps.Start("Box found")
+		fs.Detail(fmt.Sprintf("%s (%s)", b.Name, b.Status))
+		fs.Done()
+		return UpResult{Box: b}
 	}
 	if existing != nil {
-		return UpResult{Box: *existing}, nil
+		return found(*existing), nil
 	}
 
+	st = steps.Start("Server created")
 	// Hetzner can keep reporting the volume as attached for a few seconds after
 	// the old server is gone (e.g. `down` then `up`); creating now would fail.
 	wctx, cancel := context.WithTimeout(ctx, volumeDetachTimeout)
@@ -104,24 +131,25 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 	if err != nil {
 		if again, ferr := d.Prov.FindBox(ctx, labels(user, "box")); ferr == nil && again != nil {
 			// Lost a race: another `jauntbox up` created the box and holds the volume.
-			return UpResult{Box: *again}, nil
+			st.Skip("another run created it")
+			return found(*again), nil
 		}
 		switch {
 		case ctx.Err() != nil:
-			return UpResult{}, ctx.Err()
+			return UpResult{}, ctx.Err() // left open: the caller closes the steps as interrupted
 		case errors.Is(err, provider.ErrVolumeInUse):
-			return UpResult{}, fmt.Errorf("home volume %s is attached to another server that is not a jauntbox box; detach it first: %w", name+"-home", err)
+			return UpResult{}, failed(st, fmt.Errorf("home volume %s is attached to another server that is not a jauntbox box; detach it first: %w", name+"-home", err))
 		case errors.Is(err, context.DeadlineExceeded):
-			return UpResult{}, fmt.Errorf("volume %s is still attached to another server (wait a minute, then re-run `jauntbox up`): %w", name+"-home", err)
+			return UpResult{}, failed(st, fmt.Errorf("volume %s is still attached to another server (wait a minute, then re-run `jauntbox up`): %w", name+"-home", err))
 		default:
-			return UpResult{}, fmt.Errorf("check volume attachment: %w", err)
+			return UpResult{}, failed(st, fmt.Errorf("check volume attachment: %w", err))
 		}
 	}
 
 	tag := "tag:" + name
 	authKey, err := d.Mesh.CreateAuthKey(ctx, []string{tag}, time.Hour)
 	if err != nil {
-		return UpResult{}, fmt.Errorf("tailscale auth key: %w", err)
+		return UpResult{}, failed(st, fmt.Errorf("tailscale auth key: %w", err))
 	}
 	userData, err := cloudinit.Render(cloudinit.Params{
 		Box: boxinfo.BoxInfo{
@@ -134,7 +162,7 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 		Tag:              tag,
 	})
 	if err != nil {
-		return UpResult{}, err
+		return UpResult{}, failed(st, err)
 	}
 	box, err := d.Prov.CreateBox(ctx, provider.CreateBoxSpec{
 		Name: name, ServerType: prof.ServerType, Image: d.Cfg.Image, Location: d.Cfg.Location,
@@ -144,13 +172,19 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 	if err != nil {
 		if again, ferr := d.Prov.FindBox(ctx, labels(user, "box")); ferr == nil && again != nil {
 			// Lost a race: another `jauntbox up` already created it.
-			return UpResult{Box: *again}, nil
+			st.Skip("another run created it")
+			return found(*again), nil
 		}
-		return UpResult{}, fmt.Errorf("create box: %w (if another `jauntbox up` is running, re-run `jauntbox up`)", err)
+		return UpResult{}, failed(st, fmt.Errorf("create box: %w (if another `jauntbox up` is running, re-run `jauntbox up`)", err))
 	}
+	st.Detail(fmt.Sprintf("#%d", box.ID))
 	emitErr := d.Events.Emit(events.Event{Time: d.Now(), Kind: events.BoxCreated, Fields: map[string]string{
 		"user": user, "profile": profile, "server_type": prof.ServerType, "id": fmt.Sprint(box.ID),
 	}})
+	if emitErr != nil {
+		st.Warn("could not record the box.created event: " + emitErr.Error())
+	}
+	st.Done()
 	res := UpResult{Box: box, Created: true}
 	if err := d.Spawn("internal-push"); err != nil {
 		return res, fmt.Errorf("box created but starting the binary push failed (run `jauntbox internal-push`): %w", err)

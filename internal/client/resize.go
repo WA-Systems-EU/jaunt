@@ -15,9 +15,18 @@ func Resize(ctx context.Context, d Deps, profile string) error {
 	if _, ok := pol.Profiles[profile]; !ok {
 		return fmt.Errorf("unknown profile %q (nothing was changed)", profile)
 	}
-	if err := Down(ctx, d, false); err != nil {
+	if found, err := down(ctx, d, false); err != nil {
+		return err
+	} else if !found {
+		d.steps().Note("no box running; creating one")
+	}
+	// The new box is pushed in the foreground so the stream covers it all.
+	res, upErr := Up(ctx, WithoutSpawn(d), profile)
+	if upErr != nil && !res.Created {
+		return upErr
+	}
+	if err := PushBinary(ctx, d, DefaultPushWait); err != nil {
 		return err
 	}
-	_, err = Up(ctx, d, profile)
-	return err
+	return upErr
 }

@@ -103,18 +103,15 @@ func TestPushBinaryUnlockFailureIsOnlyAWarning(t *testing.T) {
 	old := pollInterval
 	pollInterval = time.Millisecond
 	defer func() { pollInterval = old }()
-	var out strings.Builder
-	oldOut := attachOut
-	attachOut = &out
-	defer func() { attachOut = oldOut }()
 	d, _, _, r, _, _ := newDeps(t)
+	rec := withRec(&d)
 	withSecrets(t, &d, "agents.env", "K=v\n")
 	r.locked, r.inputErr = true, os.ErrPermission
 	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "warning: could not unlock the box:") {
-		t.Fatalf("output = %q", out.String())
+	if !contains(rec.Events, "done Unlock secrets") || !strings.Contains(strings.Join(rec.Events, "\n"), "warn Unlock secrets: load secrets on the box:") {
+		t.Fatalf("events = %v", rec.Events)
 	}
 }
 

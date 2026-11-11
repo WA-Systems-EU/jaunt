@@ -42,11 +42,10 @@ func TestDownGraceful(t *testing.T) {
 func TestDownWaitsForAgentTeardown(t *testing.T) {
 	d, p, _, _, _, _ := newDeps(t)
 	withBox(p)
-	out := captureStdout(t, func() {
-		if err := Down(context.Background(), d, false); err != nil {
-			t.Fatal(err)
-		}
-	})
+	rec := withRec(&d)
+	if err := Down(context.Background(), d, false); err != nil {
+		t.Fatal(err)
+	}
 	pol, err := d.Policy.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -63,9 +62,9 @@ func TestDownWaitsForAgentTeardown(t *testing.T) {
 	if len(p.waitBudgets) != 1 || p.waitBudgets[0] > want || p.waitBudgets[0] < want-time.Minute {
 		t.Fatalf("wait budgets %v, want about %v", p.waitBudgets, want)
 	}
-	line := fmt.Sprintf("waiting up to %d min for agents to wrap up and the box to delete itself\n", int(want/time.Minute))
-	if !strings.Contains(out, line) {
-		t.Fatalf("stdout %q lacks %q", out, line)
+	line := fmt.Sprintf("detail Wait for the box to delete itself: up to %d min", int(want/time.Minute))
+	if !contains(rec.Events, line) {
+		t.Fatalf("events %v lack %q", rec.Events, line)
 	}
 }
 
@@ -128,16 +127,6 @@ func TestDownForceSkipsSSH(t *testing.T) {
 	}
 }
 
-func TestDownNoBox(t *testing.T) {
-	d, p, _, r, s, _ := newDeps(t)
-	if err := Down(context.Background(), d, false); err != nil {
-		t.Fatal(err)
-	}
-	if len(r.cmds) != 0 || p.count("delete") != 0 || len(s.kinds) != 0 {
-		t.Fatalf("side effects: %v %v %v", r.cmds, p.calls, s.kinds)
-	}
-}
-
 func TestNightParsesNextOccurrence(t *testing.T) {
 	for _, c := range []struct {
 		now  time.Time
@@ -183,7 +172,8 @@ func TestResizeOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"run:jauntctl stop", "waitdeleted", "waitdetached", "create:" + d.Cfg.Profiles["big"].ServerType}
-	if strings.Join(seq, ",") != strings.Join(want, ",") {
+	// the new box is then pushed in the foreground (no background spawn)
+	if len(seq) < len(want) || strings.Join(seq[:len(want)], ",") != strings.Join(want, ",") {
 		t.Fatalf("seq = %v, want %v", seq, want)
 	}
 }

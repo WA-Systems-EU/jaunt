@@ -30,29 +30,47 @@ func downWait(grace time.Duration) time.Duration {
 // Down deletes the box. Unless force is set it first asks the box to wrap up
 // and delete itself, then waits up to downWait(WrapUpGrace); if the box cannot be
 // reached (or does not disappear in time) the box is deleted through the
-// provider API. The home volume is never touched.
+// provider API. The home volume is never touched. With no box it ends the
+// step stream as not ok ("no box running") and returns nil.
 func Down(ctx context.Context, d Deps, force bool) error {
+	found, err := down(ctx, d, force)
+	if err == nil && !found {
+		d.steps().End(false, "", "no box running")
+	}
+	return err
+}
+
+// down is Down without the "no box" ending; found is false when there was no box.
+func down(ctx context.Context, d Deps, force bool) (found bool, _ error) {
+	steps := d.steps()
 	box, err := d.Prov.FindBox(ctx, labels(d.Cfg.User, "box"))
 	if err != nil {
-		return fmt.Errorf("find box: %w", err)
+		return true, fmt.Errorf("find box: %w", err)
 	}
 	if box == nil {
-		fmt.Println("no box running")
-		return nil
+		return false, nil
 	}
 	if err := d.Events.Emit(events.Event{Time: d.Now(), Kind: events.BoxDownRequested, Fields: map[string]string{
 		"user": d.Cfg.User, "force": fmt.Sprint(force), "id": fmt.Sprint(box.ID),
 	}}); err != nil {
-		return fmt.Errorf("record box.down_requested: %w", err)
+		return true, fmt.Errorf("record box.down_requested: %w", err)
 	}
+	deleted := func() {
+		st := steps.Start("Box deleted")
+		st.Detail("volume kept")
+		st.Done()
+	}
+	directLabel := "Delete the box"
 	if !force {
+		directLabel = "Delete the box directly"
 		pol, err := d.Policy.Load(ctx)
 		if err != nil {
-			return fmt.Errorf("load policy: %w", err)
+			return true, fmt.Errorf("load policy: %w", err)
 		}
+		ask := steps.Start("Ask the box to wrap up")
 		_, runErr := rootRun(ctx, d, "jauntctl", "stop")
 		if ctx.Err() != nil { // Ctrl-C must never fall through to the force path
-			return ctx.Err()
+			return true, ctx.Err() // left open: the caller closes the steps as interrupted
 		}
 		if errors.Is(runErr, ErrRootSSH) {
 			if online, oerr := d.Mesh.DeviceOnline(ctx, hostname(d.Cfg.User)); oerr != nil || online {
@@ -61,35 +79,54 @@ func Down(ctx context.Context, d Deps, force bool) error {
 				gone := d.Prov.WaitDeleted(gctx, box.ID)
 				cancel()
 				if gone == nil {
-					return nil
+					ask.Done()
+					deleted()
+					return true, nil
 				}
 				if ctx.Err() != nil {
-					return ctx.Err()
+					return true, ctx.Err()
 				}
-				return fmt.Errorf("%w\n(`jauntbox down --force` deletes the box without the wrap-up)", runErr)
+				err := fmt.Errorf("%w\n(`jauntbox down --force` deletes the box without the wrap-up)", runErr)
+				ask.Fail(err, "")
+				return true, err
 			}
 		}
 		if unreachable(runErr) {
-			fmt.Printf("could not reach the box (%v); deleting it directly\n", runErr)
+			ask.Warn(fmt.Sprintf("could not reach the box (%v)", runErr))
+			ask.Done()
 		} else {
 			// The box got the request (or deleted itself under the ssh session): wait for it.
+			ask.Done()
 			wait := downWait(time.Duration(pol.Limits.WrapUpGrace))
-			fmt.Printf("waiting up to %d min for agents to wrap up and the box to delete itself\n", int((wait+time.Minute-1)/time.Minute))
+			ws := steps.Start("Wait for the box to delete itself")
+			ws.Detail(fmt.Sprintf("up to %d min", int((wait+time.Minute-1)/time.Minute)))
 			wctx, cancel := context.WithTimeout(ctx, wait)
 			defer cancel()
 			if err := d.Prov.WaitDeleted(wctx, box.ID); err == nil {
-				return nil
+				ws.Done()
+				deleted()
+				return true, nil
 			}
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return true, ctx.Err()
 			}
-			fmt.Println("box did not delete itself in time; deleting it directly")
+			ws.Warn("did not delete itself in time")
+			ws.Done()
 		}
 	}
+	del := steps.Start(directLabel)
 	if err := d.Prov.DeleteBox(ctx, box.ID); err != nil {
-		return fmt.Errorf("delete box: %w", err)
+		err = fmt.Errorf("delete box: %w", err)
+		del.Fail(err, "")
+		return true, err
 	}
-	return d.Prov.WaitDeleted(ctx, box.ID)
+	if err := d.Prov.WaitDeleted(ctx, box.ID); err != nil {
+		del.Fail(err, "")
+		return true, err
+	}
+	del.Done()
+	deleted()
+	return true, nil
 }
 
 // unreachable reports whether err means ssh never reached the box: a failure to

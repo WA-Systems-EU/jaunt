@@ -1,0 +1,345 @@
+package client
+
+import (
+	"errors"
+
+	"context"
+	"fmt"
+	"github.com/WA-Systems-EU/jaunt/internal/session"
+	"io"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
+)
+
+// withRec installs a Recorder as the deps' step stream.
+func withRec(d *Deps) *ui.Recorder {
+	r := &ui.Recorder{}
+	d.Steps = r
+	return r
+}
+
+// assertEvents compares the recorded events with want.
+func assertEvents(t *testing.T, r *ui.Recorder, want ...string) {
+	t.Helper()
+	if got := strings.Join(r.Events, "\n"); got != strings.Join(want, "\n") {
+		t.Fatalf("events:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
+	}
+}
+
+// assertAllStartedFinished checks every started step got an outcome.
+func assertAllStartedFinished(t *testing.T, r *ui.Recorder) {
+	t.Helper()
+	open := map[string]bool{}
+	for _, e := range r.Events {
+		switch {
+		case strings.HasPrefix(e, "start "):
+			open[strings.TrimPrefix(e, "start ")] = true
+		case strings.HasPrefix(e, "done "):
+			delete(open, strings.TrimPrefix(e, "done "))
+		case strings.HasPrefix(e, "skip "), strings.HasPrefix(e, "fail "):
+			label := strings.SplitN(strings.SplitN(e, " ", 2)[1], ":", 2)[0]
+			delete(open, label)
+		}
+	}
+	if len(open) != 0 {
+		t.Fatalf("steps left without an outcome: %v\n%v", open, r.Events)
+	}
+}
+
+// captureStderr runs f and returns what it wrote to os.Stderr.
+func captureStderr(t *testing.T, f func()) string {
+	t.Helper()
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = pw
+	done := make(chan string)
+	go func() { b, _ := io.ReadAll(pr); done <- string(b) }()
+	f()
+	os.Stderr = old
+	pw.Close()
+	return <-done
+}
+
+func fastPoll(t *testing.T) {
+	t.Helper()
+	old := pollInterval
+	pollInterval = time.Millisecond
+	t.Cleanup(func() { pollInterval = old })
+}
+
+func TestUpRecordsSteps(t *testing.T) {
+	d, _, _, _, _, _ := newDeps(t)
+	r := withRec(&d)
+	if _, err := Up(context.Background(), d, "small"); err != nil {
+		t.Fatal(err)
+	}
+	assertEvents(t, r,
+		"start Policy and limits", "done Policy and limits",
+		"start SSH key, firewall, volume", "done SSH key, firewall, volume",
+		"start Server created", "detail Server created: #9", "done Server created")
+}
+
+func TestPushBinaryRecordsSteps(t *testing.T) {
+	fastPoll(t)
+	d, _, _, _, _, _ := newDeps(t)
+	r := withRec(&d)
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	assertEvents(t, r,
+		"start Joined the tailnet", "detail Joined the tailnet: jauntbox-alice", "done Joined the tailnet",
+		"start Provisioning", "done Provisioning",
+		"start Install supervisor", "done Install supervisor",
+		"start Unlock secrets", "done Unlock secrets")
+}
+
+func TestPushBinaryTimeoutFailsProvisioning(t *testing.T) {
+	fastPoll(t)
+	d, _, _, _, _, _ := newDeps(t)
+	r := withRec(&d)
+	d.Root = &flakyCopyRemote{copyFails: 1 << 30}
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	err := PushBinary(context.Background(), d, 20*time.Millisecond)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	want := "fail Provisioning: " + err.Error()
+	if !contains(r.Events, want) {
+		t.Fatalf("no %q in %v", want, r.Events)
+	}
+	if contains(r.Events, "start Install supervisor") {
+		t.Fatalf("install started: %v", r.Events)
+	}
+	if !strings.Contains(err.Error(), "joined the tailnet but is not accepting ssh") {
+		t.Fatalf("err changed: %v", err)
+	}
+	assertAllStartedFinished(t, r)
+}
+
+func contains(events []string, e string) bool {
+	for _, x := range events {
+		if x == e {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRootSSHRetryIsAWarning(t *testing.T) {
+	oldP, oldR := pollInterval, rootSSHWait
+	pollInterval, rootSSHWait = time.Millisecond, 20*time.Millisecond
+	defer func() { pollInterval, rootSSHWait = oldP, oldR }()
+	d, _, _, _, _, _ := newDeps(t)
+	rec := withRec(&d)
+	d.Root = &rootRefusedRemote{}
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	var err error
+	out := captureStderr(t, func() { err = PushBinary(context.Background(), d, time.Hour) })
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if out != "" {
+		t.Fatalf("wrote to stderr: %q", out)
+	}
+	n := 0
+	for _, e := range rec.Events {
+		if strings.HasPrefix(e, "warn Provisioning: ") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("warnings = %d: %v", n, rec.Events)
+	}
+}
+
+func TestUnlockStepOutcomes(t *testing.T) {
+	ctx := context.Background()
+	t.Run("empty store skips", func(t *testing.T) {
+		d, _, _, r, _, _ := newDeps(t)
+		rec := withRec(&d)
+		withSecrets(t, &d)
+		r.locked = true
+		tryUnlock(ctx, d)
+		assertEvents(t, rec, "start Unlock secrets", "skip Unlock secrets: no secrets set")
+	})
+	t.Run("error warns then done", func(t *testing.T) {
+		d, _, _, r, _, _ := newDeps(t)
+		rec := withRec(&d)
+		withSecrets(t, &d, "agents.env", "K=v\n")
+		r.locked, r.inputErr = true, os.ErrPermission
+		tryUnlock(ctx, d)
+		if len(rec.Events) != 3 || !strings.HasPrefix(rec.Events[1], "warn Unlock secrets: load secrets on the box:") || rec.Events[2] != "done Unlock secrets" {
+			t.Fatalf("events = %v", rec.Events)
+		}
+	})
+	t.Run("ok", func(t *testing.T) {
+		d, _, _, _, _, _ := newDeps(t)
+		rec := withRec(&d)
+		withSecrets(t, &d, "agents.env", "K=v\n")
+		tryUnlock(ctx, d)
+		assertEvents(t, rec, "start Unlock secrets", "done Unlock secrets")
+	})
+}
+
+func TestExistingBoxSteps(t *testing.T) {
+	d, p, _, _, _, _ := newDeps(t)
+	withBox(p)
+	rec := withRec(&d)
+	res, err := Up(context.Background(), d, "small")
+	if err != nil || res.Created {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	assertEvents(t, rec,
+		"start Policy and limits", "done Policy and limits",
+		"start SSH key, firewall, volume", "done SSH key, firewall, volume",
+		"start Box found", "detail Box found: jauntbox-alice (running)", "done Box found",
+		"start Install supervisor", "skip Install supervisor: already running",
+		"start Unlock secrets", "done Unlock secrets")
+}
+
+func downDetail(t *testing.T, d Deps) string {
+	t.Helper()
+	pol, err := d.Policy.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait := downWait(time.Duration(pol.Limits.WrapUpGrace))
+	return fmt.Sprintf("detail Wait for the box to delete itself: up to %d min", int((wait+time.Minute-1)/time.Minute))
+}
+
+func TestDownRecordsSteps(t *testing.T) {
+	t.Run("graceful", func(t *testing.T) {
+		d, p, _, _, _, _ := newDeps(t)
+		withBox(p)
+		rec := withRec(&d)
+		if err := Down(context.Background(), d, false); err != nil {
+			t.Fatal(err)
+		}
+		assertEvents(t, rec,
+			"start Ask the box to wrap up", "done Ask the box to wrap up",
+			"start Wait for the box to delete itself", downDetail(t, d), "done Wait for the box to delete itself",
+			"start Box deleted", "detail Box deleted: volume kept", "done Box deleted")
+	})
+	t.Run("falls back to direct delete", func(t *testing.T) {
+		d, p, _, _, _, _ := newDeps(t)
+		withBox(p)
+		p.waitErr, p.clearWaitErrOnDelete = context.DeadlineExceeded, true
+		rec := withRec(&d)
+		if err := Down(context.Background(), d, false); err != nil {
+			t.Fatal(err)
+		}
+		assertEvents(t, rec,
+			"start Ask the box to wrap up", "done Ask the box to wrap up",
+			"start Wait for the box to delete itself", downDetail(t, d),
+			"warn Wait for the box to delete itself: did not delete itself in time", "done Wait for the box to delete itself",
+			"start Delete the box directly", "done Delete the box directly",
+			"start Box deleted", "detail Box deleted: volume kept", "done Box deleted")
+	})
+	t.Run("unreachable box is deleted directly", func(t *testing.T) {
+		d, p, _, r, _, _ := newDeps(t)
+		withBox(p)
+		r.err = exitErr(t, 255)
+		d.Mesh.(*fakeMesh).falses = -1
+		rec := withRec(&d)
+		if err := Down(context.Background(), d, false); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(rec.Events[1], "warn Ask the box to wrap up: could not reach the box") ||
+			!contains(rec.Events, "start Delete the box directly") || contains(rec.Events, "start Wait for the box to delete itself") {
+			t.Fatalf("events = %v", rec.Events)
+		}
+		assertAllStartedFinished(t, rec)
+	})
+	t.Run("force", func(t *testing.T) {
+		d, p, _, _, _, _ := newDeps(t)
+		withBox(p)
+		rec := withRec(&d)
+		if err := Down(context.Background(), d, true); err != nil {
+			t.Fatal(err)
+		}
+		assertEvents(t, rec,
+			"start Delete the box", "done Delete the box",
+			"start Box deleted", "detail Box deleted: volume kept", "done Box deleted")
+	})
+}
+
+func TestDownNoBox(t *testing.T) {
+	d, _, _, _, _, _ := newDeps(t)
+	rec := withRec(&d)
+	out := captureStdout(t, func() {
+		if err := Down(context.Background(), d, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if out != "" {
+		t.Fatalf("stdout = %q", out)
+	}
+	assertEvents(t, rec, "end fail | no box running")
+}
+
+func TestResizeWaitsForNewBox(t *testing.T) {
+	fastPoll(t)
+	d, p, _, _, _, spawns := newDeps(t)
+	withBox(p)
+	rec := withRec(&d)
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	if err := Resize(context.Background(), d, "big"); err != nil {
+		t.Fatal(err)
+	}
+	if *spawns != 0 {
+		t.Fatalf("spawned %d times", *spawns)
+	}
+	idx := func(e string) int {
+		for i, x := range rec.Events {
+			if x == e {
+				return i
+			}
+		}
+		return -1
+	}
+	order := []string{"start Ask the box to wrap up", "start Box deleted", "start Server created", "start Joined the tailnet", "start Provisioning", "start Install supervisor", "start Unlock secrets"}
+	last := -1
+	for _, e := range order {
+		i := idx(e)
+		if i <= last {
+			t.Fatalf("%q out of order (%d after %d): %v", e, i, last, rec.Events)
+		}
+		last = i
+	}
+	assertAllStartedFinished(t, rec)
+}
+
+func TestAttachRecordsStepsAndPrintsNothingElse(t *testing.T) {
+	d, p, _ := attachFixture(t)
+	withBox(p)
+	rec := withRec(&d)
+	var buf strings.Builder
+	attachOut = &buf
+	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) { return 0, nil },
+		func(string) (string, error) { return "", errors.New("none") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("attach printed %q", buf.String())
+	}
+	assertEvents(t, rec,
+		"start Policy and limits", "done Policy and limits",
+		"start SSH key, firewall, volume", "done SSH key, firewall, volume",
+		"start Box found", "detail Box found: jauntbox-alice (running)", "done Box found",
+		"start Box online", "done Box online",
+		"start Box provisioned", "done Box provisioned",
+		"start Install supervisor", "skip Install supervisor: already running",
+		"start Unlock secrets", "done Unlock secrets")
+}

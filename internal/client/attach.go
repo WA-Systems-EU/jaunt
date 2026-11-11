@@ -56,11 +56,8 @@ func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 	if err != nil && !res.Created {
 		return err
 	}
-	if err != nil {
-		fmt.Fprintln(attachOut, "warning:", err)
-	}
+	// A non-nil err with Created set is a warning Up already put on its step.
 	if res.Created {
-		fmt.Fprintf(attachOut, "waiting for %s to join the tailnet…\n", host)
 		if err := PushBinary(ctx, d, DefaultPushWait); err != nil {
 			return err
 		}
@@ -119,17 +116,16 @@ func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 func waitProvisioned(ctx context.Context, d Deps, host string) error {
 	herdr := "/home/" + d.Cfg.User + "/.local/bin/herdr"
 	deadline := nowFn().Add(provisionWait)
-	announced := false
+	st := d.steps().Start("Box provisioned")
 	for {
 		if _, err := d.Remote.Run(ctx, host, "test", "-x", herdr); err == nil {
+			st.Done()
 			return nil
 		}
-		if !announced {
-			fmt.Fprintf(attachOut, "provisioning %s (first boot takes ~%d min)…\n", host, int(provisionWait.Minutes()/2))
-			announced = true
-		}
 		if !nowFn().Before(deadline) {
-			return fmt.Errorf("%s is not provisioned after %s (herdr missing); look with `jauntbox ssh` and `cloud-init status --long`", host, provisionWait)
+			err := fmt.Errorf("%s is not provisioned after %s (herdr missing); look with `jauntbox ssh` and `cloud-init status --long`", host, provisionWait)
+			st.Fail(err, "")
+			return err
 		}
 		if err := sleepFn(ctx, provisionPoll); err != nil {
 			return err
@@ -139,17 +135,16 @@ func waitProvisioned(ctx context.Context, d Deps, host string) error {
 
 func waitOnline(ctx context.Context, d Deps, host string) error {
 	deadline := nowFn().Add(onlineWait)
-	announced := false
+	st := d.steps().Start("Box online")
 	for {
 		if online, err := d.Mesh.DeviceOnline(ctx, host); err == nil && online {
+			st.Done()
 			return nil
 		}
-		if !announced {
-			fmt.Fprintf(attachOut, "waiting for %s to come online…\n", host)
-			announced = true
-		}
 		if !nowFn().Before(deadline) {
-			return fmt.Errorf("%s exists but is not on the tailnet after %s (check `jauntbox status`)", host, onlineWait)
+			err := fmt.Errorf("%s exists but is not on the tailnet after %s (check `jauntbox status`)", host, onlineWait)
+			st.Fail(err, "")
+			return err
 		}
 		if err := sleepFn(ctx, pollInterval); err != nil {
 			return err

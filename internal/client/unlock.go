@@ -48,14 +48,28 @@ func EnsureUnlocked(ctx context.Context, d Deps) error {
 // noSecretsError explains why nothing is pushed: replacing the box's secrets
 // with an empty bundle would wipe a working box.
 func noSecretsError(dir string) error {
-	return fmt.Errorf("no secrets stored on this laptop (%s): copy them from your other client or run `jauntbox setup github`", dir)
+	return &errNoSecrets{fmt.Sprintf("no secrets stored on this laptop (%s): copy them from your other client or run `jauntbox setup github`", dir)}
 }
+
+// errNoSecrets is the refusal to push an empty store.
+type errNoSecrets struct{ msg string }
+
+func (e *errNoSecrets) Error() string { return e.msg }
 
 // tryUnlock is EnsureUnlocked for commands whose main job must not fail
 // because of it: a failure is a warning.
 func tryUnlock(ctx context.Context, d Deps) {
-	if err := EnsureUnlocked(ctx, d); err != nil {
-		fmt.Fprintf(attachOut, "warning: could not unlock the box: %v\n", err)
+	st := d.steps().Start("Unlock secrets")
+	err := EnsureUnlocked(ctx, d)
+	var empty *errNoSecrets
+	switch {
+	case errors.As(err, &empty):
+		st.Skip("no secrets set")
+	case err != nil:
+		st.Warn(err.Error())
+		st.Done()
+	default:
+		st.Done()
 	}
 }
 

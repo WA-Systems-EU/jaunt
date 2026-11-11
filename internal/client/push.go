@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
 )
 
 var pollInterval = 10 * time.Second
@@ -16,8 +18,6 @@ var osExecutable = os.Executable
 // login. Unlike a box that is still provisioning, a tailnet policy that
 // denies root will not fix itself, so fail soon and name the fix.
 var rootSSHWait = 60 * time.Second
-
-var pushErr = func() *os.File { return os.Stderr }
 
 // DefaultPushWait is how long PushBinary waits for the box to join the tailnet.
 const DefaultPushWait = 15 * time.Minute
@@ -48,11 +48,21 @@ const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled
 // box was created from another machine) it pushes the binary in the foreground.
 // Without it the safety net would delete the box under a working human.
 func EnsureSupervisor(ctx context.Context, d Deps) error {
-	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck); err == nil {
+	if supervisorInstalled(ctx, d) {
 		tryUnlock(ctx, d)
 		return nil
 	}
 	return PushBinary(ctx, d, DefaultPushWait) // unlocks after installing
+}
+
+// supervisorInstalled reports whether the box already runs the supervisor,
+// recording the "Install supervisor" step as skipped when it does.
+func supervisorInstalled(ctx context.Context, d Deps) bool {
+	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck); err != nil {
+		return false
+	}
+	d.steps().Start("Install supervisor").Skip("already running")
+	return true
 }
 
 // InstallSupervisor is the existing-box counterpart of what Up does on create:
@@ -63,7 +73,7 @@ func InstallSupervisor(ctx context.Context, d Deps, wait bool) error {
 		return EnsureSupervisor(ctx, d)
 	}
 	// Already installed: do not re-push over a running supervisor, but still unlock.
-	if _, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck); err == nil {
+	if supervisorInstalled(ctx, d) {
 		tryUnlock(ctx, d)
 		return nil
 	}
@@ -100,7 +110,10 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 	if err != nil {
 		return err
 	}
+	steps := d.steps()
 	host := hostname(d.Cfg.User)
+	joined := steps.Start("Joined the tailnet")
+	joined.Detail(host)
 	deadline := time.Now().Add(wait)
 	var lastErr error
 	for {
@@ -112,48 +125,75 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 		if time.Now().After(deadline) {
 			if lastErr != nil {
 				// The mesh API itself is failing, so we cannot tell whether the box joined.
-				return fmt.Errorf("could not confirm that %s joined the tailnet within %s (Tailscale API error: %w); the box was NOT deleted: check `jauntbox status` and the Tailscale admin console, then re-run `jauntbox internal-push`", host, wait, lastErr)
+				err := fmt.Errorf("could not confirm that %s joined the tailnet within %s (Tailscale API error: %w); the box was NOT deleted: check `jauntbox status` and the Tailscale admin console, then re-run `jauntbox internal-push`", host, wait, lastErr)
+				joined.Fail(err, "")
+				return err
 			}
-			return neverJoined(ctx, d, host, wait)
+			err := neverJoined(ctx, d, host, wait)
+			joined.Fail(err, "")
+			return err
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ctx.Err() // left open: the caller closes the steps as interrupted
 		case <-time.After(pollInterval):
 		}
 	}
+	joined.Done()
+
 	// Right after the tailnet join dev-setup.sh may not have created the box user
 	// yet, so the runuser steps fail until then: retry those to the same deadline.
 	// A refused root ssh login is different (stale tailnet policy): it gets its
-	// own short budget and the first error is printed while it retries.
+	// own short budget and the first error is a warning while it retries.
+	prov := steps.Start("Provisioning")
+	var install ui.Step // started once the binary copy has worked
+	fail := func(err error) error {
+		if install != nil {
+			install.Fail(err, "")
+		} else {
+			prov.Fail(err, "")
+		}
+		return err
+	}
 	var rootSince time.Time
 	for {
 		err := rootCopy(ctx, d, bin, "/tmp/jauntbox")
 		if err != nil {
 			err = fmt.Errorf("copy binary: %w", err)
-		} else if _, rerr := rootRun(ctx, d, installCmd(d.Cfg.User)); rerr != nil {
-			err = fmt.Errorf("install binary: %w", rerr)
 		} else {
-			tryUnlock(ctx, d)
-			return nil
+			if install == nil {
+				prov.Done()
+				install = steps.Start("Install supervisor")
+			}
+			if _, rerr := rootRun(ctx, d, installCmd(d.Cfg.User)); rerr != nil {
+				err = fmt.Errorf("install binary: %w", rerr)
+			} else {
+				install.Done()
+				tryUnlock(ctx, d)
+				return nil
+			}
 		}
 		if errors.Is(err, ErrRootSSH) {
 			if rootSince.IsZero() {
 				rootSince = time.Now()
-				fmt.Fprintf(pushErr(), "%v\nretrying for up to %s\n", err, rootSSHWait)
+				if install != nil {
+					install.Warn(fmt.Sprintf("%v; retrying for up to %s", err, rootSSHWait))
+				} else {
+					prov.Warn(fmt.Sprintf("%v; retrying for up to %s", err, rootSSHWait))
+				}
 			}
 			if time.Since(rootSince) > rootSSHWait {
-				return err
+				return fail(err)
 			}
 		} else {
 			rootSince = time.Time{}
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%s joined the tailnet but is not accepting ssh within %s: %w", host, wait, err)
+			return fail(fmt.Errorf("%s joined the tailnet but is not accepting ssh within %s: %w", host, wait, err))
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ctx.Err() // left open: the caller closes the steps as interrupted
 		case <-time.After(pollInterval):
 		}
 	}
