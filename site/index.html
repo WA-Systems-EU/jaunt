@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>jauntbox</title>
-<meta name="description" content="Isolated, self-deleting dev boxes on Hetzner Cloud for you and your coding agents. Code, agents and secrets stay off your laptop.">
+<meta name="description" content="A personal, self-deleting cloud dev box on your tailnet, where your code, secrets and sandboxed coding agents live instead of on your laptop.">
 <meta property="og:title" content="jauntbox">
-<meta property="og:description" content="Isolated, self-deleting dev boxes on Hetzner Cloud for you and your coding agents. Code, agents and secrets stay off your laptop.">
+<meta property="og:description" content="A personal, self-deleting cloud dev box on your tailnet, where your code, secrets and sandboxed coding agents live instead of on your laptop.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#eef2f0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d1520" media="(prefers-color-scheme: dark)">
@@ -110,12 +110,16 @@
     </a>
     <nav class="hidden md:flex items-center gap-7 text-sm text-muted">
       <a href="#isolation" class="hover:text-ink">Isolation</a>
+      <a href="#agents" class="hover:text-ink">Agents</a>
       <a href="#roadmap" class="hover:text-ink">Roadmap</a>
       <a href="#onboarding" class="hover:text-ink">Onboarding</a>
       <a href="#trip" class="hover:text-ink">How it works</a>
       <a href="#cost" class="hover:text-ink">Cost</a>
     </nav>
-    <a href="#start" class="text-sm font-semibold rounded-md bg-ink text-bg px-4 py-2 hover:opacity-90">Get started</a>
+    <div class="flex items-center gap-3">
+      <a href="https://github.com/WA-Systems-EU/jaunt" class="hidden sm:inline text-sm font-semibold text-ink hover:underline">GitHub</a>
+      <a href="#start" class="text-sm font-semibold rounded-md bg-ink text-bg px-4 py-2 hover:opacity-90">Get started</a>
+    </div>
   </div>
 </header>
 
@@ -130,7 +134,7 @@
           Just jaunt some code<br>on a box.
         </h1>
         <p class="mt-6 text-lg text-muted max-w-[34rem]">
-          You get your own sealed cloud machine. Your code, your coding agent and your secrets stay inside it, away from your laptop and your keys. New teammates get their own box, with the right setup, in a matter of minutes. Then they start their coding agent and ask it to onboard them on the project.
+          A personal, self-deleting cloud dev box on your tailnet, where your code, secrets and sandboxed coding agents live instead of on your laptop. Your own sealed cloud machine, away from your laptop and your keys. New teammates get their own box, with the right setup, in a matter of minutes. Then they start their coding agent and ask it to onboard them on the project.
         </p>
         <ul class="mt-6 flex flex-wrap gap-2 font-mono text-xs">
           <li class="rounded-full border border-line px-3 py-1">One box per developer</li>
@@ -223,15 +227,14 @@
           <p class="text-[11px] uppercase tracking-[.12em] text-white/45 mb-3">What a bad tool call has to get through</p>
           <ol class="space-y-1.5">
             <li class="rounded-md border border-white/15 px-3 py-2 flex justify-between gap-3"><span><span class="text-white/45">1</span>&nbsp; Agent permission prompt</span></li>
-            <li class="rounded-md border border-white/15 px-3 py-2 ml-3 flex justify-between gap-3"><span><span class="text-white/45">2</span>&nbsp; Docker container</span><span class="stamp st-next">Plan 03</span></li>
+            <li class="rounded-md border border-white/15 px-3 py-2 ml-3 flex justify-between gap-3"><span><span class="text-white/45">2</span>&nbsp; Docker container</span><span class="stamp st-live">Live</span></li>
             <li class="rounded-md border border-white/15 px-3 py-2 ml-6 flex justify-between gap-3"><span><span class="text-white/45">3</span>&nbsp; Disposable box, deleted daily</span><span class="stamp st-live">Live</span></li>
             <li class="rounded-md border border-white/15 px-3 py-2 ml-9 flex justify-between gap-3"><span><span class="text-white/45">4</span>&nbsp; Private tailnet, no public ports</span><span class="stamp st-live">Live</span></li>
             <li class="rounded-md px-3 py-2 ml-12" style="background: var(--tag); color: var(--tag-ink)">Your laptop, untouched</li>
           </ol>
           <div class="mt-6 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-white/60 normal-case">
             <span><span class="stamp st-live">Live</span> works today</span>
-            <span><span class="stamp st-next">Plan 03</span> planned next</span>
-            <span><span class="stamp st-plan">Plan 04</span> planned after</span>
+            <span><span class="stamp st-next">Plan 04</span> planned next</span>
             <span><span class="stamp st-later">Later</span> not planned yet</span>
           </div>
         </div>
@@ -258,11 +261,11 @@
           <dd class="text-white/65 text-[15px] mt-1">A ruleset on each repo's default branch lets only you merge. Agent tokens can push branches and open pull requests, but can't touch workflows, secrets or settings. GitHub offers rulesets on private repos only on paid plans; on GitHub Free, setup names the repos it can't protect.</dd>
         </div>
         <div class="min-w-0 border-t border-white/15 pt-4">
-          <dt class="font-semibold flex flex-wrap items-center gap-2">Agents in Docker, never raw <span class="stamp st-next">Plan 03</span></dt>
-          <dd class="text-white/65 text-[15px] mt-1">Each agent run gets its own container with one project checked out, a token for that repo only, no sudo, no Docker socket, and no route to the cloud metadata endpoint or your tailnet. Agents keep the box up overnight only when you authorise a night session.</dd>
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Agents in Docker, never raw <span class="stamp st-live">Live</span></dt>
+          <dd class="text-white/65 text-[15px] mt-1">Each agent run gets its own container with one project checked out, a token for that repo only, no Docker socket, not privileged, and no route to the cloud metadata endpoint, your tailnet or the services on the box itself. Agents keep the box up overnight only when you authorise a night session.</dd>
         </div>
         <div class="min-w-0 border-t border-white/15 pt-4">
-          <dt class="font-semibold flex flex-wrap items-center gap-2">Services beside the agent <span class="stamp st-plan">Plan 04</span></dt>
+          <dt class="font-semibold flex flex-wrap items-center gap-2">Services beside the agent <span class="stamp st-next">Plan 04</span></dt>
           <dd class="text-white/65 text-[15px] mt-1">The project's databases and other services start on each run's private network. The agent reaches them by name but cannot start, stop or inspect containers.</dd>
         </div>
         <div class="min-w-0 border-t border-white/15 pt-4">
@@ -276,6 +279,46 @@
         <div class="min-w-0 border-t border-white/15 pt-4">
           <dt class="font-semibold flex flex-wrap items-center gap-2">On the list, not planned yet <span class="stamp st-later">Later</span></dt>
           <dd class="text-white/65 text-[15px] mt-1">An outbound allowlist (model API, registries and git host only), pinned agent tools with a deny-first permission config, and checks of the home volume's rc files and git hooks on mount.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- AGENTS -->
+  <section id="agents" class="gutter">
+    <div class="mx-auto max-w-6xl py-20 grid lg:grid-cols-[1fr_1.15fr] gap-12 items-start">
+      <div>
+        <p class="eyebrow text-route mb-3">Agents</p>
+        <h2 class="font-display text-5xl font-extrabold uppercase leading-none">Claude in a container, one repo at a time.</h2>
+        <p class="mt-5 text-muted max-w-[32rem]">Agents run in containers on the box, never in your shell. Attach the box's herdr session, go to a repo's folder and run <code class="font-mono text-[13px] text-ink">jauntctl agent</code>. Claude opens right there in that pane, with only that checkout and a token for that one repo.</p>
+        <p class="mt-4 text-muted max-w-[32rem]">Work on several repos at once: each checkout under <code class="font-mono text-[13px] text-ink">~/src</code> can have its own run, container and token, one run per checkout. Closing the pane doesn't end the run; reopen it with <code class="font-mono text-[13px] text-ink">jauntctl agent attach</code>.</p>
+        <div class="mt-6 min-w-0 rounded-lg bg-board overflow-x-auto">
+          <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> jauntbox
+<span style="color:#7f8fa3">$</span> cd ~/src/&lt;repo&gt;
+<span style="color:#7f8fa3">$</span> jauntctl agent
+<span style="color:#7f8fa3">$</span> jauntctl agent --unattended "one-line prompt"</pre>
+        </div>
+      </div>
+      <dl class="grid sm:grid-cols-2 gap-x-8 gap-y-7">
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Interactive or unattended</dt>
+          <dd class="text-muted text-[15px] mt-1"><code class="font-mono text-[13px] text-ink">jauntctl agent</code> starts an interactive run in this checkout. <code class="font-mono text-[13px] text-ink">--unattended "…"</code> starts one that works on its own, and <code class="font-mono text-[13px] text-ink">logs --follow</code> watches it.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Manage your runs</dt>
+          <dd class="text-muted text-[15px] mt-1"><code class="font-mono text-[13px] text-ink">jauntctl agent attach | list | stop | logs</code>. <code class="font-mono text-[13px] text-ink">attach --shell</code> opens bash in the container, the place to run agent-changed tests.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">Your branch, live</dt>
+          <dd class="text-muted text-[15px] mt-1">The container mounts your checkout with your uid, so you see changes as they happen. On the default branch the run switches to <code class="font-mono text-[13px] text-ink">agent/&lt;repo&gt;-&lt;date&gt;</code>; the agent can push branches and open PRs, never merge.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4">
+          <dt class="font-semibold">What the container cannot reach</dt>
+          <dd class="text-muted text-[15px] mt-1">The cloud metadata endpoint, your tailnet, services on the box itself, other repos' tokens and the vault. No Docker socket, not privileged, all capabilities dropped. The internet, GitHub and package registries stay reachable.</dd>
+        </div>
+        <div class="min-w-0 border-t border-line pt-4 sm:col-span-2">
+          <dt class="font-semibold">Wrap-up into <code class="font-mono text-[13px]">CONTINUATION.md</code></dt>
+          <dd class="text-muted text-[15px] mt-1">When a run is stopped, hits its time limit, or the box is about to go down, the agent writes <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code> (what is done, what is next), commits and pushes it. If it doesn't within the grace period, the box writes a mechanical one itself, never on the default branch. Start again on that branch and Claude continues from it.</dd>
         </div>
       </dl>
     </div>
@@ -312,7 +355,7 @@
           <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: App setup, locked box after reboot, permission drift, token revocation and a clean volume passed. Six fixes landed from it.</p>
         </li>
         <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
-          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03a</span><span class="stamp lt st-next">Building</span></div>
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03a</span><span class="stamp lt st-live">Done</span></div>
           <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Privilege split</h3>
           <ul class="text-[15px] text-muted space-y-1.5">
             <li>Root ssh from the laptop for jauntbox's own steps</li>
@@ -320,24 +363,34 @@
             <li>Your own rootless Docker and Compose, no <code class="font-mono text-[13px] text-ink">docker</code> group</li>
             <li>Metadata endpoint reachable only by root</li>
           </ul>
-          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Built 11 Nov, live smoke pending.</p>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 11 Nov: root ssh install, the sudo split, rootless <code class="font-mono text-[13px] text-ink">docker run</code> and Compose, and the metadata block passed. One fix landed from it.</p>
         </li>
-        <li class="min-w-0 rounded-xl border-2 p-6 flex flex-col gap-3 bg-surface" style="border-color: var(--tag)">
-          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03</span><span class="stamp lt st-next">Next</span></div>
+        <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03</span><span class="stamp lt st-live">Done</span></div>
           <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Agents in containers</h3>
           <ul class="text-[15px] text-muted space-y-1.5">
             <li><code class="font-mono text-[13px] text-ink">jauntctl agent</code> inside a repo checkout in a herdr pane, interactive or unattended</li>
-            <li>One container per run, one repo's token, no sudo</li>
-            <li>Metadata endpoint and tailnet blocked</li>
+            <li>One container per run, one repo's token, no Docker socket</li>
+            <li>Metadata endpoint, tailnet and the box itself blocked</li>
             <li>Wrap-up: the agent writes <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code> and pushes before the box goes down</li>
           </ul>
-          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">8 tasks, plan written and reviewed; builds after 03a. Project services follow in Plan 04.</p>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Built and merged. First live smoke on 11 Nov: image build, Claude in the pane and the isolation checks passed. Run handling, wrap-up and unattended runs are still to be smoke-tested.</p>
+        </li>
+        <li class="min-w-0 rounded-xl border-2 p-6 flex flex-col gap-3 bg-surface" style="border-color: var(--tag)">
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 04</span><span class="stamp lt st-next">Next</span></div>
+          <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Services and project images</h3>
+          <ul class="text-[15px] text-muted space-y-1.5">
+            <li>Connect agents to your project's docker compose services</li>
+            <li>The agent reaches databases by name but cannot start, stop or inspect containers</li>
+            <li>Project images</li>
+          </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Planned next.</p>
         </li>
         <li class="min-w-0 rounded-xl border border-dashed border-line p-6 flex flex-col gap-3">
           <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">After</span><span class="stamp lt st-later">Later</span></div>
           <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Further out</h3>
           <ul class="text-[15px] text-muted space-y-1.5">
-            <li>Plan 04: project services, project images, dotfiles in containers</li>
+            <li>Dotfiles in containers</li>
             <li>A clearer terminal UI: progress steps, colours, icons</li>
             <li>tmux, Gitea/Forgejo, Headscale and NetBird adapters</li>
             <li>arm64 and other flavours</li>
@@ -369,7 +422,7 @@
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:00</span><span>Laptop out of the box. Accepts the invite.</span></li>
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:10</span><span><code class="font-mono text-[13px]">jauntbox up small</code>. Box ready: git set up, repos checked out.</span></li>
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:15</span><span><code class="font-mono text-[13px]">jauntbox</code> opens a herdr session. <code class="font-mono text-[13px]">docker compose up</code> starts the services. Test suite green.</span></li>
-          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:20</span><span>Starts the coding agent: <code class="font-mono text-[13px]">onboard me on this project</code>. Gets a tour of the codebase.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:20</span><span>In a repo's pane, <code class="font-mono text-[13px]">jauntctl agent</code> opens Claude in a container: <code class="font-mono text-[13px]">onboard me on this project</code>. Gets a tour of the codebase.</span></li>
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">10:30</span><span>Pairs with a teammate, each on their own box.</span></li>
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3 font-semibold"><span class="font-mono text-sm text-route">11:45</span><span>First pull request opened.</span></li>
         </ol>
@@ -525,10 +578,10 @@
         <div>
           <p class="eyebrow text-route mb-3">Beta</p>
           <h2 class="font-display text-5xl sm:text-6xl font-extrabold uppercase leading-none">Pack light.</h2>
-          <p class="mt-4 text-muted max-w-[32rem]">jauntbox is one Go binary, open source under the MIT licence. During the beta you build it from source; packaged installs come later. You need Go, a dedicated Hetzner Cloud project with an API token, and a Tailscale API key. <code class="font-mono text-[13px] text-ink">jauntbox init</code> checks both and writes your config.</p>
+          <p class="mt-4 text-muted max-w-[32rem]">jauntbox is one Go binary, open source under the MIT licence. During the beta you build it from source; packaged installs come later. You need Go, a dedicated Hetzner Cloud project with an API token, and a Tailscale API key. <code class="font-mono text-[13px] text-ink">jauntbox init</code> checks both and writes your config. Source and issues on <a href="https://github.com/WA-Systems-EU/jaunt" class="text-route hover:underline">GitHub</a>.</p>
         </div>
         <div class="min-w-0 rounded-lg bg-board overflow-x-auto">
-          <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> git clone &lt;repo&gt; jaunt &amp;&amp; cd jaunt
+          <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> git clone https://github.com/WA-Systems-EU/jaunt &amp;&amp; cd jaunt
 <span style="color:#7f8fa3">$</span> go build -o ~/bin/jauntbox ./cmd/jauntbox
 <span style="color:#7f8fa3">$</span> jauntbox init
 <span style="color:#7f8fa3">$</span> jauntbox up small --wait
@@ -541,7 +594,8 @@
 
 <footer class="gutter border-t border-line">
   <div class="mx-auto max-w-6xl py-8 flex flex-wrap items-center justify-between gap-4 text-sm text-muted">
-    <span><span class="font-display text-lg font-extrabold text-ink">jauntbox</span> · MIT licensed · built by WA Systems</span>
+    <span><span class="font-display text-lg font-extrabold text-ink">jauntbox</span> · MIT licensed · built by WA Systems · <a href="https://github.com/WA-Systems-EU/jaunt" class="text-route hover:underline">GitHub</a></span>
+    <span class="basis-full text-xs">WA Systems also builds an enterprise edition and a hosted control plane on top of jauntbox, in a separate repository.</span>
     <span>Sibling of <a href="https://getodysseus.dev" class="text-route hover:underline">Odysseus</a>, the lean Rails deploy tool</span>
   </div>
 </footer>
