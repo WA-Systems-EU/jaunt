@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 	"time"
 )
 
@@ -18,7 +20,7 @@ func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 func newTestLive(buf *lockedBuf) (Steps, chan time.Time, *fakeClock) {
 	clk := &fakeClock{t: time.Unix(1000, 0)}
 	tick := make(chan time.Time)
-	return NewLive(buf, clk.now, tick), tick, clk
+	return newLive(buf, clk.now, tick, nil, nil), tick, clk
 }
 
 // lockedBuf lets the ticker goroutine and the test read and write safely.
@@ -199,4 +201,103 @@ func TestLiveStartUnplannedAppends(t *testing.T) {
 	if !strings.Contains(out, "✓ extra") || !strings.Contains(out, "· one") {
 		t.Errorf("got %q", out)
 	}
+}
+
+func TestLiveTruncatesBlockToWidth(t *testing.T) {
+	buf := &lockedBuf{}
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	tick := make(chan time.Time)
+	s := newLive(buf, clk.now, tick, func() int { return 20 }, nil)
+	s.Plan("a very long step label indeed", "second")
+	st := s.Start("a very long step label indeed")
+	st.Detail("a long detail that cannot fit on one row")
+	sendTick(tick)
+	sendTick(tick)
+	s.Close()
+	out := buf.String()
+	// Check every erased frame (all but the final one printed for good).
+	frames := strings.Split(out, "\x1b[J")
+	for _, fr := range frames[:len(frames)-1] {
+		for _, ln := range strings.Split(strings.TrimSuffix(fr, "\n"), "\n") {
+			if w := ansi.StringWidth(stripANSI(ln)); w > 19 {
+				t.Errorf("line %q is %d columns", ln, w)
+			}
+		}
+	}
+	// cursor-up equals the number of lines in the frame it erases
+	re := regexp.MustCompile(`(?:\x1b\[(\d+)A)?\x1b\[J`)
+	idx := re.FindAllStringSubmatchIndex(out, -1)
+	for k := 1; k < len(idx); k++ {
+		frame := out[idx[k-1][1]:idx[k][0]]
+		n := strings.Count(frame, "\n")
+		if idx[k][2] < 0 {
+			t.Errorf("frame %d erased without cursor-up", k)
+			continue
+		}
+		if got, _ := strconv.Atoi(out[idx[k][2]:idx[k][3]]); got != n {
+			t.Errorf("cursor-up %d, frame had %d lines", got, n)
+		}
+	}
+}
+
+func TestLiveFailLongErrorTruncatedInBlock(t *testing.T) {
+	buf := &lockedBuf{}
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	tick := make(chan time.Time)
+	s := newLive(buf, clk.now, tick, func() int { return 20 }, nil)
+	s.Plan("zero", "one")
+	s.Start("one").Fail(errors.New("a very long error message that overflows"), "and a very long hint too")
+	sendTick(tick)
+	s.Close()
+	frames := strings.Split(buf.String(), "\x1b[J")
+	for _, fr := range frames[:len(frames)-1] {
+		for _, ln := range strings.Split(strings.TrimSuffix(stripANSI(fr), "\n"), "\n") {
+			if ansi.StringWidth(ln) > 19 {
+				t.Errorf("%q too wide", ln)
+			}
+		}
+	}
+}
+
+func TestLiveNoteKeepsTimeOrder(t *testing.T) {
+	buf := &lockedBuf{}
+	s, _, _ := newTestLive(buf)
+	s.Plan("A", "B", "C")
+	s.Start("A").Done()
+	s.Note("n")
+	s.Close()
+	if got := screen(buf.String()); got != "✓ A 0.0s\nn\n· B\n· C\n" {
+		t.Errorf("screen = %q", got)
+	}
+}
+
+// screen replays cursor-up and erase-to-end over the output and returns what
+// would be left on screen, ANSI stripped.
+func screen(out string) string {
+	re := regexp.MustCompile(`\x1b\[(\d*)A|\x1b\[J|\x1b\[[0-9;]*m`)
+	var lines []string // completed lines; cursor is at the start of a new line
+	pos := 0
+	for _, m := range re.FindAllStringSubmatchIndex(out, -1) {
+		lines = appendText(lines, out[pos:m[0]])
+		pos = m[1]
+		seq := out[m[0]:m[1]]
+		switch {
+		case strings.HasSuffix(seq, "A"):
+			n := 1
+			if m[2] != m[3] {
+				n, _ = strconv.Atoi(out[m[2]:m[3]])
+			}
+			lines = lines[:len(lines)-n]
+		case seq == "\x1b[J":
+		}
+	}
+	lines = appendText(lines, out[pos:])
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func appendText(lines []string, t string) []string {
+	if t == "" {
+		return lines
+	}
+	return append(lines, strings.Split(strings.TrimSuffix(t, "\n"), "\n")...)
 }

@@ -3,12 +3,15 @@ package ui
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+	"golang.org/x/term"
 )
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -42,6 +45,8 @@ type live struct {
 	frame  int
 	closed bool
 
+	width func() int // terminal columns; <= 0 means no truncation
+
 	done chan struct{}
 	wg   sync.WaitGroup
 
@@ -52,13 +57,30 @@ type live struct {
 // are redrawn in place on every tick, finished lines are printed once and
 // stay in the scrollback. tick nil means an internal 100 ms ticker.
 func NewLive(w io.Writer, now func() time.Time, tick <-chan time.Time) Steps {
+	width := func() int {
+		if f, ok := w.(*os.File); ok {
+			if c, _, err := term.GetSize(int(f.Fd())); err == nil && c > 0 {
+				return c
+			}
+		}
+		return 80
+	}
+	return newLive(w, now, tick, width, nil)
+}
+
+// newLive is NewLive with the width hook and, for tests, a forced colour
+// profile (nil: detect from w).
+func newLive(w io.Writer, now func() time.Time, tick <-chan time.Time, width func() int, profile *termenv.Profile) *live {
 	if now == nil {
 		now = time.Now
 	}
 	r := lipgloss.NewRenderer(w)
-	r.SetColorProfile(termenv.TrueColor)
+	if profile != nil {
+		r.SetColorProfile(*profile)
+	}
 	l := &live{
-		w: w, now: now, done: make(chan struct{}),
+		width: width,
+		w:     w, now: now, done: make(chan struct{}),
 		dim:    r.NewStyle().Foreground(lipgloss.Color("#6f8196")),
 		teal:   r.NewStyle().Foreground(lipgloss.Color("#4fc2b9")),
 		yellow: r.NewStyle().Foreground(lipgloss.Color("#f3d36b")),
@@ -124,16 +146,28 @@ func (l *live) redrawLocked() {
 		i++
 	}
 	l.items = l.items[i:]
+	// Every line of the block must fit on one row, or the cursor-up count
+	// undershoots.
+	maxw := 0
+	if l.width != nil {
+		maxw = l.width() - 1
+	}
+	fit := func(ln string) string {
+		if maxw > 0 {
+			return ansi.Truncate(ln, maxw, "…")
+		}
+		return ln
+	}
 	n := 0
 	for _, it := range l.items {
 		if it.state == stateFinished {
 			for _, ln := range it.lines {
-				b.WriteString(ln + "\n")
+				b.WriteString(fit(ln) + "\n")
 				n++
 			}
 			continue
 		}
-		b.WriteString(l.blockLine(it) + "\n")
+		b.WriteString(fit(l.blockLine(it)) + "\n")
 		n++
 	}
 	l.drawn = n
@@ -146,7 +180,17 @@ func (l *live) addText(lines ...string) {
 	if l.closed {
 		return
 	}
-	l.items = append(l.items, &item{state: stateFinished, lines: lines})
+	// Text goes before the first pending item so it stays in time order.
+	at := len(l.items)
+	for i, it := range l.items {
+		if it.state == statePending {
+			at = i
+			break
+		}
+	}
+	l.items = append(l.items, nil)
+	copy(l.items[at+1:], l.items[at:])
+	l.items[at] = &item{state: stateFinished, lines: lines}
 	l.redrawLocked()
 }
 
