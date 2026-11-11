@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata" // a box without tzdata must not fail every pass
 
+	"github.com/WA-Systems-EU/jaunt/internal/agentrun"
 	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/lifecycle"
@@ -35,12 +36,25 @@ type Supervisor struct {
 	Sync       func()
 	// Revoke drops cached forge tokens before the box deletes itself; nil is a no-op.
 	Revoke func(ctx context.Context) error
+	// Runs drives the agent runs (token refresh, max duration, finish); nil is a no-op.
+	Runs RunManager
 }
+
+// RunManager is what the supervisor needs from the agent runs.
+type RunManager interface {
+	Tick(ctx context.Context, now time.Time) error
+	WrapUpAll(now time.Time, reason string) error
+	FinishAll(ctx context.Context) error
+}
+
+// finishAllTimeout caps FinishAll so a hung docker cannot stall the delete.
+const finishAllTimeout = 5 * time.Minute
 
 // New wires the production supervisor for info.
 func New(info boxinfo.BoxInfo) *Supervisor {
 	p := DefaultPaths()
 	ev := events.JSONLFile(p.Events)
+	mn := minter.New(ev)
 	return &Supervisor{
 		Info:   info,
 		Paths:  p,
@@ -50,8 +64,12 @@ func New(info boxinfo.BoxInfo) *Supervisor {
 		Now:    time.Now,
 		Sync:   syscall.Sync,
 		Revoke: func(ctx context.Context) error {
-			_, err := minter.New(ev).RevokeAll(ctx)
+			_, err := mn.RevokeAll(ctx)
 			return err
+		},
+		Runs: &agentrun.Maintainer{
+			Docker: agentrun.NewCLI(), Paths: agentrun.DefaultPaths(), Mint: mn.Mint,
+			Events: ev, Grace: time.Duration(info.Limits.WrapUpGrace),
 		},
 		DeleteSelf: func(ctx context.Context) error {
 			tok, err := os.ReadFile(tokenPath)
@@ -184,6 +202,13 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 	if err != nil {
 		return lifecycle.Verdict{}, err
 	}
+	// Drive the agent runs first so a finished run is not counted as active.
+	// A failure here never blocks the lifecycle decision or the heartbeat.
+	if s.Runs != nil {
+		if err := safeCall("runs tick", func() error { return s.Runs.Tick(ctx, now) }); err != nil {
+			s.emit(now, "agent.tick_failed", map[string]string{"error": err.Error()})
+		}
+	}
 	st, v, warn, err := s.evaluate(ctx, now, st)
 	if err != nil {
 		return v, err
@@ -206,6 +231,11 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 			return v, err
 		}
 		s.emit(now, events.WrapUpStarted, fields)
+		if s.Runs != nil {
+			if err := safeCall("runs wrap-up", func() error { return s.Runs.WrapUpAll(now, v.Reason) }); err != nil {
+				s.emit(now, "agent.wrapup_failed", map[string]string{"error": err.Error()})
+			}
+		}
 	case v.Action == lifecycle.Keep && v.Reason == "wrapup-in-progress":
 		if _, err := os.Stat(s.Paths.WrapUpFlag); os.IsNotExist(err) {
 			if err := writeFlag(); err != nil {
@@ -227,6 +257,16 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 		return v, err
 	}
 	if v.Action == lifecycle.Delete {
+		// Teardown order: finish the runs (their fallback pushes, so it needs
+		// the tokens) -> revoke tokens -> box.deleted -> sync -> self-delete.
+		if s.Runs != nil {
+			fctx, cancel := context.WithTimeout(ctx, finishAllTimeout)
+			err := safeCall("finish runs", func() error { return s.Runs.FinishAll(fctx) })
+			cancel()
+			if err != nil {
+				s.emit(now, "agent.finish_failed", map[string]string{"error": err.Error()})
+			}
+		}
 		if s.Revoke != nil {
 			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			err := safeRevoke(rctx, s.Revoke)
@@ -251,11 +291,16 @@ func (s *Supervisor) RunOnce(ctx context.Context) (lifecycle.Verdict, error) {
 
 // safeRevoke turns a panic in the revoke hook into an error so the box still
 // syncs and deletes itself.
-func safeRevoke(ctx context.Context, revoke func(context.Context) error) (err error) {
+func safeRevoke(ctx context.Context, revoke func(context.Context) error) error {
+	return safeCall("revoke", func() error { return revoke(ctx) })
+}
+
+// safeCall runs f, turning a panic into an error.
+func safeCall(what string, f func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("revoke panicked: %v", r)
+			err = fmt.Errorf("%s panicked: %v", what, r)
 		}
 	}()
-	return revoke(ctx)
+	return f()
 }

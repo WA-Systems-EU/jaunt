@@ -505,3 +505,77 @@ func TestDockerErrorWithActiveHumanAndStopStartsWrapUp(t *testing.T) {
 		t.Errorf("deleted %d", e.deletes)
 	}
 }
+
+type fakeRuns struct {
+	calls   *[]string
+	tickErr error
+	finErr  error
+	reason  string
+}
+
+func (f *fakeRuns) Tick(context.Context, time.Time) error {
+	*f.calls = append(*f.calls, "tick")
+	return f.tickErr
+}
+func (f *fakeRuns) WrapUpAll(_ time.Time, reason string) error {
+	*f.calls = append(*f.calls, "wrapup-all")
+	f.reason = reason
+	return nil
+}
+func (f *fakeRuns) FinishAll(context.Context) error {
+	*f.calls = append(*f.calls, "finish-all")
+	return f.finErr
+}
+
+func TestDeleteOrderFinishRevokeSyncDelete(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	var calls []string
+	e.s.Runs = &fakeRuns{calls: &calls}
+	e.s.Revoke = func(context.Context) error { calls = append(calls, "revoke"); return nil }
+	e.s.Sync = func() { calls = append(calls, "sync") }
+	e.s.DeleteSelf = func(context.Context) error { calls = append(calls, "delete-self"); return nil }
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.run(t)
+	if got := strings.Join(calls, ","); got != "tick,finish-all,revoke,sync,delete-self" {
+		t.Fatalf("call order %q", got)
+	}
+	if e.sink.count(events.BoxDeleted) != 1 {
+		t.Fatalf("kinds %v", e.sink.kinds)
+	}
+}
+
+func TestStartWrapUpFlagsAllRuns(t *testing.T) {
+	e := newEnv(t, at(19, 0))
+	e.agents.n = 1
+	e.pts("0", time.Hour)
+	var calls []string
+	fr := &fakeRuns{calls: &calls}
+	e.s.Runs = fr
+	if v := e.run(t); v.Action != lifecycle.StartWrapUp {
+		t.Fatalf("got %+v", v)
+	}
+	if strings.Join(calls, ",") != "tick,wrapup-all" || fr.reason == "" {
+		t.Fatalf("calls %v reason %q", calls, fr.reason)
+	}
+}
+
+func TestFinishAllFailureDoesNotBlockDelete(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	var calls []string
+	e.s.Runs = &fakeRuns{calls: &calls, finErr: errors.New("docker hung")}
+	os.WriteFile(e.s.Paths.StopRequest, nil, 0o644)
+	e.run(t)
+	if e.deletes != 1 || e.sink.count("agent.finish_failed") != 1 || e.sink.fields["agent.finish_failed"]["error"] != "docker hung" {
+		t.Fatalf("deletes=%d %v", e.deletes, e.sink.kinds)
+	}
+}
+
+func TestRunsTickFailureDoesNotBlockHeartbeat(t *testing.T) {
+	e := newEnv(t, at(12, 0))
+	var calls []string
+	e.s.Runs = &fakeRuns{calls: &calls, tickErr: errors.New("cannot list")}
+	e.run(t)
+	if e.sink.count("agent.tick_failed") != 1 || !exists(e.s.Paths.Heartbeat) {
+		t.Fatalf("%v", e.sink.kinds)
+	}
+}
