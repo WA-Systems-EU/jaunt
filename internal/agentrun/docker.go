@@ -17,7 +17,7 @@ import (
 type Docker interface {
 	ImageExists(ctx context.Context, tag string) (bool, error)
 	Build(ctx context.Context, tag string, contextTar []byte) error
-	NetworkCreate(ctx context.Context, name string, labels map[string]string) error
+	NetworkCreate(ctx context.Context, name, bridge string, labels map[string]string) error
 	NetworkRemove(ctx context.Context, name string) error
 	Run(ctx context.Context, spec ContainerSpec) error
 	Exec(ctx context.Context, container string, user string, args ...string) ([]byte, error)
@@ -51,6 +51,7 @@ type ContainerSpec struct {
 	Mounts                  []Mount
 	Image                   string
 	Cmd                     []string // empty: the image's CMD
+	ExtraHosts              []string // host:ip, each as --add-host
 }
 
 // Args is the docker argv (after "docker") that starts the container.
@@ -58,6 +59,9 @@ func (s ContainerSpec) Args() []string {
 	a := []string{"run", "-d", "--name", s.Name, "--hostname", s.Hostname, "--network", s.Network,
 		"--user", strconv.Itoa(s.UID) + ":" + strconv.Itoa(s.GID),
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--init", "--pids-limit", "4096"}
+	for _, h := range s.ExtraHosts {
+		a = append(a, "--add-host", h)
+	}
 	for _, l := range s.Labels {
 		a = append(a, "--label", l)
 	}
@@ -141,13 +145,13 @@ func (c *CLI) Build(ctx context.Context, tag string, contextTar []byte) error {
 	return err
 }
 
-func (c *CLI) NetworkCreate(ctx context.Context, name string, labels map[string]string) error {
+func (c *CLI) NetworkCreate(ctx context.Context, name, bridge string, labels map[string]string) error {
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	args := []string{"network", "create", "--driver", "bridge"}
+	args := []string{"network", "create", "--driver", "bridge", "-o", "com.docker.network.bridge.name=" + bridge}
 	for _, k := range keys {
 		args = append(args, "--label", k+"="+labels[k])
 	}

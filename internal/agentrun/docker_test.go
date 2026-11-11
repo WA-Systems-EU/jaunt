@@ -34,7 +34,7 @@ func TestDockerCLIArgs(t *testing.T) {
 		Labels: []string{"jauntbox.agent=1"}, Image: "img", Cmd: []string{"jaunt-unattended"}}
 
 	_ = c.Build(ctx, "jauntbox/agent:abc", []byte("TAR"))
-	_ = c.NetworkCreate(ctx, "jauntbox-x", map[string]string{"b": "2", "a": "1"})
+	_ = c.NetworkCreate(ctx, "jauntbox-x", "br-jb0123456789", map[string]string{"b": "2", "a": "1"})
 	_ = c.NetworkRemove(ctx, "jauntbox-x")
 	_ = c.Run(ctx, spec)
 	_, _ = c.Exec(ctx, "jauntbox-x", "1000:1000", "test", "-f", "/tmp/jauntbox-ready")
@@ -44,7 +44,7 @@ func TestDockerCLIArgs(t *testing.T) {
 	_ = c.Stop(ctx, "jauntbox-x", 5*time.Minute)
 	want := [][]string{
 		{"build", "-t", "jauntbox/agent:abc", "-"},
-		{"network", "create", "--driver", "bridge", "--label", "a=1", "--label", "b=2", "jauntbox-x"},
+		{"network", "create", "--driver", "bridge", "-o", "com.docker.network.bridge.name=br-jb0123456789", "--label", "a=1", "--label", "b=2", "jauntbox-x"},
 		{"network", "rm", "jauntbox-x"},
 		spec.Args(),
 		{"exec", "--user", "1000:1000", "jauntbox-x", "test", "-f", "/tmp/jauntbox-ready"},
@@ -120,4 +120,41 @@ func TestDockerCLIInspectAndList(t *testing.T) {
 	if got := strings.Join(r.calls[len(r.calls)-1], " "); got != `ps -a --filter label=jauntbox.agent=1 --format {{.Label "jauntbox.run"}}` {
 		t.Fatalf("%s", got)
 	}
+}
+
+func TestNetworkCreateArgs(t *testing.T) {
+	r := &recRunner{}
+	c := &CLI{run: r.run}
+	if err := c.NetworkCreate(context.Background(), "jauntbox-x", "br-jbabcdef0123", map[string]string{"b": "2", "a": "1"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"network", "create", "--driver", "bridge", "-o", "com.docker.network.bridge.name=br-jbabcdef0123",
+		"--label", "a=1", "--label", "b=2", "jauntbox-x"}
+	if len(r.calls) != 1 || !reflect.DeepEqual(r.calls[0], want) {
+		t.Fatalf("got %q\nwant %q", r.calls, want)
+	}
+	for _, a := range r.calls[0] {
+		if a == "--ipv6" {
+			t.Fatal("--ipv6 passed")
+		}
+	}
+}
+
+func TestContainerSpecAddHost(t *testing.T) {
+	s := ContainerSpec{Name: "n", Hostname: "h", Network: "n", UID: 1, GID: 1, Image: "img",
+		ExtraHosts: []string{"host.jauntbox:host-gateway"}, Labels: []string{"a=b"}}
+	a := s.Args()
+	i := indexOf(a, "--pids-limit")
+	if i < 0 || a[i+1] != "4096" || a[i+2] != "--add-host" || a[i+3] != "host.jauntbox:host-gateway" || a[i+4] != "--label" {
+		t.Fatalf("args %q", a)
+	}
+}
+
+func indexOf(a []string, s string) int {
+	for i, x := range a {
+		if x == s {
+			return i
+		}
+	}
+	return -1
 }

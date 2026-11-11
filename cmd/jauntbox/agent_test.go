@@ -31,7 +31,7 @@ func (f *agentFakeDocker) ImageExists(context.Context, string) (bool, error) {
 	return true, nil
 }
 func (f *agentFakeDocker) Build(context.Context, string, []byte) error { return nil }
-func (f *agentFakeDocker) NetworkCreate(context.Context, string, map[string]string) error {
+func (f *agentFakeDocker) NetworkCreate(context.Context, string, string, map[string]string) error {
 	return nil
 }
 func (f *agentFakeDocker) NetworkRemove(_ context.Context, n string) error {
@@ -440,16 +440,24 @@ func TestAgentLogs(t *testing.T) {
 func TestAgentListTable(t *testing.T) {
 	e := newAgentEnv(t, 0, "ref: refs/heads/feat/x\n")
 	e.addRun(t, runID)
+	r2 := e.addRun(t, "widget-20261111-100000")
+	r2.HostPorts = []int{5432, 6379}
+	if err := e.d.paths.Save(r2); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.run(t, "list"); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(e.out.String()), "\n")
-	if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "RUN REPO BRANCH MODE STATE STARTED MAX IP" {
+	if len(lines) != 3 || strings.Join(strings.Fields(lines[0]), " ") != "RUN REPO BRANCH MODE STATE STARTED MAX IP PORTS" {
 		t.Fatalf("table:\n%s", e.out.String())
 	}
 	f := strings.Fields(lines[1])
-	if f[0] != runID || f[1] != "acme/widget" || f[4] != "running" || f[len(f)-1] != "172.18.0.2" {
+	if f[0] != runID || f[1] != "acme/widget" || f[4] != "running" || f[len(f)-2] != "172.18.0.2" || f[len(f)-1] != "-" {
 		t.Fatalf("row %q", lines[1])
+	}
+	if f := strings.Fields(lines[2]); f[len(f)-1] != "5432,6379" {
+		t.Fatalf("row %q", lines[2])
 	}
 }
 
@@ -592,5 +600,28 @@ func TestAgentMaxBounds(t *testing.T) {
 	e.reply = agentrun.Run{ID: runID, Checkout: e.root, Branch: "feat/x", Mode: agentrun.ModeUnattended}
 	if err := e.run(t, "--unattended", "p", "--max", "24h"); err != nil {
 		t.Fatalf("24h refused: %v", err)
+	}
+}
+
+func TestAgentForwardsHostPorts(t *testing.T) {
+	e := newAgentEnv(t, 1000, "ref: refs/heads/feat/x\n")
+	e.reply = agentrun.Run{ID: runID, Checkout: e.root, Branch: "feat/x", Mode: agentrun.ModeUnattended}
+	if err := e.run(t, "--unattended", "x", "--host-port", "5432", "--host-port", "6379"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"agent", "start-run", "--dir", e.root, "--unattended", "x", "--host-port", "5432", "--host-port", "6379", "--json"}}
+	if !reflect.DeepEqual(e.sudos, want) {
+		t.Fatalf("sudo calls\n got %q\nwant %q", e.sudos, want)
+	}
+}
+
+func TestAgentHostPortValidatedBeforeSudo(t *testing.T) {
+	e := newAgentEnv(t, 1000, "ref: refs/heads/feat/x\n")
+	err := e.run(t, "--host-port", "70000")
+	if err == nil || !strings.Contains(err.Error(), "--host-port: port 70000 is out of range") {
+		t.Fatalf("err %v", err)
+	}
+	if len(e.sudos) != 0 || len(e.execs) != 0 {
+		t.Fatalf("sudo %v exec %v", e.sudos, e.execs)
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/agent"
 	"github.com/WA-Systems-EU/jaunt/internal/agentrun"
 	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
+	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
 	"github.com/WA-Systems-EU/jaunt/internal/vault"
@@ -152,7 +153,7 @@ func (d *agentDeps) starter(u sudoUser) (*agentrun.Starter, error) {
 		Docker: d.docker, Agent: d.adapter, Mint: m.Mint, Repos: m.Repos, Net: agentrun.HostRunner,
 		Paths: d.paths, SecretsDir: vault.Dir, User: u.Name, Home: u.Home, UID: u.UID, GID: u.GID,
 		GitConfig: userGitConfig(u), Loc: loc, Events: d.events,
-		DefaultMax: time.Duration(info.Agent.MaxDuration),
+		DefaultMax: time.Duration(info.Agent.MaxDuration), HostPorts: info.Agent.HostPorts,
 	}, nil
 }
 
@@ -301,6 +302,7 @@ func agentCmd(d *agentDeps) *cobra.Command {
 	var branch, prompt string
 	var max time.Duration
 	var skip bool
+	var hostPorts []int
 	c := &cobra.Command{
 		Use:   "agent",
 		Short: "Start a coding agent in a container on the checkout you are in (box side)",
@@ -315,6 +317,9 @@ func agentCmd(d *agentDeps) *cobra.Command {
 				if err := agentrun.CheckMax(max); err != nil {
 					return err
 				}
+			}
+			if err := config.CheckHostPorts("--host-port", hostPorts); err != nil {
+				return err
 			}
 			wd, err := d.getwd()
 			if err != nil {
@@ -332,6 +337,9 @@ func agentCmd(d *agentDeps) *cobra.Command {
 			}
 			if skip {
 				rootArgs = append(rootArgs, "--skip-permissions")
+			}
+			for _, p := range hostPorts {
+				rootArgs = append(rootArgs, "--host-port", strconv.Itoa(p))
 			}
 			rootArgs = append(rootArgs, "--json")
 
@@ -367,6 +375,7 @@ func agentCmd(d *agentDeps) *cobra.Command {
 	c.Flags().StringVar(&prompt, "unattended", "", "run unattended with this prompt")
 	c.Flags().DurationVar(&max, "max", 0, "maximum run length (default: the box's agent.max_duration, 8h)")
 	c.Flags().BoolVar(&skip, "skip-permissions", false, "interactive: let Claude skip permission prompts (the container is the sandbox)")
+	c.Flags().IntSliceVar(&hostPorts, "host-port", nil, "let this run reach this TCP port on the box (repeatable; on top of agent.host_ports)")
 	c.AddCommand(startRunCmd(d), attachCmd(d), listCmd(d), stopAgentCmd(d), logsCmd(d))
 	return c
 }
@@ -395,6 +404,9 @@ func startRunCmd(d *agentDeps) *cobra.Command {
 					return err
 				}
 			}
+			if err := config.CheckHostPorts("--host-port", o.HostPorts); err != nil {
+				return err
+			}
 			// notes such as the first image build go to stderr: with
 			// --json, stdout carries the run only
 			o.Progress = cmd.ErrOrStderr()
@@ -416,6 +428,7 @@ func startRunCmd(d *agentDeps) *cobra.Command {
 	c.Flags().StringVar(&o.Prompt, "unattended", "", "")
 	c.Flags().DurationVar(&o.Max, "max", 0, "")
 	c.Flags().BoolVar(&o.SkipPermissions, "skip-permissions", false, "")
+	c.Flags().IntSliceVar(&o.HostPorts, "host-port", nil, "")
 	c.Flags().BoolVar(&asJSON, "json", false, "print the run as JSON")
 	return c
 }
@@ -547,14 +560,22 @@ func listCmd(d *agentDeps) *cobra.Command {
 				return json.NewEncoder(w).Encode(sts)
 			}
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "RUN\tREPO\tBRANCH\tMODE\tSTATE\tSTARTED\tMAX\tIP")
+			fmt.Fprintln(tw, "RUN\tREPO\tBRANCH\tMODE\tSTATE\tSTARTED\tMAX\tIP\tPORTS")
 			for _, s := range sts {
 				ip := s.IP
 				if ip == "" {
 					ip = "-"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, s.Repo, s.Branch, s.Mode, s.State,
-					s.StartedAt.Local().Format("2006-01-02 15:04"), shortDuration(s.Max), ip)
+				ports := "-"
+				if len(s.HostPorts) > 0 {
+					p := make([]string, len(s.HostPorts))
+					for i, n := range s.HostPorts {
+						p[i] = strconv.Itoa(n)
+					}
+					ports = strings.Join(p, ",")
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, s.Repo, s.Branch, s.Mode, s.State,
+					s.StartedAt.Local().Format("2006-01-02 15:04"), shortDuration(s.Max), ip, ports)
 			}
 			return tw.Flush()
 		},
@@ -623,7 +644,7 @@ func stopAgentCmd(d *agentDeps) *cobra.Command {
 				fmt.Fprintf(w, "asked run %s to wrap up; the supervisor stops it after the grace period (or run `jauntctl agent stop --now %s`)\n", r.ID, r.ID)
 				return nil
 			}
-			if err := agentrun.Finish(ctx, d.docker, d.paths, r.ID, d.events, d.now()); err != nil {
+			if err := agentrun.Finish(ctx, d.docker, d.paths, agentrun.HostRunner, r.ID, d.events, d.now()); err != nil {
 				return err
 			}
 			fmt.Fprintf(w, "run %s stopped\n", r.ID)

@@ -41,9 +41,15 @@ type fakeDocker struct {
 	// requireLive counts Inspect/Stop/Remove/NetworkRemove calls made on a done context.
 	requireLive  bool
 	deadCtxCalls int
+	onCall       func(string) // called with every recorded call
 }
 
-func (f *fakeDocker) rec(s string) { f.calls = append(f.calls, s) }
+func (f *fakeDocker) rec(s string) {
+	f.calls = append(f.calls, s)
+	if f.onCall != nil {
+		f.onCall(s)
+	}
+}
 
 func (f *fakeDocker) live(ctx context.Context) {
 	if f.requireLive && ctx.Err() != nil {
@@ -59,8 +65,8 @@ func (f *fakeDocker) Build(_ context.Context, tag string, _ []byte) error {
 	f.rec("Build " + tag)
 	return nil
 }
-func (f *fakeDocker) NetworkCreate(_ context.Context, name string, labels map[string]string) error {
-	f.rec(fmt.Sprintf("NetworkCreate %s %v", name, labels))
+func (f *fakeDocker) NetworkCreate(_ context.Context, name, bridge string, labels map[string]string) error {
+	f.rec(fmt.Sprintf("NetworkCreate %s %s %v", name, bridge, labels))
 	return nil
 }
 func (f *fakeDocker) NetworkRemove(ctx context.Context, name string) error {
@@ -170,6 +176,39 @@ type tenv struct {
 	root    string
 	netCall int
 	minted  []string
+	order   []string // docker calls ("docker ...") and runner calls ("net ...") in order
+	netFail func(joined string) bool
+	rules   map[string]bool // JAUNTBOX-RUNS rules added
+}
+
+// netCalls returns the runner calls so far, each "<bin> <args>".
+func (e *tenv) netCalls() []string {
+	var out []string
+	for _, o := range e.order {
+		if strings.HasPrefix(o, "net ") {
+			out = append(out, strings.TrimPrefix(o, "net "))
+		}
+	}
+	return out
+}
+
+func (e *tenv) netCount(sub string) int {
+	n := 0
+	for _, c := range e.netCalls() {
+		if strings.Contains(c, sub) {
+			n++
+		}
+	}
+	return n
+}
+
+func (e *tenv) idx(prefix string) int {
+	for i, o := range e.order {
+		if strings.HasPrefix(o, prefix) {
+			return i
+		}
+	}
+	return -1
 }
 
 // at is 23:30 UTC on Nov 10, i.e. 00:30 on Nov 11 in the box's zone (UTC+1).
@@ -190,6 +229,7 @@ func newTenv(t *testing.T, head string) *tenv {
 	writeFile(t, filepath.Join(sec, ".loaded"), "")
 	base := realTemp(t)
 	e := &tenv{d: &fakeDocker{}, ev: &sinkRec{}, home: home, root: root}
+	e.d.onCall = func(c string) { e.order = append(e.order, "docker "+c) }
 	e.s = &Starter{
 		Docker: e.d,
 		Agent:  agent.ClaudeCode{},
@@ -203,7 +243,33 @@ func newTenv(t *testing.T, head string) *tenv {
 				{Owner: "acme", Name: "widget", DefaultBranch: "main"},
 			}, nil
 		},
-		Net:        func(context.Context, string, ...string) error { e.netCall++; return nil },
+		Net: func(_ context.Context, name string, args ...string) error {
+			e.netCall++
+			j := name + " " + strings.Join(args, " ")
+			e.order = append(e.order, "net "+j)
+			if e.netFail != nil && e.netFail(j) {
+				return errors.New("iptables broke")
+			}
+			// JAUNTBOX-RUNS rules are kept, so -C is true only after -A
+			if rest, ok := strings.CutPrefix(j, "iptables -w "); ok && strings.Contains(rest, " JAUNTBOX-RUNS -i br-jb") {
+				op, _, _ := strings.Cut(rest, " ")
+				switch op {
+				case "-C", "-D":
+					if !e.rules[rest[len(op)+1:]] {
+						return errors.New("no such rule")
+					}
+					if op == "-D" {
+						delete(e.rules, rest[len(op)+1:])
+					}
+				case "-A":
+					if e.rules == nil {
+						e.rules = map[string]bool{}
+					}
+					e.rules[rest[len(op)+1:]] = true
+				}
+			}
+			return nil
+		},
 		Paths:      Paths{RunsTmp: filepath.Join(base, "run"), RunsVol: filepath.Join(base, "vol"), Agents: filepath.Join(base, "agents")},
 		SecretsDir: sec,
 		User:       "alice",
@@ -301,6 +367,7 @@ func TestStartHappyPath(t *testing.T) {
 	envFile := filepath.Join(p.RunsTmp, wantID+".env")
 	want := []string{"run", "-d", "--name", name, "--hostname", "widget", "--network", name,
 		"--user", ug, "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--init", "--pids-limit", "4096",
+		"--add-host", "host.jauntbox:host-gateway",
 		"--label", "jauntbox.agent=1", "--label", "jauntbox.run=" + wantID, "--label", "jauntbox.repo=acme/widget",
 		"--env-file", envFile, "-e", "HOME=/home/agent",
 		"-v", e.root + ":/work",
@@ -360,7 +427,7 @@ func TestStartHappyPath(t *testing.T) {
 	}
 	// docker sequence
 	for _, c := range []string{"ImageExists " + agentimage.Tag(), "Build " + agentimage.Tag(),
-		"NetworkCreate " + name + " map[jauntbox.agent:1 jauntbox.repo:acme/widget jauntbox.run:" + wantID + "]",
+		"NetworkCreate " + name + " " + BridgeName(wantID) + " map[jauntbox.agent:1 jauntbox.repo:acme/widget jauntbox.run:" + wantID + "]",
 		"Run " + name, "Exec " + name + " " + ug + " test -f /tmp/jauntbox-ready"} {
 		if e.dockerCalls(c) != 1 {
 			t.Errorf("missing call %q in %v", c, e.d.calls)
@@ -368,6 +435,12 @@ func TestStartHappyPath(t *testing.T) {
 	}
 	if e.netCall == 0 {
 		t.Error("net guard not checked")
+	}
+	if e.netCount("JAUNTBOX-RUNS -i") != 0 {
+		t.Errorf("run rules without ports: %v", e.netCalls())
+	}
+	if b, _ := os.ReadFile(filepath.Join(p.RunsVol, wantID, "run.json")); strings.Contains(string(b), "host_ports") || strings.Contains(string(b), "run_ports") {
+		t.Errorf("run.json carries ports: %s", b)
 	}
 	// run record
 	got, err := p.Load(wantID)
@@ -393,7 +466,7 @@ func TestStartHappyPath(t *testing.T) {
 		}
 	}
 	if len(e.ev.ev) != 1 || e.ev.ev[0].Kind != "agent.started" ||
-		!reflect.DeepEqual(e.ev.ev[0].Fields, map[string]string{"run": wantID, "repo": "acme/widget", "branch": "feat/x", "mode": "interactive"}) {
+		!reflect.DeepEqual(e.ev.ev[0].Fields, map[string]string{"run": wantID, "repo": "acme/widget", "branch": "feat/x", "mode": "interactive", "host_ports": ""}) {
 		t.Fatalf("events %+v", e.ev.ev)
 	}
 }
@@ -955,5 +1028,149 @@ func TestStartConcurrentStartInCheckoutRefused(t *testing.T) {
 	_, err = e.s.Start(context.Background(), StartOpts{Dir: e.root})
 	if err == nil || !strings.Contains(err.Error(), "is already active") {
 		t.Fatalf("third start: %v", err)
+	}
+}
+
+func startNet(e *tenv) []string { return e.netCalls() }
+
+func TestStartHostPorts(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	e.s.HostPorts = []int{5432}
+	r, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, HostPorts: []int{6379}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.netCount("-A JAUNTBOX-HOST -p tcp --dport 5432 -j ACCEPT") != 1 {
+		t.Errorf("no refill with 5432: %v", e.netCalls())
+	}
+	rule := "-A JAUNTBOX-RUNS -i " + BridgeName(wantID) + " -p tcp --dport 6379 -j ACCEPT"
+	add, create, run := e.idx("net iptables -w "+rule), e.idx("docker NetworkCreate"), e.idx("docker Run ")
+	if add < 0 || create < 0 || run < 0 || !(create < add && add < run) {
+		t.Fatalf("order: create %d, rule %d, run %d in %v", create, add, run, e.order)
+	}
+	want := []int{5432, 6379}
+	if !reflect.DeepEqual(r.HostPorts, want) || !reflect.DeepEqual(r.RunPorts, []int{6379}) {
+		t.Fatalf("run %+v", r)
+	}
+	got, _ := e.s.Paths.Load(wantID)
+	if !reflect.DeepEqual(got.HostPorts, want) || !reflect.DeepEqual(got.RunPorts, []int{6379}) {
+		t.Fatalf("record %+v", got)
+	}
+	b, _ := os.ReadFile(filepath.Join(e.s.Paths.RunsVol, wantID, "run.json"))
+	if !strings.Contains(string(b), `"host_ports"`) || !strings.Contains(string(b), `"run_ports"`) {
+		t.Fatalf("run.json %s", b)
+	}
+	if f := e.ev.ev[0].Fields["host_ports"]; f != "5432,6379" {
+		t.Fatalf("event host_ports %q", f)
+	}
+}
+
+func TestStartOverlapOwnsOnlyExtraPorts(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	e.s.HostPorts = []int{5432}
+	r, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, HostPorts: []int{5432, 6379}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(r.RunPorts, []int{6379}) || !reflect.DeepEqual(r.HostPorts, []int{5432, 6379}) {
+		t.Fatalf("run %+v", r)
+	}
+	if n := e.netCount("-A JAUNTBOX-RUNS -i"); n != 1 {
+		t.Fatalf("%d run rules: %v", n, e.netCalls())
+	}
+}
+
+func TestStartTwoRunsPortsSeparate(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	if _, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, HostPorts: []int{6379}}); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(e.home, "src", "gadget")
+	mkCheckout(t, other, "https://github.com/acme/gadget", "ref: refs/heads/trunk\n")
+	before := e.netCount("-A JAUNTBOX-RUNS -i")
+	rb, err := e.s.Start(context.Background(), StartOpts{Dir: other})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != 1 || e.netCount("-A JAUNTBOX-RUNS -i") != 1 {
+		t.Fatalf("B added a rule: %v", e.netCalls())
+	}
+	if e.netCount("-A JAUNTBOX-RUNS -i "+BridgeName(wantID)+" ") != 1 || e.netCount(BridgeName(rb.ID)) != 0 {
+		t.Fatalf("rules: %v", e.netCalls())
+	}
+}
+
+func TestStartInvalidHostPort(t *testing.T) {
+	for port, want := range map[int]string{
+		0:  "--host-port: port 0 is out of range (want 1-65535)",
+		22: "--host-port: port 22 is the box's SSH port; agents may not reach it",
+	} {
+		e := newTenv(t, "ref: refs/heads/feat/x\n")
+		_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, HostPorts: []int{port}})
+		if err == nil || err.Error() != want {
+			t.Errorf("port %d: err %v", port, err)
+		}
+		if len(e.d.calls) != 0 {
+			t.Errorf("port %d: docker called %v", port, e.d.calls)
+		}
+	}
+}
+
+func TestStartRunPortsFailureRefuses(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	e.netFail = func(j string) bool { return strings.Contains(j, "-A JAUNTBOX-RUNS") }
+	_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, HostPorts: []int{6379}})
+	if err == nil || !strings.HasPrefix(err.Error(), "cannot open the host ports for this run") {
+		t.Fatalf("err %v", err)
+	}
+	if e.dockerCalls("Run ") != 0 || e.dockerCalls("NetworkRemove jauntbox-"+wantID) != 1 {
+		t.Fatalf("calls %v", e.d.calls)
+	}
+}
+
+func TestStartFailureRemovesRunPorts(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	e.d.stopped = true
+	_, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, HostPorts: []int{6379, 8080}})
+	if err == nil {
+		t.Fatal("start succeeded")
+	}
+	for _, p := range []string{"6379", "8080"} {
+		d := "-D JAUNTBOX-RUNS -i " + BridgeName(wantID) + " -p tcp --dport " + p + " -j ACCEPT"
+		if e.netCount(d) != 1 {
+			t.Errorf("no %q in %v", d, e.netCalls())
+		}
+	}
+}
+
+func writeProcNet(t *testing.T, tcp, tcp6 string) string {
+	t.Helper()
+	d := realTemp(t)
+	writeFile(t, filepath.Join(d, "tcp"), tcp)
+	writeFile(t, filepath.Join(d, "tcp6"), tcp6)
+	return d
+}
+
+func TestStartPrintsListenWarnings(t *testing.T) {
+	e := newTenv(t, "ref: refs/heads/feat/x\n")
+	e.s.HostPorts = []int{5432}
+	e.s.ProcNet = writeProcNet(t, tcpHeader+lineLoopback4, tcpHeader)
+	var prog strings.Builder
+	if _, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Progress: &prog}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prog.String(), "warning: port 5432: listens only on 127.0.0.1, which agents can't reach;") {
+		t.Fatalf("progress %q", prog.String())
+	}
+
+	e = newTenv(t, "ref: refs/heads/feat/x\n")
+	e.s.HostPorts = []int{5432}
+	e.s.ProcNet = filepath.Join(realTemp(t), "missing")
+	prog.Reset()
+	if _, err := e.s.Start(context.Background(), StartOpts{Dir: e.root, Progress: &prog}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prog.String(), "warning") {
+		t.Fatalf("progress %q", prog.String())
 	}
 }

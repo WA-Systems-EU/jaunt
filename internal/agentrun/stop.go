@@ -64,12 +64,14 @@ const TeardownTimeout = 30 * time.Second
 // fallback (`jaunt-wrapup-fallback <reason>`) runs inside it first (it
 // pushes, so it must run before tokens are revoked); an exited or missing
 // container gets none. Then the container and its network are removed, the
+// run's host-port rules are revoked (errors ignored; a nil net skips it,
+// and it happens whether or not the container existed), the
 // tmpfs run dir is deleted, FinishedAt is recorded and agent.stopped is
 // emitted, all stamped with now. The fallback gets FallbackTimeout; on
 // timeout it reads "failed: timeout" and the teardown goes on. The exit code
 // is recorded only when the container exited (a running one is inspected
 // again after the stop). Finishing a finished run does nothing.
-func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink, now time.Time) error {
+func Finish(ctx context.Context, d Docker, p Paths, net Runner, id string, ev events.Sink, now time.Time) error {
 	// ctx bounds the fallback only (min(FallbackTimeout, what is left of
 	// it)); everything else runs detached with its own timeout.
 	fallbackCtx := ctx
@@ -129,6 +131,9 @@ func Finish(ctx context.Context, d Docker, p Paths, id string, ev events.Sink, n
 	// network is only an error while we also had a container to remove.
 	if err := d.NetworkRemove(ctx, name); err != nil && st.Exists {
 		errs = append(errs, fmt.Errorf("remove network %s: %w", name, err))
+	}
+	if net != nil {
+		RevokeRunPorts(ctx, net, id, r.RunPorts)
 	}
 	if err := os.RemoveAll(filepath.Join(p.RunsTmp, id)); err != nil {
 		errs = append(errs, err)

@@ -93,7 +93,7 @@ func New(info boxinfo.BoxInfo) *Supervisor {
 			return err
 		},
 		Runs: &agentrun.Maintainer{
-			Docker: agentrun.NewCLI(), Paths: agentrun.DefaultPaths(), Mint: mn.Mint,
+			Docker: agentrun.NewCLI(), Net: agentrun.HostRunner, Paths: agentrun.DefaultPaths(), Mint: mn.Mint,
 			Events: ev, Grace: time.Duration(info.Limits.WrapUpGrace),
 		},
 		DeleteSelf: func(ctx context.Context) error {

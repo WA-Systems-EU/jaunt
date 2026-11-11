@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/WA-Systems-EU/jaunt/internal/agent"
 	"github.com/WA-Systems-EU/jaunt/internal/agentimage"
+	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/forge"
 	"github.com/WA-Systems-EU/jaunt/internal/secrets"
@@ -60,6 +62,9 @@ type StartOpts struct {
 	// Progress, when set, gets one-line notes for the user (stderr), such
 	// as the first image build.
 	Progress io.Writer
+	// HostPorts are the host TCP ports this run may reach besides the
+	// box-wide ones.
+	HostPorts []int
 }
 
 // Starter starts agent runs. It runs as root on behalf of the box user
@@ -81,6 +86,8 @@ type Starter struct {
 	Events     events.Sink
 	ReadyWait  time.Duration
 	DefaultMax time.Duration // the box's agent.max_duration; 0 means DefaultMax
+	HostPorts  []int         // the box's agent.host_ports, open to every run
+	ProcNet    string        // default /proc/net; tcp and tcp6 are read for listen warnings
 
 	poll time.Duration
 	// rootUID/rootGID own the shared state directories (0 in production;
@@ -289,6 +296,9 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 			return run, err
 		}
 	}
+	if err := config.CheckHostPorts("--host-port", o.HostPorts); err != nil {
+		return run, err
+	}
 
 	co, err := FindCheckout(o.Dir, s.home())
 	if err != nil {
@@ -358,7 +368,7 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 		return run, err
 	}
 
-	if err := EnsureNetGuard(ctx, s.Net, nil); err != nil {
+	if err := EnsureNetGuard(ctx, s.Net, s.HostPorts); err != nil {
 		return run, fmt.Errorf("cannot block the metadata service, the tailnet and the host from agent containers, refusing to start: %w", err)
 	}
 	building := func() {
@@ -385,6 +395,7 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	run = Run{ID: NewRunID(repo.Name, started), Repo: repo.FullName(), Checkout: co.Root, Branch: branch,
 		DefaultBranch: repo.DefaultBranch, Mode: mode, Prompt: o.Prompt, SkipPermissions: o.SkipPermissions,
 		StartedAt: started, Max: max}
+	run.HostPorts, run.RunPorts = s.portSets(o.HostPorts)
 	if !validID(run.ID) {
 		return Run{}, fmt.Errorf("invalid run id %q", run.ID)
 	}
@@ -457,10 +468,17 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	}
 
 	labels := map[string]string{"jauntbox.agent": "1", "jauntbox.run": run.ID, "jauntbox.repo": run.Repo}
-	if err := s.Docker.NetworkCreate(ctx, name, labels); err != nil {
+	if err := s.Docker.NetworkCreate(ctx, name, BridgeName(run.ID), labels); err != nil {
 		return Run{}, fmt.Errorf("create network %s: %w", name, err)
 	}
 	cleanups = append(cleanups, func() { _ = s.Docker.NetworkRemove(bg, name) })
+	if err := AllowRunPorts(ctx, s.Net, run.ID, run.RunPorts); err != nil {
+		return Run{}, fmt.Errorf("cannot open the host ports for this run, refusing to start: %w", err)
+	}
+	if len(run.RunPorts) > 0 {
+		cleanups = append(cleanups, func() { RevokeRunPorts(bg, s.Net, run.ID, run.RunPorts) })
+	}
+	s.warnListen(o.Progress, run.HostPorts)
 
 	env := append([]kv{}, creds...)
 	env = append(env, kv{"JAUNT_REPO", run.Repo}, kv{"JAUNT_RUN", run.ID}, kv{"JAUNT_DEFAULT_BRANCH", repo.DefaultBranch},
@@ -503,6 +521,7 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 		Labels:  []string{"jauntbox.agent=1", "jauntbox.run=" + run.ID, "jauntbox.repo=" + run.Repo},
 		EnvFile: envFile, Env: []string{"HOME=" + agentHomeDst},
 		Mounts: mounts, Image: agentimage.Tag(), Cmd: cmd,
+		ExtraHosts: []string{"host.jauntbox:host-gateway"},
 	}
 
 	if err := writeNew(envFile, []byte(envb.String()), 0o600, -1, -1); err != nil {
@@ -533,7 +552,8 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	ok = true
 	if s.Events != nil {
 		_ = s.Events.Emit(events.Event{Time: now().UTC(), Kind: events.AgentStarted,
-			Fields: map[string]string{"run": run.ID, "repo": run.Repo, "branch": run.Branch, "mode": run.Mode}})
+			Fields: map[string]string{"run": run.ID, "repo": run.Repo, "branch": run.Branch, "mode": run.Mode,
+				"host_ports": joinPorts(run.HostPorts)}})
 	}
 	return run, nil
 }
@@ -677,4 +697,58 @@ func setFile(f *os.File, data []byte, mode os.FileMode, uid, gid int) error {
 	}
 	_, err := f.Write(data)
 	return err
+}
+
+// portSets returns the ports a run may reach (box-wide plus its own, sorted,
+// no duplicates) and the ones it owns rules for (its own that are not
+// box-wide).
+func (s *Starter) portSets(own []int) (all, owned []int) {
+	box := map[int]bool{}
+	for _, p := range s.HostPorts {
+		box[p] = true
+	}
+	seen := map[int]bool{}
+	for _, p := range append(append([]int{}, s.HostPorts...), own...) {
+		if !seen[p] {
+			seen[p] = true
+			all = append(all, p)
+			if !box[p] {
+				owned = append(owned, p)
+			}
+		}
+	}
+	sort.Ints(all)
+	sort.Ints(owned)
+	return all, owned
+}
+
+func joinPorts(ports []int) string {
+	s := make([]string, len(ports))
+	for i, p := range ports {
+		s[i] = strconv.Itoa(p)
+	}
+	return strings.Join(s, ",")
+}
+
+// warnListen notes to w the ports in ports that nothing serves in a way
+// agents can reach. It never fails: an unreadable /proc/net skips the check.
+func (s *Starter) warnListen(w io.Writer, ports []int) {
+	if w == nil || len(ports) == 0 {
+		return
+	}
+	dir := s.ProcNet
+	if dir == "" {
+		dir = "/proc/net"
+	}
+	tcp, err := os.ReadFile(filepath.Join(dir, "tcp"))
+	if err != nil {
+		return
+	}
+	tcp6, err := os.ReadFile(filepath.Join(dir, "tcp6"))
+	if err != nil {
+		return
+	}
+	for _, m := range ListenWarnings(tcp, tcp6, ports) {
+		fmt.Fprintln(w, "warning: "+m)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -135,6 +136,14 @@ func TestTickGraceElapsedFinishes(t *testing.T) {
 
 func TestTickGoneContainerFinishesWithoutFallback(t *testing.T) {
 	e := newMT(t, State{})
+	r0, _ := e.p.Load(stopID)
+	r0.HostPorts, r0.RunPorts = []int{6379}, []int{6379}
+	saveRun(t, e.p, r0)
+	var netCalls []string
+	e.m.Net = func(_ context.Context, bin string, args ...string) error {
+		netCalls = append(netCalls, bin+" "+strings.Join(args, " "))
+		return nil
+	}
 	if err := e.m.Tick(context.Background(), at.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +158,9 @@ func TestTickGoneContainerFinishesWithoutFallback(t *testing.T) {
 	}
 	if e.n != 0 {
 		t.Fatal("minted for a gone container")
+	}
+	if want := []string{revokeRule("6379")}; !reflect.DeepEqual(netCalls, want) {
+		t.Fatalf("net calls %q, want %q", netCalls, want)
 	}
 }
 

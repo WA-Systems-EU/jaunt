@@ -29,6 +29,10 @@ type Run struct {
 	WrapUpReason    string        `json:"wrapup_reason,omitempty"`
 	FinishedAt      time.Time     `json:"finished_at,omitzero"`
 	ExitCode        int           `json:"exit_code"`
+	// HostPorts are the host ports the run may reach (box-wide plus its
+	// own, sorted); RunPorts the ones it owns rules for (not box-wide).
+	HostPorts []int `json:"host_ports,omitempty"`
+	RunPorts  []int `json:"run_ports,omitempty"`
 }
 
 const (

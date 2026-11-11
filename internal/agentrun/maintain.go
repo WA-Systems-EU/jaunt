@@ -65,6 +65,7 @@ const BoxReasonPrefix = "box-"
 // Maintainer is the supervisor's per-pass driver of the active agent runs.
 type Maintainer struct {
 	Docker Docker
+	Net    Runner // revokes finished runs' host-port rules; nil skips
 	Paths  Paths
 	Mint   func(ctx context.Context, repo string) (forge.Token, error)
 	Events events.Sink
@@ -178,7 +179,7 @@ func (m *Maintainer) tickRun(ctx context.Context, now time.Time, r Run) func() {
 		return nil
 	}
 	finish := func() error {
-		err := Finish(ctx, m.Docker, m.Paths, r.ID, m.Events, now)
+		err := Finish(ctx, m.Docker, m.Paths, m.Net, r.ID, m.Events, now)
 		if err != nil {
 			fail(evFinishFailed, err)
 		}
@@ -286,7 +287,7 @@ func (m *Maintainer) FinishAll(ctx context.Context) error {
 	}
 	var errs []error
 	for _, r := range runs {
-		if err := Finish(ctx, m.Docker, m.Paths, r.ID, m.Events, time.Now()); err != nil {
+		if err := Finish(ctx, m.Docker, m.Paths, m.Net, r.ID, m.Events, time.Now()); err != nil {
 			errs = append(errs, fmt.Errorf("run %s: %w", r.ID, err))
 		}
 	}
