@@ -206,7 +206,7 @@ unless a row says otherwise. Fill in the result column.
 | 19. Resume: `jauntctl agent --branch <that branch>` in the same checkout opens with the resume prompt | |
 | 20. On the host, `git status` and `git log` in the checkout work normally after the run, and `cat .git/commondir` shows `.` | |
 | 21. Teardown with a running agent: `jauntbox down`: fallback pushed, tokens revoked, box deleted; event order in the next box's log | |
-| 22. `jauntbox night` then cancel (back to "keep"): box wrap-ups (`box-night`) are cleared; a wrap-up from `jauntctl agent stop` is not | |
+| 22. Cancel: with two runs, `jauntctl agent stop <id>` on one; leave the box idle until it starts a wrap-up (`wrapup.started`, and `agent.wrapup_started` with `box-idle` for the other run in `events.jsonl`), then type in a pane: the box keeps (`wrapup.cancelled`), the other run is no longer `wrapping-up` in `jauntctl agent list`, the stopped run still is | |
 
 ## What "good" looks like
 

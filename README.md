@@ -151,7 +151,10 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   refused). `jauntctl agent logs --follow` watches the run. `logs` reads any of your
   own runs, finished or not; without an id it shows the newest run of the current
   checkout.
-- **What a container holds.** Only the checkout and a per-run state directory. No
+- **What a container holds.** Only the checkout (`/work`), a read-only per-run state
+  directory (its token and wrap-up flag), the repo's agent home on the volume
+  (`/home/agent`: Claude's config and transcripts, the `mise` cache) and the run's log
+  directory (`/var/log/jauntbox`). No
   Docker socket, no host networking, not privileged, all capabilities dropped,
   `no-new-privileges`. It gets a token for that one repo (re-read from a file the
   supervisor refreshes) and only the agent credentials the adapter declares. It never
@@ -178,10 +181,11 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   global git settings also stop your git descending into submodules. It does not cover
   code you run yourself after the agent changed it: tests, `make`, `mise` and `direnv`
   config. **Run agent-changed tests inside the container** (`jauntctl agent attach
-  --shell`) and don't trust agent-changed `mise` or `direnv` files. Host `git` in an
-  agent workspace refuses by design; use the shell in the container for git work.
-  Because `.git/config` is read-only, `git push -u` reports a config write error but
-  the push lands; branches are created without tracking.
+  --shell`) and don't trust agent-changed `mise` or `direnv` files. Host `git` works
+  normally in the checkout (status, log, commit, push); only running the agent's code
+  on the host is what to avoid. Inside the container, because `.git/config` is
+  read-only, `git push -u` reports a config write error but the push lands; branches
+  are created without tracking.
 - **Wrap-up and `CONTINUATION.md`.** On any forced stop (`jauntctl agent stop`, the
   run's `--max` duration, the box's night deadline or `jauntbox down`) the agent is
   told to write `CONTINUATION.md` (what is done, what is next), commit it and push.
@@ -193,9 +197,12 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   detached HEAD) by then, the work goes to a new `agent/<repo>-wrapup-<UTC stamp>` branch.
   If it cannot write the note it pushes nothing. Teardown order: wrap-up agents, revoke tokens, stop containers, sync,
   delete the box.
-- **Box wrap-ups.** Wrap-ups the box starts carry a reason prefixed `box-` (for example
-  `box-night`). Putting the box back to "keep" (cancelling the wrap-up) clears those,
-  but not wrap-ups from `jauntctl agent stop` or `run-max`. The supervisor's agent
+- **Box wrap-ups.** Wrap-ups the box starts carry its stop reason prefixed `box-`:
+  `box-idle`, `box-evening-cutoff`, `box-max-uptime`, `box-night-deadline`,
+  `box-agents-done` or `box-stop-requested`. When the box goes back to "keep" (for
+  example you type in a pane during an idle wrap-up), those are cleared, but not
+  wrap-ups from `jauntctl agent stop` or `run-max`. `jauntbox night` itself starts no
+  wrap-up; the night deadline does. The supervisor's agent
   work is bounded: 2 minutes per normal pass, up to 5 minutes to finish agents before
   the box deletes itself.
 - **Resume.** `jauntctl agent --branch <branch>` on a branch that already has
