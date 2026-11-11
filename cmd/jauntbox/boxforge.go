@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -44,6 +45,11 @@ func boxOnlyCmds() []*cobra.Command {
 		Short: "Print a single-repository GitHub token as JSON (box side, root; used by the git credential helper)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The argument comes from a possibly hostile sudo caller: check it
+			// before anything else, independent of forge or vault state.
+			if err := validateRepoArg(args[0]); err != nil {
+				return err
+			}
 			if os.Geteuid() != 0 {
 				return errors.New("run with sudo")
 			}
@@ -82,6 +88,23 @@ func boxOnlyCmds() []*cobra.Command {
 	}
 	cred.SilenceErrors = true
 	return []*cobra.Command{load, mint, repos, cred}
+}
+
+var repoArgRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+// validateRepoArg accepts only owner/name made of [A-Za-z0-9_.-], with neither
+// part "." or "..".
+func validateRepoArg(s string) error {
+	bad := fmt.Errorf("invalid repository %q: want owner/name", s)
+	if !repoArgRE.MatchString(s) {
+		return bad
+	}
+	for _, part := range strings.Split(s, "/") {
+		if part == "." || part == ".." {
+			return bad
+		}
+	}
+	return nil
 }
 
 func newMinter() *minter.Minter {

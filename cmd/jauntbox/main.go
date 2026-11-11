@@ -143,6 +143,9 @@ func newBoxCmd() *cobra.Command {
 		// Accept anything so that a laptop command gets a pointed message
 		// rather than cobra's generic "unknown command".
 		Args: cobra.ArbitraryArgs,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return boxPreRun(cmd)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return cmd.Help()
@@ -155,9 +158,48 @@ func newBoxCmd() *cobra.Command {
 			return fmt.Errorf("unknown command %q for %q", args[0], BoxName)
 		},
 	}
+	// jauntctl has no config file. The flag exists only so that passing it under
+	// sudo gets a pointed refusal instead of being silently honoured.
+	root.PersistentFlags().String("config", "", "")
+	_ = root.PersistentFlags().MarkHidden("config")
 	root.AddCommand(boxCmds()...)
 	root.AddCommand(boxOnlyCmds()...)
 	return root
+}
+
+// underSudo reports whether we were started by sudo: the caller is the
+// (untrusted) box user and everything it controls is hostile input.
+func underSudo() bool { return os.Getenv("SUDO_USER") != "" }
+
+// sudoScrubbedEnv are variables a sudo caller could set to steer root's HTTP
+// (proxy, CA bundle), docker or path lookups. Box commands read only
+// /etc/jauntbox, /run/jauntbox and /var/lib/jauntbox.
+var sudoScrubbedEnv = []string{
+	"XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
+	"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy",
+	"NO_PROXY", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR",
+	"DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH",
+}
+
+// boxPreRun runs before every jauntctl command (and before the box aliases on
+// the client tree). Under sudo it refuses --config and drops the caller's
+// HOME, XDG_* and network/docker steering from the environment.
+func boxPreRun(cmd *cobra.Command) error {
+	if !underSudo() {
+		if f := cmd.Flags().Lookup("config"); f != nil && f.Changed && cmd.Root().Name() == BoxName {
+			return errors.New("unknown flag: --config")
+		}
+		return nil
+	}
+	if f := cmd.Flags().Lookup("config"); f != nil && f.Changed {
+		return errors.New("--config is not accepted under sudo")
+	}
+	for _, k := range sudoScrubbedEnv {
+		os.Unsetenv(k)
+	}
+	os.Setenv("HOME", "/root")
+	os.Setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	return nil
 }
 
 // boxCmds builds the box command set; fresh instances on every call so the
@@ -302,7 +344,10 @@ func newClientCmd() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Box commands (the hidden aliases old units still run) never read the
 			// config, and a system service has no $HOME.
-			if cmd.Annotations["box"] == "" && defaultCfgErr != nil && !cmd.Flags().Changed("config") {
+			if cmd.Annotations["box"] != "" {
+				return boxPreRun(cmd)
+			}
+			if defaultCfgErr != nil && !cmd.Flags().Changed("config") {
 				return defaultCfgErr
 			}
 			return nil

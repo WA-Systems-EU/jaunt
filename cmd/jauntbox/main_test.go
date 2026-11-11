@@ -433,3 +433,95 @@ func chpasswdFailure(code int, echoed string) error {
 	err := exec.Command("sh", "-c", "exit "+strconv.Itoa(code)).Run()
 	return fmt.Errorf("chpasswd: bad line %q: %w", echoed, err)
 }
+
+func runBox(t *testing.T, args ...string) error {
+	t.Helper()
+	root := rootFor("/usr/local/bin/jauntctl")
+	root.SetArgs(args)
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	return root.Execute()
+}
+
+func TestBoxCommandsIgnoreUserHomeUnderSudo(t *testing.T) {
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config", "jauntbox")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("hostile: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", os.Getenv("PATH")) // restored after the pre-run hook rewrites it
+	t.Setenv("SUDO_USER", "x")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".state"))
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+	t.Setenv("https_proxy", "http://127.0.0.1:1")
+	t.Setenv("SSL_CERT_FILE", filepath.Join(home, "ca.pem"))
+	t.Setenv("DOCKER_HOST", "unix://"+filepath.Join(home, "d.sock"))
+	_ = runBox(t, "box-status") // fails (not root); the pre-run hook is what matters
+	if got := os.Getenv("HOME"); got != "/root" {
+		t.Errorf("HOME = %q, want /root", got)
+	}
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_STATE_HOME", "HTTPS_PROXY", "https_proxy", "SSL_CERT_FILE", "DOCKER_HOST"} {
+		if v := os.Getenv(k); v != "" {
+			t.Errorf("%s = %q survived under sudo", k, v)
+		}
+	}
+}
+
+func TestEnvKeptWhenNotUnderSudo(t *testing.T) {
+	t.Setenv("SUDO_USER", "")
+	t.Setenv("HOME", "/home/someone")
+	_ = runBox(t, "box-status")
+	if got := os.Getenv("HOME"); got != "/home/someone" {
+		t.Errorf("HOME = %q changed without sudo", got)
+	}
+}
+
+func TestConfigFlagRefusedUnderSudo(t *testing.T) {
+	t.Setenv("SUDO_USER", "x")
+	want := "--config is not accepted under sudo"
+	for _, args := range [][]string{
+		{"--config", "/tmp/x", "box-status"},
+		{"box-status", "--config", "/tmp/x"},
+		{"--config=/tmp/x", "repos"},
+		{"mint", "--config", "/tmp/x", "a/b"},
+	} {
+		if err := runBox(t, args...); err == nil || err.Error() != want {
+			t.Errorf("%v: err = %v, want %q", args, err, want)
+		}
+	}
+	// the transition aliases on the laptop-named binary obey the same rule
+	root := newClientCmd()
+	root.SetArgs([]string{"box-status", "--config", "/tmp/x"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	if err := root.Execute(); err == nil || err.Error() != want {
+		t.Errorf("alias: err = %v, want %q", err, want)
+	}
+}
+
+func TestMintRejectsBadRepoArg(t *testing.T) {
+	for _, arg := range []string{"../x", "a/b/c", "", "a", "/b", "a/", "./x", "x/..", "../..", "a/b c", "a/b\n", "a:b/c"} {
+		err := validateRepoArg(arg)
+		if err == nil {
+			t.Errorf("%q accepted", arg)
+		}
+	}
+	for _, arg := range []string{"o/r", "WA-Systems-EU/jaunt", "a_b/c.d-e", "o/.github"} {
+		if err := validateRepoArg(arg); err != nil {
+			t.Errorf("%q rejected: %v", arg, err)
+		}
+	}
+	// through the command, before any forge access (no vault, not root: the
+	// refusal must come first and not depend on either)
+	for _, arg := range []string{"../x", "a/b/c", ""} {
+		err := runBox(t, "mint", arg)
+		if err == nil || !strings.Contains(err.Error(), "owner/name") {
+			t.Errorf("mint %q: err = %v", arg, err)
+		}
+	}
+}
