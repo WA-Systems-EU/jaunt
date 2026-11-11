@@ -156,9 +156,15 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
   holds the App private key, the Hetzner token or other repos' tokens. Toolchains come
   from `mise` inside the container (the repo's mise config is trusted there), cached
   in the agent home on the volume.
-- **What it cannot reach.** The metadata service (`169.254.169.254`) and the tailnet
-  (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) are dropped for containers on the root
-  daemon. The unit is enabled by the install step (best effort) and every
+- **What it cannot reach.** On the root daemon, traffic a container sends through the
+  box to the metadata service (`169.254.169.254`) or the tailnet (`100.64.0.0/10`,
+  `fd7a:115c:a1e0::/48`) is dropped (`DOCKER-USER`, IPv4 and IPv6). Traffic to the box
+  itself is dropped too: anything arriving from a Docker bridge (`docker0`, `br-*`) at
+  the host (`INPUT`) is dropped, so a container cannot reach the bridge gateway, the
+  box's tailnet address, sshd or anything you run on the box (dev servers, databases,
+  your rootless Docker's published ports), on any of the box's addresses. Replies to
+  connections the box opens are let through, so you still reach a container by its IP
+  (previews). The internet, GitHub and package registries stay reachable. The unit is enabled by the install step (best effort) and every
   `jauntctl agent` start re-applies the rules and refuses to start if it cannot.
   Containers you start yourself on the root daemon (`sudo docker run`) are covered once
   the guard has been applied (by an agent start or after a reboot).

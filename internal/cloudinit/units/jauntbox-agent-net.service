@@ -1,5 +1,5 @@
 [Unit]
-Description=jauntbox: block the metadata service and the tailnet from agent containers
+Description=jauntbox: block the metadata service, the tailnet and the host from agent containers
 After=docker.service
 Requires=docker.service
 

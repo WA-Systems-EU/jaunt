@@ -189,11 +189,12 @@ unless a row says otherwise. Fill in the result column.
 | 4b. `mv .git .git2` and `rmdir .git` both fail (`.git` is a mount point: busy) | |
 | 5. `curl -m 5 http://169.254.169.254/hetzner/v1/metadata` fails | |
 | 6. `curl -m 5 http://100.100.100.100` fails | |
+| 6b. `curl -m 5 http://<box tailscale IP>:22` and `curl -m 5 http://<bridge gateway>:22` (`ip route` shows the gateway) both time out; from the box, `curl <container IP>:<port>` of a server started in the container still works | |
 | 7. `ls /run/jauntbox/secrets` fails | |
 | 8. `cat /run/jauntbox-run/token` shows only a token | |
 | 9. `git push -u origin HEAD` on the agent branch reports the config write error (read-only `.git/config`) but the push lands | |
 | 10. Pushing to another installed repo with that token fails (403) | |
-| 11. `sudo ip6tables -S DOCKER-USER` on the box exists and holds the tailnet IPv6 rule (`fd7a:115c:a1e0::/48`); `sudo iptables -S DOCKER-USER` holds the two IPv4 rules | |
+| 11. `sudo ip6tables -S DOCKER-USER` on the box exists and holds the tailnet IPv6 rule (`fd7a:115c:a1e0::/48`); `sudo iptables -S DOCKER-USER` holds the two IPv4 rules; `sudo iptables -S INPUT` and `sudo ip6tables -S INPUT` start with the `docker0` and `br-+` ESTABLISHED,RELATED ACCEPT, each above its DROP | |
 | 12. Interactive: `jauntbox`, then in the repo's herdr pane `jauntctl agent`: Claude opens in that pane. Record what Claude asked on the very first run (onboarding) | |
 | 13. A second agent in another repo's pane at the same time: both run; `jauntctl agent` again in the first checkout refuses and names the run | |
 | 14. Close the pane; in another pane `jauntctl agent attach <id>`: Claude continues (`--continue`). Record whether herdr shows the pane as an agent | |

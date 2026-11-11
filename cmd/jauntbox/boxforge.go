@@ -90,7 +90,7 @@ func boxOnlyCmds() []*cobra.Command {
 	cred.SilenceErrors = true
 	agentNet := &cobra.Command{
 		Use:    "agent-net",
-		Short:  "Block the metadata service and the tailnet from agent containers (box side, root)",
+		Short:  "Block the metadata service, the tailnet and the host from agent containers (box side, root)",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

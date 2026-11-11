@@ -332,7 +332,7 @@ func (s *Starter) Start(ctx context.Context, o StartOpts) (Run, error) {
 	}
 
 	if err := EnsureNetGuard(ctx, s.Net); err != nil {
-		return run, fmt.Errorf("cannot block the metadata service and the tailnet from agent containers, refusing to start: %w", err)
+		return run, fmt.Errorf("cannot block the metadata service, the tailnet and the host from agent containers, refusing to start: %w", err)
 	}
 	if err := agentimage.Ensure(ctx, s.Docker); err != nil {
 		return run, fmt.Errorf("agent image: %w", err)
