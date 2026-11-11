@@ -9,6 +9,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/session"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -592,7 +593,7 @@ func TestReadyExistingStepOrder(t *testing.T) {
 	d, p, _ := attachFixture(t)
 	withBox(p)
 	rec := withRec(&d)
-	if err := ReadyExisting(context.Background(), d); err != nil {
+	if err := ReadyExisting(context.Background(), d, *p.box); err != nil {
 		t.Fatal(err)
 	}
 	assertEvents(t, rec, "start Box online", "done Box online",
@@ -613,5 +614,63 @@ func TestResizeEndsWithDevTools(t *testing.T) {
 	n := len(rec.Events)
 	if n < 2 || rec.Events[n-2] != "start Dev tools installed" || rec.Events[n-1] != "done Dev tools installed" {
 		t.Fatalf("tail = %v", rec.Events[max(0, n-4):])
+	}
+}
+
+// onlineAfter reports the device online once the fake clock passes at.
+type onlineAfter struct {
+	*fakeMesh
+	now *time.Time
+	at  time.Time
+}
+
+func (m onlineAfter) DeviceOnline(context.Context, string) (bool, error) {
+	return !m.now.Before(m.at), nil
+}
+
+func TestWaitOnlineGivesRecentBoxTheJoinWindow(t *testing.T) {
+	run := func(t *testing.T, created time.Duration) error {
+		d, p, _ := attachFixture(t)
+		withBox(p)
+		clock := time.Now()
+		nowFn = func() time.Time { return clock }
+		t.Cleanup(func() { nowFn = time.Now })
+		sleepFn = func(_ context.Context, dur time.Duration) error { clock = clock.Add(dur); return nil }
+		d.Mesh = onlineAfter{d.Mesh.(*fakeMesh), &clock, clock.Add(onlineWait + 2*time.Minute)}
+		box := *p.box
+		box.Created = clock.Add(-created)
+		return waitOnline(context.Background(), d, "jauntbox-alice", box)
+	}
+	if err := run(t, time.Minute); err != nil {
+		t.Fatalf("recent box should wait past onlineWait: %v", err)
+	}
+	if err := run(t, 2*time.Hour); err == nil || !strings.Contains(err.Error(), "is not on the tailnet after") {
+		t.Fatalf("old box err = %v", err)
+	}
+}
+
+type killedRemote struct{ cancel context.CancelFunc }
+
+func (r killedRemote) Run(context.Context, string, ...string) ([]byte, error) {
+	r.cancel()
+	err := exec.Command("sh", "-c", "kill -9 $$").Run()
+	return nil, fmt.Errorf("ssh x: %w: ", err)
+}
+func (r killedRemote) RunInput(context.Context, string, []byte, ...string) ([]byte, error) {
+	return nil, nil
+}
+func (r killedRemote) Copy(context.Context, string, string, string) error { return nil }
+
+func TestSupervisorCheckInterruptedStartsNoStep(t *testing.T) {
+	d, _, _ := attachFixture(t)
+	rec := withRec(&d)
+	ctx, cancel := context.WithCancel(context.Background())
+	d.Remote = killedRemote{cancel}
+	err := EnsureSupervisor(ctx, d)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(rec.Events) != 0 {
+		t.Fatalf("events = %v", rec.Events)
 	}
 }

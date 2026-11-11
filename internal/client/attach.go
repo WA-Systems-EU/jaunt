@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/WA-Systems-EU/jaunt/internal/provider"
 	"github.com/WA-Systems-EU/jaunt/internal/session"
 )
 
@@ -20,7 +21,7 @@ var (
 	reconnectFirst            = 2 * time.Second
 	reconnectCap              = 30 * time.Second
 	reconnectGiveUp           = 10 * time.Minute
-	onlineWait                = 2 * time.Minute
+	onlineWait                = 3 * time.Minute
 	provisionPoll             = 10 * time.Second
 	provisionWait             = 20 * time.Minute
 	healthySession            = 30 * time.Second
@@ -64,7 +65,7 @@ func Attach(ctx context.Context, d Deps, sess session.Session, nested bool,
 		if err := PushBinary(ctx, d, DefaultPushWait); err != nil {
 			return err
 		}
-	} else if err := waitOnline(ctx, d, host); err != nil {
+	} else if err := waitOnline(ctx, d, host, res.Box); err != nil {
 		return err
 	}
 
@@ -147,9 +148,9 @@ func WaitDevTools(ctx context.Context, d Deps) error {
 
 // ReadyExisting is what an existing box needs before it is ready: online, dev
 // tools installed, supervisor running, secrets unlocked.
-func ReadyExisting(ctx context.Context, d Deps) error {
+func ReadyExisting(ctx context.Context, d Deps, box provider.Box) error {
 	host := hostname(d.Cfg.User)
-	if err := waitOnline(ctx, d, host); err != nil {
+	if err := waitOnline(ctx, d, host, box); err != nil {
 		return err
 	}
 	if err := waitProvisioned(ctx, d, host); err != nil {
@@ -158,8 +159,16 @@ func ReadyExisting(ctx context.Context, d Deps) error {
 	return EnsureSupervisor(ctx, d)
 }
 
-func waitOnline(ctx context.Context, d Deps, host string) error {
+// waitOnline waits for the box to be on the tailnet. A box created minutes ago
+// may still be joining (cloud-init), so it gets until DefaultPushWait after its
+// creation if that is later than the base wait.
+func waitOnline(ctx context.Context, d Deps, host string, box provider.Box) error {
 	deadline := nowFn().Add(onlineWait)
+	if !box.Created.IsZero() {
+		if joinBy := box.Created.Add(DefaultPushWait); joinBy.After(deadline) {
+			deadline = joinBy
+		}
+	}
 	st := d.steps().Start("Box online")
 	for {
 		if online, err := d.Mesh.DeviceOnline(ctx, host); err == nil && online {

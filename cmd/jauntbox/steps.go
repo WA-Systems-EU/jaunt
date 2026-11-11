@@ -192,7 +192,7 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 				}
 			} else {
 				steps.Plan("Box online", "Dev tools installed")
-				err = client.ReadyExisting(ctx, d)
+				err = client.ReadyExisting(ctx, d, res.Box)
 			}
 			if err != nil {
 				return handOff(ctx, cmd, spawn, steps, res, err)

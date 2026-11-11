@@ -75,12 +75,13 @@ func EnsureSupervisor(ctx context.Context, d Deps) error {
 }
 
 // notInstalled reports whether err is the remote check command itself failing
-// (it ran and exited non-zero). ssh exits 255 for transport failures, and
-// anything that is not an exit status (a start failure, a cancelled context)
-// says nothing about the box, so those are retried.
+// (it ran and exited non-zero). ssh exits 255 for transport failures; a
+// negative code means ssh was killed by a signal; anything that is not an exit
+// status (a start failure) says nothing about the box. All of those are
+// retried.
 func notInstalled(err error) bool {
 	var ee *exec.ExitError
-	return errors.As(err, &ee) && ee.ExitCode() != exitSSHFailure
+	return errors.As(err, &ee) && ee.ExitCode() >= 0 && ee.ExitCode() != exitSSHFailure
 }
 
 // supervisorInstalled reports whether the box already runs the supervisor,
@@ -92,6 +93,9 @@ func supervisorInstalled(ctx context.Context, d Deps) (bool, error) {
 		if err == nil {
 			d.steps().Start("Install supervisor").Skip("already running")
 			return true, nil
+		}
+		if ctx.Err() != nil {
+			return false, ctx.Err() // Ctrl-C killed ssh: not an answer about the box
 		}
 		if notInstalled(err) || attempt >= checkAttempts {
 			return false, nil
