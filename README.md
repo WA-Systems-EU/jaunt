@@ -121,7 +121,7 @@ jauntbox unlock                                # push secrets to the box: after 
   Every unlock applies it with `chpasswd`; it is never stored on the box. Without it,
   `unlock` and `status` print a note and you have no sudo password. Don't set it to an
   empty string.
-- **Passwordless sudo covers six `jauntctl` commands only:** `mint`, `repos`,
+- **Passwordless sudo covers four `jauntctl` commands only:** `mint`, `repos`,
   `box-status` and `agent`, in the forms the sudoers file lists. Nothing else:
   not `install`, `systemctl`, `secrets-load`, `stop`, `night-set` or `supervise`.
   Under sudo, `jauntctl` refuses `--config`, scrubs its environment, and `mint` takes
@@ -129,7 +129,7 @@ jauntbox unlock                                # push secrets to the box: after 
 - **No `docker` group.** `docker` and `docker compose` work without sudo against your
   own rootless daemon (context `rootless`, socket `/run/user/<uid>/docker.sock`, data
   in `~/.local/share/docker` on `/home`, so images survive rebuilds). Published ports
-  must be above 1024. `sudo docker ...` reaches the root daemon and asks for your
+  must be 1024 and up. `sudo docker ...` reaches the root daemon and asks for your
   password. Rootless setup is best-effort: if it fails, the provisioning log says
   `WARNING: rootless docker setup failed: <step>`.
 - **Metadata endpoint.** The unit `jauntbox-metadata-guard.service` drops traffic to
@@ -138,11 +138,16 @@ jauntbox unlock                                # push secrets to the box: after 
   unit fails open and shows as failed. Containers on the root daemon aren't covered
   until Plan 03's network task.
 - **The accepted weakness.** You know the sudo password, so you can become root on your
-  own box. The split protects against a process running as you that doesn't have the
-  password (an agent, a script, a stolen shell), not against you.
+  own box. A process running as you can't use `sudo` by itself, but it can plant a fake
+  `sudo` (an alias or a PATH shim in your shell config) and capture the password the next
+  time you type it. Type the password only in a shell you trust. The split narrows what a
+  process running as you can do on its own; it does not protect against you or against a
+  shell that has already been tampered with.
 - **Upgrading.** Update the tailnet policy first. Boxes created before this change keep
   the old passwordless sudo for everything until they are recreated, which the daily
-  teardown does.
+  teardown does. Such a box also keeps its old `jauntctl`, so `BOX_SUDO_PASSWORD` sits in
+  that box's RAM vault (`agents.env`) until it is rebuilt. An empty password is refused
+  by `jauntbox secrets set`.
 
 ## Status
 

@@ -286,9 +286,9 @@
     <div class="mx-auto max-w-6xl py-20">
       <p class="eyebrow text-route mb-3">Roadmap</p>
       <h2 class="font-display text-5xl font-extrabold uppercase leading-none max-w-2xl">Where the trip stands.</h2>
-      <p class="mt-4 text-muted max-w-[40rem]">Built in plans, each one reviewed and tested before the next starts. Updated 10 November 2026.</p>
+      <p class="mt-4 text-muted max-w-[40rem]">Built in plans, each one reviewed and tested before the next starts. Updated 11 November 2026.</p>
 
-      <ol class="mt-10 grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+      <ol class="mt-10 grid md:grid-cols-2 lg:grid-cols-3 gap-5">
         <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
           <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 01</span><span class="stamp lt st-live">Done</span></div>
           <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Walking skeleton</h3>
@@ -312,7 +312,7 @@
           <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Live smoke test on 10 Nov: App setup, locked box after reboot, permission drift, token revocation and a clean volume passed. Six fixes landed from it.</p>
         </li>
         <li class="min-w-0 rounded-xl border border-line bg-surface p-6 flex flex-col gap-3">
-          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03a</span><span class="stamp lt st-plan">Building</span></div>
+          <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03a</span><span class="stamp lt st-next">Building</span></div>
           <h3 class="font-display text-2xl font-extrabold uppercase leading-tight">Privilege split</h3>
           <ul class="text-[15px] text-muted space-y-1.5">
             <li>Root ssh from the laptop for jauntbox's own steps</li>
@@ -320,6 +320,7 @@
             <li>Your own rootless Docker and Compose, no <code class="font-mono text-[13px] text-ink">docker</code> group</li>
             <li>Metadata endpoint reachable only by root</li>
           </ul>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">Built 11 Nov, live smoke pending.</p>
         </li>
         <li class="min-w-0 rounded-xl border-2 p-6 flex flex-col gap-3 bg-surface" style="border-color: var(--tag)">
           <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">Plan 03</span><span class="stamp lt st-next">Next</span></div>
@@ -330,7 +331,7 @@
             <li>Metadata endpoint and tailnet blocked</li>
             <li>Wrap-up: the agent writes <code class="font-mono text-[13px] text-ink">CONTINUATION.md</code> and pushes before the box goes down</li>
           </ul>
-          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">8 tasks, plan written, waiting for review. Project services follow in Plan 04.</p>
+          <p class="mt-auto pt-3 border-t border-line text-[13px] text-muted">8 tasks, plan written and reviewed; builds after 03a. Project services follow in Plan 04.</p>
         </li>
         <li class="min-w-0 rounded-xl border border-dashed border-line p-6 flex flex-col gap-3">
           <div class="flex items-center justify-between gap-2"><span class="eyebrow text-muted">After</span><span class="stamp lt st-later">Later</span></div>

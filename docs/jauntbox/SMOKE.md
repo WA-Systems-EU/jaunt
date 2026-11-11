@@ -162,13 +162,16 @@ column.
 | 8. `docker run --rm hello-world` works | |
 | 9. A small `docker compose up` works | |
 | 10. `docker run --rm -v /:/host alpine cat /host/etc/shadow` is denied | |
-| 11. `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails from a rootless container | |
+| 11. `docker run --rm alpine wget -T 5 -qO- http://169.254.169.254/hetzner/v1/userdata` fails (metadata from a rootless container) | |
 | 12. `sudo docker ps` reaches the root daemon | |
 | 13. `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails as the box user and works with `sudo` | |
 | 14. The supervisor still deletes the box at `down` | |
 | 15. After a reboot the metadata rule is back (`sudo iptables -S OUTPUT`) | |
 | 16. With root ssh refused by the policy, `jauntbox down` stops with the fix and suggests `--force` | |
 | 17. Provisioning log has no `WARNING: rootless docker setup failed` | |
+| 18. `id` as the box user shows no `docker` group | |
+| 19. `docker -H unix:///var/run/docker.sock ps` is denied | |
+| 20. With root refused in the policy, `jauntbox` on a new box fails within a minute and names `jauntbox acl-snippet` | |
 
 ## What "good" looks like
 
