@@ -1,0 +1,8 @@
+{
+  "name": "jauntbox-site",
+  "private": true,
+  "description": "Build step for the static site: compiles Tailwind into ../site/styles.css",
+  "scripts": {
+    "build:css": "npx --yes tailwindcss@3.4.17 -c tailwind.config.js -i input.css -o ../site/styles.css --minify"
+  }
+}

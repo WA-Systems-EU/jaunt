@@ -1,6 +1,6 @@
 # jauntbox website
 
-The public site for jauntbox: four static pages in `site/`, with no build step. The
+The public site for jauntbox: four static pages in `site/` plus one compiled stylesheet. The
 header, footer and `<head>` are duplicated on each page; change all four together.
 
 | Page | Purpose | Content |
@@ -16,10 +16,15 @@ Preview it locally:
 python3 -m http.server -d site 8000   # then open http://localhost:8000
 ```
 
-- Styles use the Tailwind play CDN (pinned to 3.4.17) and Google Fonts, with the same inline
-  Tailwind config and colour tokens on every page. Dark mode follows the browser's
-  `prefers-color-scheme` (or `data-theme` on `<html>`). Before a wide launch, compile
-  Tailwind to a static stylesheet so the pages don't build their CSS in the browser.
+- Styles are Tailwind 3.4.17, compiled to `site/styles.css` (committed, so Pages deploys `site/`
+  as-is with no CI build) plus Google Fonts. The theme lives in `site-src/tailwind.config.js` and
+  the shared page CSS (colour tokens, dark mode, stamps) in `site-src/input.css`. Dark mode follows
+  the browser's `prefers-color-scheme` (or `data-theme` on `<html>`).
+- After adding or changing any Tailwind class in the HTML, rebuild and commit the stylesheet:
+  `cd site-src && npm run build:css` (needs Node; it fetches `tailwindcss@3.4.17` through `npx`).
+  Classes missing from `styles.css` simply don't apply.
+- `og.png` is the social preview image; its source is `docs/site/og-source.html` (render command in
+  the file), kept outside `site/` so it isn't deployed. `robots.txt` and `sitemap.xml` list the four pages.
 - The nav is the same on every page and marks the current page with `aria-current="page"`.
   Keep in-page links pointing at the page that holds the content (for example
   `docs.html#agents`), and check them after moving a section.
