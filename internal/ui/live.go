@@ -14,21 +14,6 @@ import (
 	"golang.org/x/term"
 )
 
-var ctrlToSpace = strings.NewReplacer("\r", " ", "\t", " ")
-var detailClean = strings.NewReplacer("\r", " ", "\t", " ", "\n", " ")
-
-// splitLines splits each message on newlines, dropping empty messages.
-func splitLines(msgs []string) []string {
-	var out []string
-	for _, m := range msgs {
-		if m == "" {
-			continue
-		}
-		out = append(out, strings.Split(strings.ReplaceAll(m, "\r\n", "\n"), "\n")...)
-	}
-	return out
-}
-
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type itemState int
@@ -168,7 +153,6 @@ func (l *live) redrawLocked() {
 		maxw = l.width() - 1
 	}
 	fit := func(ln string) string {
-		ln = ctrlToSpace.Replace(ln)
 		if maxw > 0 {
 			return ansi.Truncate(ln, maxw, "…")
 		}
@@ -211,6 +195,7 @@ func (l *live) addText(lines ...string) {
 }
 
 func (l *live) Header(title, context string) {
+	title, context = cleanLine(title), cleanLine(context)
 	s := l.bold.Render(title)
 	if context != "" {
 		s += " " + l.dim.Render("· "+context)
@@ -218,7 +203,15 @@ func (l *live) Header(title, context string) {
 	l.addText(s)
 }
 
-func (l *live) Note(line string) { l.addText(l.dim.Render(line)) }
+func (l *live) Note(line string) {
+	var out []string
+	for _, ln := range cleanLines(line) {
+		out = append(out, l.dim.Render(ln))
+	}
+	if len(out) > 0 {
+		l.addText(out...)
+	}
+}
 
 func (l *live) Plan(labels ...string) {
 	l.mu.Lock()
@@ -227,12 +220,13 @@ func (l *live) Plan(labels ...string) {
 		return
 	}
 	for _, lb := range labels {
-		l.items = append(l.items, &item{state: statePending, label: lb})
+		l.items = append(l.items, &item{state: statePending, label: cleanLine(lb)})
 	}
 	l.redrawLocked()
 }
 
 func (l *live) Start(label string) Step {
+	label = cleanLine(label)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	it := &item{state: stateRunning, label: label, start: l.now()}
@@ -258,9 +252,9 @@ func (l *live) Start(label string) Step {
 func (l *live) End(ok bool, summary string, lines ...string) {
 	var out []string
 	if ok {
-		out = append(out, l.teal.Render("●")+" "+summary)
+		out = append(out, l.teal.Render("●")+" "+cleanLine(summary))
 	}
-	for _, ln := range splitLines(lines) {
+	for _, ln := range cleanLines(lines...) {
 		out = append(out, "  "+l.dim.Render(ln))
 	}
 	if len(out) > 0 {
@@ -318,7 +312,7 @@ func (l *live) finishLocked(it *item, sym string, withDur bool, extra string, ms
 		head += " " + l.dim.Render(extra)
 	}
 	it.lines = []string{head}
-	for _, m := range splitLines(msgs) {
+	for _, m := range cleanLines(msgs...) {
 		it.lines = append(it.lines, "  "+m)
 	}
 }
@@ -331,7 +325,7 @@ type liveStep struct {
 func (s *liveStep) Detail(d string) {
 	s.l.mu.Lock()
 	defer s.l.mu.Unlock()
-	s.it.detail = detailClean.Replace(d)
+	s.it.detail = cleanLine(d)
 }
 
 func (s *liveStep) Warn(msg string) {
@@ -361,7 +355,7 @@ func (s *liveStep) Done() {
 	s.outcome("✓", true, detail)
 }
 
-func (s *liveStep) Skip(reason string) { s.outcome("–", false, reason) }
+func (s *liveStep) Skip(reason string) { s.outcome("–", false, cleanLine(reason)) }
 
 func (s *liveStep) Fail(err error, hint string) {
 	s.l.mu.Lock()

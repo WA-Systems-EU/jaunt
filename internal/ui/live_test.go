@@ -337,3 +337,54 @@ func TestLiveMultilineErrorSplitsLines(t *testing.T) {
 		}
 	}
 }
+
+func TestLiveMultilineNoteCountsRows(t *testing.T) {
+	buf := &lockedBuf{}
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	tick := make(chan time.Time)
+	s := newLive(buf, clk.now, tick, func() int { return 40 }, nil)
+	s.Plan("A")
+	s.Note("n1\nn2")
+	sendTick(tick)
+	sendTick(tick)
+	s.Close()
+	if got := screen(buf.String()); got != "n1\nn2\n· A\n" {
+		t.Errorf("screen = %q", got)
+	}
+	// a wrong cursor-up count would leave stale copies of "· A" on screen
+}
+
+const hostile = "a\x1b[2Kb\x1b[1Ac\v d\n"
+
+func TestLiveHostileInputSanitised(t *testing.T) {
+	buf := &lockedBuf{}
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	tick := make(chan time.Time)
+	s := newLive(buf, clk.now, tick, func() int { return 40 }, nil)
+	s.Header("t\x1b[2J"+"\n", "c\r")
+	s.Plan("P\x1b[31m", "B")
+	st := s.Start("P\x1b[31m")
+	st.Detail("d\x1b[2K\n\v")
+	sendTick(tick)
+	sendTick(tick)
+	st.Fail(errors.New(hostile), hostile)
+	s.Start("B").Skip("why\nnot\x1b[1A")
+	s.End(true, "sum\x1b[2K\n", hostile)
+	s.Close()
+	out := buf.String()
+	scr := screen(out)
+	if strings.ContainsAny(scr, "\x1b\v") {
+		t.Errorf("control chars on screen: %q", scr)
+	}
+	if !strings.Contains(scr, "  a") || !strings.Contains(scr, "– B why not\n") {
+		t.Errorf("screen = %q", scr)
+	}
+	if strings.Contains(scr, "\n\n") {
+		t.Errorf("blank line: %q", scr)
+	}
+	// only our own cursor-up/erase sequences may appear
+	rest := regexp.MustCompile(`\x1b\[\d*A|\x1b\[J|\x1b\[[0-9;]*m`).ReplaceAllString(out, "")
+	if strings.ContainsRune(rest, 0x1b) {
+		t.Errorf("foreign escape in %q", rest)
+	}
+}

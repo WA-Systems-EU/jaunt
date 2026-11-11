@@ -32,6 +32,7 @@ func (p *plain) printf(format string, a ...any) {
 }
 
 func (p *plain) Header(title, context string) {
+	title, context = cleanLine(title), cleanLine(context)
 	if context == "" {
 		p.printf("%s\n", title)
 		return
@@ -41,12 +42,16 @@ func (p *plain) Header(title, context string) {
 
 func (p *plain) Plan(...string) {}
 
-func (p *plain) Note(line string) { p.printf("%s\n", line) }
+func (p *plain) Note(line string) {
+	for _, ln := range cleanLines(line) {
+		p.printf("%s\n", ln)
+	}
+}
 
 func (p *plain) Start(label string) Step {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	s := &plainStep{p: p, label: label, start: p.now()}
+	s := &plainStep{p: p, label: cleanLine(label), start: p.now()}
 	p.open = append(p.open, s)
 	return s
 }
@@ -54,9 +59,9 @@ func (p *plain) Start(label string) Step {
 func (p *plain) End(ok bool, summary string, lines ...string) {
 	var b strings.Builder
 	if ok {
-		fmt.Fprintf(&b, "● %s\n", summary)
+		fmt.Fprintf(&b, "● %s\n", cleanLine(summary))
 	}
-	for _, l := range splitLines(lines) {
+	for _, l := range cleanLines(lines...) {
 		fmt.Fprintf(&b, "  %s\n", l)
 	}
 	p.printf("%s", b.String())
@@ -90,7 +95,7 @@ type plainStep struct {
 func (s *plainStep) Detail(d string) {
 	s.p.mu.Lock()
 	defer s.p.mu.Unlock()
-	s.detail = d
+	s.detail = cleanLine(d)
 }
 
 func (s *plainStep) Warn(msg string) {
@@ -120,7 +125,7 @@ func (s *plainStep) writeLocked(sym string, withDuration bool, extra string, msg
 		b.WriteString(" " + extra)
 	}
 	b.WriteString("\n")
-	for _, m := range splitLines(msgs) {
+	for _, m := range cleanLines(msgs...) {
 		fmt.Fprintf(&b, "  %s\n", m)
 	}
 	fmt.Fprint(s.p.w, b.String())
@@ -139,7 +144,7 @@ func (s *plainStep) Done() {
 func (s *plainStep) Skip(reason string) {
 	s.p.mu.Lock()
 	defer s.p.mu.Unlock()
-	s.writeLocked("–", false, reason)
+	s.writeLocked("–", false, cleanLine(reason))
 }
 
 func (s *plainStep) Fail(err error, hint string) {

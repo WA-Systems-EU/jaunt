@@ -303,3 +303,27 @@ func TestPlainMultilineFailIndented(t *testing.T) {
 		t.Errorf("got %q want %q", buf.String(), want)
 	}
 }
+
+func TestPlainHostileInputSanitised(t *testing.T) {
+	var buf bytes.Buffer
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	s := NewPlain(&buf, clk.now)
+	s.Header("t\x1b[2J", "c\r")
+	st := s.Start("P\x1b[31m")
+	st.Detail("d\n")
+	st.Warn("w\x1b[2K\v")
+	st.Fail(errors.New(hostile), hostile)
+	s.Start("B").Skip("why\nnot\x1b[1A")
+	s.Note("n\x1b[1A\n")
+	s.End(true, "sum\x1b[2K\n", hostile)
+	out := buf.String()
+	if strings.ContainsAny(out, "\x1b\v\r") {
+		t.Errorf("control chars: %q", out)
+	}
+	if strings.Contains(out, "\n\n") {
+		t.Errorf("blank line: %q", out)
+	}
+	if !strings.Contains(out, "– B why not\n") || !strings.Contains(out, "✕ P d 0.0s") && !strings.Contains(out, "✕ P 0.0s d") {
+		t.Errorf("got %q", out)
+	}
+}
