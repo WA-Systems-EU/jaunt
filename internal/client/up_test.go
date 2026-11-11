@@ -1,9 +1,12 @@
 package client
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -172,10 +175,16 @@ func TestUpUserDataCarriesBoxInfo(t *testing.T) {
 		}
 		found = true
 		c := f.Content
-		if f.Encoding == "b64" {
-			b, _ := base64.StdEncoding.DecodeString(c)
-			c = string(b)
+		if f.Encoding != "gz+b64" {
+			t.Fatalf("box info encoding %q, want gz+b64", f.Encoding)
 		}
+		b, _ := base64.StdEncoding.DecodeString(c)
+		zr, err := gzip.NewReader(bytes.NewReader(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(zr)
+		c = string(raw)
 		tmp := t.TempDir() + "/box.json"
 		if err := writeFile(tmp, c); err != nil {
 			t.Fatal(err)

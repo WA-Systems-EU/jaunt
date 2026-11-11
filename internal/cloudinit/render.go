@@ -3,6 +3,7 @@ package cloudinit
 
 import (
 	"bytes"
+	"compress/gzip"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -30,11 +31,17 @@ type Params struct {
 
 type file struct{ Path, Perm, B64 string }
 
+// mk gzips then base64-encodes data: Hetzner caps user_data at 32 KiB and the
+// provisioning scripts alone are close to that in plain base64.
 func mk(path, perm string, data []byte) file {
-	return file{path, perm, base64.StdEncoding.EncodeToString(data)}
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	zw.Write(data)
+	zw.Close()
+	return file{path, perm, base64.StdEncoding.EncodeToString(buf.Bytes())}
 }
 
-// Render returns the #cloud-config document. All file contents are base64 so
+// Render returns the #cloud-config document. All file contents are gzip+base64 so
 // secrets never appear in runcmd and need no YAML quoting.
 func Render(p Params) (string, error) {
 	boxJSON, err := json.MarshalIndent(p.Box, "", "  ")

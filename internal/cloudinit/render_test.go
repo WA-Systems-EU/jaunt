@@ -1,8 +1,11 @@
 package cloudinit
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -61,13 +64,25 @@ func content(t *testing.T, d doc, path string) (wf, string) {
 	for _, f := range d.WriteFiles {
 		if f.Path == path {
 			c := f.Content
-			if f.Encoding == "b64" {
-				b, err := base64.StdEncoding.DecodeString(c)
-				if err != nil {
-					t.Fatal(err)
-				}
-				c = string(b)
+			if f.Encoding == "" { // written inline by the template
+				return f, c
 			}
+			if f.Encoding != "gz+b64" {
+				t.Fatalf("%s: encoding %q, want gz+b64", path, f.Encoding)
+			}
+			b, err := base64.StdEncoding.DecodeString(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			zr, err := gzip.NewReader(bytes.NewReader(b))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := io.ReadAll(zr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c = string(raw)
 			return f, c
 		}
 	}
@@ -225,5 +240,14 @@ func TestRenderInstallsMetadataGuard(t *testing.T) {
 	}
 	if enable < 0 || up < 0 || enable > up {
 		t.Fatalf("guard enable (%d) must precede tailscale up (%d)", enable, up)
+	}
+}
+
+// Hetzner refuses user_data over 32 KiB ("invalid input in field 'user_data'").
+// Keep headroom for longer secrets and box info.
+func TestRenderFitsHetznerUserDataLimit(t *testing.T) {
+	out, _ := render(t)
+	if n := len(out); n > 28*1024 {
+		t.Fatalf("user-data is %d bytes; Hetzner's limit is 32768 and we keep 4 KiB headroom", n)
 	}
 }
