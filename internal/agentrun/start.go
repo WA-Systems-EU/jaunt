@@ -30,7 +30,7 @@ const (
 	// DefaultMax is the run length when neither the run nor the box sets one.
 	DefaultMax = 8 * time.Hour
 	// DefaultReadyWait bounds how long the container may take to initialise.
-	DefaultReadyWait = 3 * time.Minute
+	DefaultReadyWait = 10 * time.Minute
 
 	readyFile    = "/tmp/jauntbox-ready"
 	initLogTail  = 20
@@ -581,7 +581,7 @@ func (s *Starter) waitReady(ctx context.Context, name, mode string) error {
 			return fmt.Errorf("the container stopped (exit %d) before it was ready", st.ExitCode)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("the container was not ready after %s", wait)
+			return fmt.Errorf("the container was not ready after %s (the init log tail is below; mise installs are cached, so trying again picks up where this one stopped)", wait)
 		}
 		select {
 		case <-ctx.Done():
