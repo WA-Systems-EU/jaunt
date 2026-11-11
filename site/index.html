@@ -345,7 +345,7 @@
       <div>
         <p class="eyebrow text-route mb-3">Onboarding</p>
         <h2 class="font-display text-5xl font-extrabold uppercase leading-none">First commit before lunch.</h2>
-        <p class="mt-5 text-muted max-w-[32rem]">The box is described in one file. A new teammate, contractor or agent gets their own box, set up the same way as everyone else's: right runtimes, seeded database, tests passing. No setup wiki, no "works on my machine".</p>
+        <p class="mt-5 text-muted max-w-[32rem]">The box is described in one file. A new teammate, contractor or agent gets their own box, set up the same way as everyone else's: right runtimes, git set up, the project's repos checked out. The project's services start from its own docker compose file. No setup wiki, no "works on my machine".</p>
         <p class="mt-4 text-muted max-w-[32rem]">Their coding agent is already on the box, with the code and the context it needs. The first thing they type is <code class="font-mono text-[13px] text-ink">onboard me on this project</code>, and they get a tour of the codebase, how to run it and where to start.</p>
         <p class="mt-4 text-muted max-w-[32rem]">When they leave, revoke their key and destroy their box. Nothing of the project stays on their laptop.</p>
       </div>
@@ -356,8 +356,8 @@
         </div>
         <ol class="divide-y divide-[color:var(--line)] tabnum">
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:00</span><span>Laptop out of the box. Accepts the invite.</span></li>
-          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:10</span><span><code class="font-mono text-[13px]">jauntbox up small</code>. Box ready, database seeded.</span></li>
-          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:15</span><span><code class="font-mono text-[13px]">jauntbox</code> opens a herdr session. Test suite green.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:10</span><span><code class="font-mono text-[13px]">jauntbox up small</code>. Box ready: git set up, repos checked out.</span></li>
+          <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:15</span><span><code class="font-mono text-[13px]">jauntbox</code> opens a herdr session. <code class="font-mono text-[13px]">docker compose up</code> starts the services. Test suite green.</span></li>
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">09:20</span><span>Starts the coding agent: <code class="font-mono text-[13px]">onboard me on this project</code>. Gets a tour of the codebase.</span></li>
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3"><span class="font-mono text-sm text-muted">10:30</span><span>Pairs with a teammate, each on their own box.</span></li>
           <li class="grid grid-cols-[4.5rem_1fr] gap-4 px-5 py-3 font-semibold"><span class="font-mono text-sm text-route">11:45</span><span>First pull request opened.</span></li>
