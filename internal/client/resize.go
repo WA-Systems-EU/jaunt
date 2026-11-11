@@ -5,6 +5,9 @@ import (
 	"fmt"
 )
 
+// resizePushWait bounds the foreground push to the new box (var for tests).
+var resizePushWait = DefaultPushWait
+
 // Resize replaces the box with one of another profile. The home volume
 // persists. Down waits until the old box is gone before Up creates the new one.
 func Resize(ctx context.Context, d Deps, profile string) error {
@@ -25,7 +28,7 @@ func Resize(ctx context.Context, d Deps, profile string) error {
 	if upErr != nil && !res.Created {
 		return upErr
 	}
-	if err := PushBinary(ctx, d, DefaultPushWait); err != nil {
+	if err := PushBinary(ctx, d, resizePushWait); err != nil {
 		return err
 	}
 	return upErr

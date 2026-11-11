@@ -21,6 +21,9 @@ type StatusReport struct {
 	Err string
 	// Note is a hint to print, e.g. that the box user has no sudo password.
 	Note string
+	// UnlockErr is why the attempt to unlock the box failed (empty store,
+	// refused ssh, ...); empty when it worked or was not needed.
+	UnlockErr string
 }
 
 // Status reports the provider's view of the box, tailnet presence and, when
@@ -43,7 +46,9 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	if !online {
 		return rep, nil
 	}
-	tryUnlock(ctx, d)
+	if uerr := tryUnlock(ctx, d); uerr != nil {
+		rep.UnlockErr = uerr.Error()
+	}
 	out, err := rootRun(ctx, d, "jauntctl", "box-status", "--json")
 	if err != nil {
 		if errors.Is(err, ErrRootSSH) {

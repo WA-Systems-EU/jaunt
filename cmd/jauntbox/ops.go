@@ -53,6 +53,9 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			if err != nil {
 				return err
 			}
+			if rep.UnlockErr != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not unlock the box: %s\n", rep.UnlockErr)
+			}
 			out := cmd.OutOrStdout()
 			if rep.Box == nil {
 				fmt.Fprintln(out, "no box running")

@@ -117,11 +117,15 @@ func down(ctx context.Context, d Deps, force bool) (found bool, _ error) {
 	del := steps.Start(directLabel)
 	if err := d.Prov.DeleteBox(ctx, box.ID); err != nil {
 		err = fmt.Errorf("delete box: %w", err)
-		del.Fail(err, "")
+		if ctx.Err() == nil { // cancelled: leave the step open, Close shows "interrupted"
+			del.Fail(err, "")
+		}
 		return true, err
 	}
 	if err := d.Prov.WaitDeleted(ctx, box.ID); err != nil {
-		del.Fail(err, "")
+		if ctx.Err() == nil {
+			del.Fail(err, "")
+		}
 		return true, err
 	}
 	del.Done()

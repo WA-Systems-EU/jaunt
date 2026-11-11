@@ -2,6 +2,7 @@ package client
 
 import (
 	"errors"
+	"github.com/WA-Systems-EU/jaunt/internal/events"
 
 	"context"
 	"fmt"
@@ -342,4 +343,118 @@ func TestAttachRecordsStepsAndPrintsNothingElse(t *testing.T) {
 		"start Box provisioned", "done Box provisioned",
 		"start Install supervisor", "skip Install supervisor: already running",
 		"start Unlock secrets", "done Unlock secrets")
+}
+
+func TestResizeFailureModes(t *testing.T) {
+	fastPoll(t)
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	t.Run("push never gets ssh", func(t *testing.T) {
+		d, p, _, _, _, spawns := newDeps(t)
+		withBox(p)
+		rec := withRec(&d)
+		d.Root = &flakyCopyRemote{copyFails: 1 << 30}
+		old := resizePushWait
+		resizePushWait = 20 * time.Millisecond
+		defer func() { resizePushWait = old }()
+		err := Resize(context.Background(), d, "big")
+		if err == nil || !strings.Contains(err.Error(), "joined the tailnet but is not accepting ssh") {
+			t.Fatalf("err = %v", err)
+		}
+		if *spawns != 0 {
+			t.Fatalf("spawned %d", *spawns)
+		}
+		if !contains(rec.Events, "fail Provisioning: "+err.Error()) {
+			t.Fatalf("events = %v", rec.Events)
+		}
+	})
+	t.Run("event record failure still pushes", func(t *testing.T) {
+		d, p, _, r, _, spawns := newDeps(t)
+		withBox(p)
+		rec := withRec(&d)
+		// the down request also emits; let only box.created fail
+		d.Events = kindFailSink{kind: events.BoxCreated}
+		err := Resize(context.Background(), d, "big")
+		if err == nil || !strings.Contains(err.Error(), "recording the box.created event failed") {
+			t.Fatalf("err = %v", err)
+		}
+		if *spawns != 0 || !contains(rec.Events, "done Install supervisor") {
+			t.Fatalf("spawns=%d events=%v", *spawns, rec.Events)
+		}
+		_ = r
+	})
+}
+
+type kindFailSink struct{ kind string }
+
+func (s kindFailSink) Emit(e events.Event) error {
+	if e.Kind == s.kind {
+		return errors.New("disk full")
+	}
+	return nil
+}
+
+// cancelProv cancels the context while deleting, like Ctrl-C.
+type cancelProv struct {
+	*fakeProv
+	cancel context.CancelFunc
+}
+
+func (c cancelProv) DeleteBox(context.Context, int64) error {
+	c.cancel()
+	return context.Canceled
+}
+
+func TestDownCancelledDuringDeleteLeavesStepOpen(t *testing.T) {
+	d, p, _, _, _, _ := newDeps(t)
+	withBox(p)
+	rec := withRec(&d)
+	ctx, cancel := context.WithCancel(context.Background())
+	d.Prov = cancelProv{p, cancel}
+	err := Down(ctx, d, true)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	rec.Close()
+	for _, e := range rec.Events {
+		if strings.HasPrefix(e, "fail ") {
+			t.Fatalf("failed instead of interrupted: %v", rec.Events)
+		}
+	}
+	if !contains(rec.Events, "interrupted Delete the box") {
+		t.Fatalf("events = %v", rec.Events)
+	}
+}
+
+func TestStatusSurfacesUnlockError(t *testing.T) {
+	t.Run("empty store", func(t *testing.T) {
+		d, p, _, r, _, _ := newDeps(t)
+		withSecrets(t, &d)
+		withBox(p)
+		r.locked = true
+		r.out = []byte(`{"locked":true}`)
+		rep, err := Status(context.Background(), d)
+		if err != nil || !strings.Contains(rep.UnlockErr, "jauntbox setup github") {
+			t.Fatalf("%+v %v", rep, err)
+		}
+	})
+	t.Run("push error", func(t *testing.T) {
+		d, p, _, r, _, _ := newDeps(t)
+		withSecrets(t, &d, "agents.env", "K=v\n")
+		withBox(p)
+		r.locked, r.inputErr = true, os.ErrPermission
+		r.out = []byte(`{"locked":true}`)
+		rep, _ := Status(context.Background(), d)
+		if !strings.Contains(rep.UnlockErr, "permission denied") {
+			t.Fatalf("%+v", rep)
+		}
+	})
+	t.Run("ok", func(t *testing.T) {
+		d, p, _, _, _, _ := newDeps(t)
+		withSecrets(t, &d, "agents.env", "K=v\n")
+		withBox(p)
+		rep, _ := Status(context.Background(), d)
+		if rep.UnlockErr != "" {
+			t.Fatalf("%+v", rep)
+		}
+	})
 }

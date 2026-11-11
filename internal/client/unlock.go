@@ -58,7 +58,8 @@ func (e *errNoSecrets) Error() string { return e.msg }
 
 // tryUnlock is EnsureUnlocked for commands whose main job must not fail
 // because of it: a failure is a warning.
-func tryUnlock(ctx context.Context, d Deps) {
+// It returns the error (also reported on the step) for callers without steps.
+func tryUnlock(ctx context.Context, d Deps) error {
 	st := d.steps().Start("Unlock secrets")
 	err := EnsureUnlocked(ctx, d)
 	var empty *errNoSecrets
@@ -71,6 +72,7 @@ func tryUnlock(ctx context.Context, d Deps) {
 	default:
 		st.Done()
 	}
+	return err
 }
 
 // UnlockNote is the hint shown by unlock and status while the laptop holds no
