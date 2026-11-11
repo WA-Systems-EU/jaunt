@@ -33,6 +33,8 @@ type fakeDocker struct {
 	imageOK    bool
 	inExec     chan struct{} // if set, Exec signals it once, then waits on gate
 	gate       chan struct{}
+	states     map[string]State // per-container Inspect result, overrides the rest
+	execOut    []byte           // output of exec jaunt-wrapup-fallback
 }
 
 func (f *fakeDocker) rec(s string) { f.calls = append(f.calls, s) }
@@ -80,6 +82,9 @@ func (f *fakeDocker) Run(_ context.Context, spec ContainerSpec) error {
 }
 func (f *fakeDocker) Exec(_ context.Context, container, user string, args ...string) ([]byte, error) {
 	f.rec("Exec " + container + " " + user + " " + strings.Join(args, " "))
+	if len(args) > 0 && args[0] == "jaunt-wrapup-fallback" {
+		return f.execOut, nil
+	}
 	if f.gate != nil {
 		select {
 		case f.inExec <- struct{}{}:
@@ -94,6 +99,9 @@ func (f *fakeDocker) Exec(_ context.Context, container, user string, args ...str
 }
 func (f *fakeDocker) Inspect(_ context.Context, name string) (State, error) {
 	f.rec("Inspect " + name)
+	if st, ok := f.states[name]; ok {
+		return st, nil
+	}
 	if !f.present[name] {
 		return State{}, nil
 	}

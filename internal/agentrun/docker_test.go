@@ -38,6 +38,7 @@ func TestDockerCLIArgs(t *testing.T) {
 	_ = c.NetworkRemove(ctx, "jauntbox-x")
 	_ = c.Run(ctx, spec)
 	_, _ = c.Exec(ctx, "jauntbox-x", "1000:1000", "test", "-f", "/tmp/jauntbox-ready")
+	_, _ = c.Exec(ctx, "jauntbox-x", "", "jaunt-wrapup-fallback", "x")
 	_, _ = c.Logs(ctx, "jauntbox-x", 50)
 	_ = c.Remove(ctx, "jauntbox-x")
 	_ = c.Stop(ctx, "jauntbox-x", 5*time.Minute)
@@ -47,6 +48,7 @@ func TestDockerCLIArgs(t *testing.T) {
 		{"network", "rm", "jauntbox-x"},
 		spec.Args(),
 		{"exec", "--user", "1000:1000", "jauntbox-x", "test", "-f", "/tmp/jauntbox-ready"},
+		{"exec", "jauntbox-x", "jaunt-wrapup-fallback", "x"},
 		{"logs", "--tail", "50", "jauntbox-x"},
 		{"rm", "-f", "jauntbox-x"},
 		{"stop", "-t", "300", "jauntbox-x"},

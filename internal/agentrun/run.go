@@ -63,6 +63,13 @@ func validID(id string) bool {
 	return len(id) <= 128 && idRE.MatchString(id) && !strings.Contains(id, "..")
 }
 
+var runIDRE = regexp.MustCompile(`^[a-z0-9_.][a-z0-9_.-]*-[0-9]{8}-[0-9]{6}$`)
+
+// ValidRunID reports whether id has the run id format
+// (<repo name lowercased>-<YYYYMMDD>-<HHMMSS>); check ids from the command
+// line with it before building paths or container names from them.
+func ValidRunID(id string) bool { return validID(id) && runIDRE.MatchString(id) }
+
 func (p Paths) runDir(id string) string { return filepath.Join(p.RunsVol, id) }
 
 // Load reads the record of run id.

@@ -165,8 +165,14 @@ func (c *CLI) Run(ctx context.Context, spec ContainerSpec) error {
 	return err
 }
 
+// Exec runs args in container as user; an empty user is the container's
+// own (the --user it was started with).
 func (c *CLI) Exec(ctx context.Context, container, user string, args ...string) ([]byte, error) {
-	return c.do(ctx, append([]string{"exec", "--user", user, container}, args...)...)
+	a := []string{"exec"}
+	if user != "" {
+		a = append(a, "--user", user)
+	}
+	return c.do(ctx, append(append(a, container), args...)...)
 }
 
 const inspectFormat = `{{.State.Running}} {{.State.ExitCode}}{{range .NetworkSettings.Networks}} {{.IPAddress}}{{end}}`

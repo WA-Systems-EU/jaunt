@@ -23,6 +23,9 @@ const (
 	SupervisorTick = "supervisor.tick"
 	// AgentStarted: an agent run's container is up (fields run, repo, branch, mode).
 	AgentStarted = "agent.started"
+	// AgentStopped: a run was finished and its container removed (fields run,
+	// repo, reason, exit_code, and fallback = the fallback's output when it ran).
+	AgentStopped = "agent.stopped"
 )
 
 // Event is one entry in the event stream.
