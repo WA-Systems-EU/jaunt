@@ -14,7 +14,7 @@
 
 - Root on the box is reachable from the laptop (Tailscale SSH as `root`, allowed only for the tailnet owner by the policy snippet) and by the box user only through password `sudo`.
 - Passwordless sudo for the box user covers exactly: `/usr/local/bin/jauntctl mint *`, `/usr/local/bin/jauntctl repos`, `/usr/local/bin/jauntctl repos *`, `/usr/local/bin/jauntctl box-status`, `/usr/local/bin/jauntctl box-status *`, `/usr/local/bin/jauntctl agent *`. Nothing else, ever: in particular no `install`, `systemctl`, `secrets-load`, `stop`, `night-set`, `supervise`.
-- The box user is not in the `docker` group.
+- The box user is not in the `docker` group. They run `docker` and `docker compose` without sudo against their own rootless daemon (Task 2b); the root daemon is reached only by root.
 - Non-root processes can't reach `169.254.169.254`.
 - The laptop never falls back to the box user's sudo for a privileged step: if root ssh fails, the command fails with the fix (update the tailnet policy, `jauntbox acl-snippet`).
 - `BOX_SUDO_PASSWORD` is a laptop secret (Plan 02 store). It travels in the unlock bundle, is applied with `chpasswd` on stdin, and is never written to the vault directory, the volume, logs or events.
@@ -36,6 +36,7 @@
 3. A box user running `sudo -n jauntctl secrets-load`, `sudo -n jauntctl stop` or `sudo -n install …` is refused by sudo (sudoers content test, Task 2; live in smoke).
 4. `sudo jauntctl repos` with a hostile `HOME`/`XDG_CONFIG_HOME` reads nothing from the box user's files (Task 4 test).
 5. A laptop secrets bundle with only `BOX_SUDO_PASSWORD` (no App key yet) still unlocks and sets the password (Task 3 test).
+6. Rootless Docker setup fails on a fresh box (AppArmor, missing package) → provisioning continues with a WARNING, and the box user is still not in `docker` (Task 2b test).
 
 ---
 
@@ -86,6 +87,28 @@
 - [ ] **Step 2:** FAIL. **Step 3:** Extract the sudoers part of `dev-setup.sh` into a function `write_sudoers <user> <dir>` and implement. **Step 4:** PASS (`bash provision/dev-setup_test.sh`); `go test ./provision/`.
 - [ ] **Step 5: Commit** `feat(jauntbox): box user gets password sudo and leaves the docker group`.
 
+### Task 2b: Rootless Docker for the box user
+
+Added 2026-11-11 (Thomas: "we need to be able to run docker run and docker compose"). The box user runs `docker` and `docker compose` without sudo against their own rootless daemon, which has only their privileges. The root daemon stays for root (`sudo docker`, and Plan 03's agent containers through root `jauntctl`).
+
+**Files:**
+- Modify: `provision/dev-setup.sh` (new section 3b, after the root daemon and before the toolchain's early `exit 0`), `provision/dev-setup_test.sh`
+- Create: `provision/rootlesskit.apparmor` (embedded next to the scripts, or written inline by `dev-setup.sh`; one file either way)
+
+**Interfaces:**
+- Packages: `uidmap`, `dbus-user-session`, `slirp4netns`, `docker-ce-rootless-extras` (installed by get.docker.com; install explicitly if missing).
+- `/etc/subuid` and `/etc/subgid` hold `<user>:100000:65536` (added only if no line for the user exists).
+- Ubuntu 24.04 restricts unprivileged user namespaces: install the AppArmor profile `/etc/apparmor.d/usr.bin.rootlesskit` (`abi <abi/4.0>, include <tunables/global>, profile rootlesskit /usr/bin/rootlesskit flags=(unconfined) { userns, include if exists <local/usr.bin.rootlesskit> }`) and `apparmor_parser -r` it. Do not turn the sysctl `kernel.apparmor_restrict_unprivileged_userns` off.
+- `loginctl enable-linger <user>`, then as the user (`runuser -u <user> -- env XDG_RUNTIME_DIR=/run/user/<uid> DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus …`): `dockerd-rootless-setuptool.sh install` (skip when `~/.config/systemd/user/docker.service` exists), `systemctl --user enable --now docker`, `docker context use rootless`. Wait up to 30 s for `/run/user/<uid>` after enabling linger.
+- The rootless data root is the default `~/.local/share/docker`, on the `/home` volume, so images survive rebuilds.
+- A failure in this section logs `WARNING: rootless docker setup failed: <step>` and provisioning continues (the box stays usable; `sudo docker` still works).
+- Effects to keep: the box user stays out of the `docker` group; the root socket `/var/run/docker.sock` stays `root:docker 0660`.
+- Note for Plan 03: an agent container never gets `/run/user/<uid>` or the rootless socket mounted. Note for Plan 04: services started with the user's `docker compose` live on the rootless daemon, apart from the agent's run networks on the root daemon.
+
+- [ ] **Step 1: Failing test** (`provision/dev-setup_test.sh`, source-guard pattern from Task 2, a function `setup_rootless_docker <user> <uid> <etc-dir>` with stubbed `loginctl`, `runuser`, `apparmor_parser`, `apt-get`): subuid/subgid lines added once (second run adds nothing); profile file content exact; `loginctl enable-linger <user>` called; the setuptool runs as the user with `XDG_RUNTIME_DIR=/run/user/<uid>`; a failing setuptool logs the WARNING and returns 0; the script still has no `usermod -aG docker`.
+- [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS (`bash provision/dev-setup_test.sh`); `go test ./provision/`.
+- [ ] **Step 5: Commit** `feat(jauntbox): the box user runs docker and compose against a rootless daemon`.
+
 ### Task 3: The box sudo password from the laptop
 
 **Files:**
@@ -118,7 +141,7 @@
 **Files:**
 - Modify: `README.md`, `docs/jauntbox/SMOKE.md`, `docs/superpowers/plans/2026-11-10-jauntbox-03-agent-containers.md`
 
-- [ ] **Step 1: README:** a "Root and sudo on the box" section: root comes from the laptop for jauntbox's own commands; `sudo` asks for `BOX_SUDO_PASSWORD`; passwordless only for the listed `jauntctl` commands; no `docker` group (`sudo docker …` for your own containers); update the tailnet policy with `jauntbox acl-snippet` (now includes `root`); the accepted weakness from ruling 2.
-- [ ] **Step 2: SMOKE "Plan 03a"**, recording each output: policy updated, `jauntbox up` works over root ssh; as the box user `sudo -n true` fails, `sudo -n jauntctl repos` works, `sudo -n jauntctl stop` is refused; `sudo true` asks for the password and accepts `BOX_SUDO_PASSWORD`; `docker ps` fails, `sudo docker ps` works; `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails as the box user and works with `sudo`; the supervisor still deletes the box at `down`; after a reboot the metadata rule is back (`sudo iptables -S OUTPUT`).
-- [ ] **Step 3: Plan 03 alignment:** in Plan 03, state that 03a has landed: every Docker call runs inside root `jauntctl`; `jauntctl agent attach` re-execs through `sudo -n jauntctl agent attach …` (allowed by the sudoers line) and runs `docker exec` as root with `--user <uid>:<gid>`; the four host git guard settings go into `installCmd` through `runuser -u <user> --`.
+- [ ] **Step 1: README:** a "Root and sudo on the box" section: root comes from the laptop for jauntbox's own commands; `sudo` asks for `BOX_SUDO_PASSWORD`; passwordless only for the listed `jauntctl` commands; no `docker` group: `docker` and `docker compose` work without sudo against your own rootless daemon (ports above 1024; `sudo docker …` reaches the root daemon); update the tailnet policy with `jauntbox acl-snippet` (now includes `root`); the accepted weakness from ruling 2.
+- [ ] **Step 2: SMOKE "Plan 03a"**, recording each output: policy updated, `jauntbox up` works over root ssh; as the box user `sudo -n true` fails, `sudo -n jauntctl repos` works, `sudo -n jauntctl stop` is refused; `sudo true` asks for the password and accepts `BOX_SUDO_PASSWORD`; `docker info` shows `rootless`, `docker run --rm hello-world` and a small `docker compose up` work, `docker run --rm -v /:/host alpine cat /host/etc/shadow` is denied, `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails from a rootless container, `sudo docker ps` reaches the root daemon; `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` fails as the box user and works with `sudo`; the supervisor still deletes the box at `down`; after a reboot the metadata rule is back (`sudo iptables -S OUTPUT`).
+- [ ] **Step 3: Plan 03 alignment:** in Plan 03, state that 03a has landed: every Docker call runs inside root `jauntctl`; `jauntctl agent attach` re-execs through `sudo -n jauntctl agent attach …` (allowed by the sudoers line) and runs `docker exec` as root with `--user <uid>:<gid>`; the four host git guard settings go into `installCmd` through `runuser -u <user> --`; agent containers never mount `/run/user/<uid>` or the rootless socket.
 - [ ] **Step 4: Commit** `docs(jauntbox): root and sudo on the box`.
