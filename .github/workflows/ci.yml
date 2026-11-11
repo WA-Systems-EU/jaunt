@@ -15,3 +15,5 @@ jobs:
       - run: bash provision/dev-setup_test.sh
       - run: bash provision/jaunt-repos_test.sh
       - run: bash provision/agent/agent_test.sh
+      - name: shellcheck
+        run: shellcheck --severity=warning provision/*.sh provision/agent/jaunt-* internal/cloudinit/units/*.sh

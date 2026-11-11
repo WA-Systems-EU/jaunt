@@ -38,7 +38,7 @@ write_sudoers() {
 # optional 4th arg is the user's home (tests only; default from getent).
 setup_rootless_docker() {
   local user=$1 uid=$2 etc=$3 home=${4:-}
-  local rdir="${JAUNT_RUN_USER_DIR:-/run/user}/$uid" i
+  local rdir="${JAUNT_RUN_USER_DIR:-/run/user}/$uid"
   local -a asuser=(runuser -u "$user" -- env "XDG_RUNTIME_DIR=/run/user/$uid" "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus")
 
   apt-get install -y --no-install-recommends uidmap dbus-user-session slirp4netns \
@@ -77,7 +77,7 @@ PROFILE
   # restart the manager synchronously (it may already run without dbus-user-session's bus), then wait for the bus socket.
   systemctl restart "user@$uid.service" \
     || { log "WARNING: rootless docker setup failed: systemctl restart user@$uid.service"; return 0; }
-  for i in $(seq 1 30); do [ -S "$rdir/bus" ] && break; sleep 1; done
+  for _ in $(seq 1 30); do [ -S "$rdir/bus" ] && break; sleep 1; done
   [ -S "$rdir/bus" ] || { log "WARNING: rootless docker setup failed: $rdir/bus did not appear"; return 0; }
 
   if [ -z "$home" ]; then
