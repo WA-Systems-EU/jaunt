@@ -72,7 +72,7 @@ have `herdr` installed by provisioning (`herdr --version` on the box).
 1. `jauntbox` from the laptop: herdr opens with one workspace per repo in `~/src`.
 2. Kill the Wi-Fi for 20 s: it reattaches by itself (you see "connection lost;
    reconnecting in 2s…").
-3. Detach, then run `jauntbox` from the Lenovo: same session, same panes.
+3. Detach, then run `jauntbox` from a second machine: same session, same panes.
 4. Type in a pane, then go idle: `jauntbox status` shows human activity, then
    none after 30 min. **If typing in herdr panes does not register through
    `/dev/pts` atime, stop and report:** `HumanIdle` needs a herdr-aware signal
@@ -247,7 +247,7 @@ Shell history (`~/.zsh_history`) survives server changes.
 
 ### 2026-11-10: Plan 02 checks (forge and secrets)
 
-App owner `WA-Systems-EU` (GitHub Free), installed on the private repo `WA-Systems-EU/thomas`.
+App owner `WA-Systems-EU` (GitHub Free), installed on one private repo.
 
 | Check | Result |
 |---|---|

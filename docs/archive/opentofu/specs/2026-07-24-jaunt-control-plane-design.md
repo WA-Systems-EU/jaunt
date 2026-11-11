@@ -149,12 +149,12 @@ permitting SSH to `tag:jauntd`, so the push is refused before `git-receive-pack`
 
 ```jsonc
 {
-  "groups": { "group:admins": ["tsultrim@wa-systems.eu"] },   // admin logins — bootstrap-owned
+  "groups": { "group:admins": ["alice@example.com"] },   // admin logins — bootstrap-owned
   "acls": [ {"action": "accept", "src": ["*"], "dst": ["*:*"]} ],
   "ssh": [
     { "action": "check", "src": ["autogroup:member"], "dst": ["autogroup:self"],
       "users": ["autogroup:nonroot", "root"] },
-    { "action": "check", "src": ["autogroup:member"], "dst": ["tag:jaunt-tsultrim"],
+    { "action": "check", "src": ["autogroup:member"], "dst": ["tag:jaunt-alice"],
       "users": ["autogroup:nonroot", "root"] },
     // admin-only git push (accept, not check, so non-interactive push isn't re-auth'd):
     { "action": "accept", "src": ["group:admins"], "dst": ["tag:jauntd"], "users": ["git"] },
@@ -164,7 +164,7 @@ permitting SSH to `tag:jauntd`, so the push is refused before `git-receive-pack`
   ],
   "nodeAttrs": [ {"target": ["autogroup:member"], "attr": ["funnel"]} ],
   "tagOwners": {
-    "tag:jaunt-tsultrim": ["autogroup:admin"],
+    "tag:jaunt-alice": ["autogroup:admin"],
     "tag:jauntd":         ["autogroup:admin"]
   }
 }

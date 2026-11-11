@@ -20,7 +20,7 @@ AI coding agents (Claude Code and its peers) now run for hours with broad access
 whatever machine they're on. Running them on a personal laptop or home workstation puts
 them in the same place as personal data, browser sessions, password stores and the SSH
 keys that reach production servers. The owner wants **the code workspace — and every
-agent — to live remotely, as simple as that**, with the laptop (or a small Lenovo thin
+agent — to live remotely, as simple as that**, with the laptop (or a small second machine thin
 client on the desk) reduced to a terminal that starts the box, connects to it, and holds
 the things agents must never touch. **(Thomas)**
 
@@ -39,12 +39,12 @@ The owner believes many developers share this need, so jauntbox is **open source
 
 A day goes like this **(Thomas)**:
 
-1. Morning: on the laptop or Lenovo, `jauntbox up small` while planning the day. It does
+1. Morning: on the laptop or a second machine, `jauntbox up small` while planning the day. It does
    not block; a few minutes later the box is ready.
 2. `ssh` in (Tailscale), start herdr, resume work on a project with Claude Code or a
    similar tool — interactively, or as an agent running unattended.
 3. Through the day the owner and agents commit and push; agents open PRs. The owner
-   SSHes into servers **from the laptop/Lenovo, never from the box**, to check logs.
+   SSHes into servers **from the laptop or second machine, never from the box**, to check logs.
 4. Agents keep working while the owner moves between work spots.
 5. Evening: work is pushed, the box tears itself down, credentials are revoked, the
    tailnet has no stale devices. Optionally the owner authorises a *robot night session*
@@ -135,7 +135,7 @@ A day goes like this **(Thomas)**:
 
 | Zone | Holds | Can reach | Never holds |
 |---|---|---|---|
-| **Client** (laptop, Lenovo) | personal data, server SSH keys, master copies of agent credentials, cloud + Tailscale API creds | the box (Tailscale SSH), the servers | agents |
+| **Client** (laptop, second machine) | personal data, server SSH keys, master copies of agent credentials, cloud + Tailscale API creds | the box (Tailscale SSH), the servers | agents |
 | **Box host** (`jauntbox-<user>`, the owner's shell) | code on the volume, forge App private key (root-only), agent credentials in RAM | forge, internet egress, agent containers | server SSH keys, `gh auth login` tokens |
 | **Agent container** (one per project run) | one project's checkout, its agent credential, a credential helper that yields a token for *that repo only* | internet egress, the forge (that repo) | Docker socket, other projects, host credentials |
 
@@ -337,7 +337,7 @@ safe failure.
 ### Stateless client
 
 No local state file. The server, volume, firewall and SSH key are found on Hetzner by
-**labels** (`jauntbox=<user>`), so the laptop and the Lenovo drive the same box with no
+**labels** (`jauntbox=<user>`), so the laptop and a second machine drive the same box with no
 sync and either can run `down`. **(builder's call)**
 
 jauntbox uses its **own dedicated Hetzner project**, separate from the one the tofu roots
@@ -453,7 +453,6 @@ smoke test documented like `tofu/SMOKE.md`).
 
 ## 12. Housekeeping found during design (not part of this spec, but blockers to note)
 
-- `lenovo.txt` in the repo root contains a Tailscale auth key — revoke, delete, gitignore.
 - Uncommitted gbrain work on this branch (shared box inside the per-engineer root) and a
   debug `allow_ssh` rule — resolve before merging anything.
 

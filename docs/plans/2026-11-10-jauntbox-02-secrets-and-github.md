@@ -12,7 +12,7 @@
 
 ## Starting point
 
-Branch `feat/remote-workspace` at `394ee8a` (plan 01 done, live smoke mostly passed, see `docs/jauntbox/SMOKE.md` "Results log"). Never touch the git-ignored `tofu/` folder or `lenovo.txt`. Stop and ask if `git status` shows changes you didn't make. Never call real Hetzner, Tailscale or GitHub APIs from tests: use `httptest` and fakes.
+Branch `feat/remote-workspace` at `394ee8a` (plan 01 done, live smoke mostly passed, see `docs/jauntbox/SMOKE.md` "Results log"). Never touch the git-ignored `tofu/` folder. Stop and ask if `git status` shows changes you didn't make. Never call real Hetzner, Tailscale or GitHub APIs from tests: use `httptest` and fakes.
 
 ## Global Constraints
 

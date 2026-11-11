@@ -14,7 +14,7 @@
 - **Canonical hook line, verbatim everywhere (README/site/copy):** `an ephemeral remote development environment you pop into and out of`.
 - **No secrets in git.** `.gitignore` excludes `*.tfvars` (keep `*.tfvars.example`), `.terraform/`, `*.tfstate*`. Secrets (`HCLOUD_TOKEN`, `UPCLOUD_USERNAME`/`UPCLOUD_PASSWORD`, Tailscale API key) come from env.
 - **State:** local state for examples; document "use a remote backend for real use". Do NOT wire a remote backend in this plan.
-- **Git commits:** plain messages, NO `Co-Authored-By` trailer. Repo git identity: `Thomas <thomas@wa-systems.eu>` (already configured).
+- **Git commits:** plain messages, NO `Co-Authored-By` trailer. Repo git identity: the maintainer's (already configured).
 - **Discovery convention:** server carries label `jaunt=<user>`; MagicDNS hostname is `<hostname_prefix>-<user>` (default prefix `jauntbox`).
 - **Idle defaults:** day window `2h`, night window `1h`.
 - **Server toggle:** `box_on` bool; `count = var.box_on ? 1 : 0` on server + attachment. Volume is never gated by the toggle.

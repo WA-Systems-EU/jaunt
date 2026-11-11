@@ -41,7 +41,7 @@ The branch starts from a clean slate (commit `chore: clean slate for jauntbox v1
 ## Review Focus
 
 1. **The binary push never happens** (laptop closed right after `up`): the box must not bill forever. The safety net deletes it once the uptime is over 45 min and the supervisor heartbeat is missing or older than 15 min. Test lives in Task 5.
-2. **`up` run twice, or from the laptop and the Lenovo at once:** no second server, no second volume. Test lives in Task 8.
+2. **`up` run twice, or from the laptop and a second machine at once:** no second server, no second volume. Test lives in Task 8.
 3. **Timezone and daylight saving:** the box clock is UTC; the 19:00 cutoff and night hours follow `Europe/Paris` (or whatever is configured), including across a DST change. Test lives in Task 3.
 4. **An abandoned open SSH session** (pts present, no input for 3 h) must not count as human activity. Tests live in Tasks 3 and 9.
 5. **Box brought up after the cutoff** (e.g. 20:00) must stop promptly once the human leaves. **A human returning during wrap-up** cancels the wrap-up. Tests live in Task 3.
@@ -530,5 +530,5 @@ Units:
 - [ ] **Step 6:** Extend SMOKE.md and run it:
   1. `jauntbox` from the laptop → herdr opens with one workspace per repo in `~/src`.
   2. Kill the Wi-Fi for 20 s → it reattaches by itself.
-  3. Detach, then run `jauntbox` from the Lenovo → same session, same panes.
+  3. Detach, then run `jauntbox` from a second machine → same session, same panes.
   4. Type in a pane, then go idle → `jauntbox status` shows human activity, then none after 30 min. **If typing in herdr panes does not register through `/dev/pts` atime, stop and report:** Task 9's `HumanIdle` needs a herdr-aware signal (for example herdr's API reporting attached clients and last input).

@@ -21,7 +21,7 @@ applier). The live box's data volume is preserved across the migration.
 - `hcloud` provider auth from `var.hcloud_token`; `tailscale` from `TAILSCALE_API_KEY` /
   `TAILSCALE_TAILNET` env (identical to `tofu/hetzner/providers.tf`).
 - Per-user naming stays `jaunt-<user>` / `jauntbox-<user>`; tag stays `tag:jaunt-<user>`.
-- Single engineer (`user = "tsultrim"`) for this plan; per-engineer state-key parameterization
+- Single engineer (`user = "alice"`) for this plan; per-engineer state-key parameterization
   is deferred to a later plan.
 - **The data volume (`/home`) must be preserved** through the migration — it is the only
   stateful resource. Everything else may be recreated.
@@ -320,7 +320,7 @@ Expected: a line like `    id = "123456789"`. **Record this value** as `<VOLUME_
 
 Run: `tofu -chdir=tofu/hetzner state rm hcloud_volume.data`
 Expected: `Removed hcloud_volume.data` / `Successfully removed 1 resource instance(s).`
-Verify the real volume still exists: `hcloud volume list | grep jaunt-tsultrim-data` (or the
+Verify the real volume still exists: `hcloud volume list | grep jaunt-alice-data` (or the
 Hetzner console) → present.
 
 - [ ] **Step 3: Tear down the remaining old resources (server, attachment, firewall, ssh key, tailscale key)**
@@ -359,12 +359,12 @@ reading name/spec/user_data from the infra outputs.
 - [ ] **Step 6: Verify the box is healthy and the data survived**
 
 Wait ~2–3 min, then:
-- `tailscale status | grep jauntbox-tsultrim` → the box is online.
-- SSH in and confirm `/home` has the pre-migration contents (e.g. `ls /home/tsultrim` shows the
-  prior toolchain/home): `ssh root@jauntbox-tsultrim 'ls -la /home/tsultrim | head'`
+- `tailscale status | grep jauntbox-alice` → the box is online.
+- SSH in and confirm `/home` has the pre-migration contents (e.g. `ls /home/alice` shows the
+  prior toolchain/home): `ssh root@jauntbox-alice 'ls -la /home/alice | head'`
 - Confirm the volume was mounted (not reformatted): the home dir is populated, not empty.
 
-Expected: box online, `/home/tsultrim` populated from the preserved volume.
+Expected: box online, `/home/alice` populated from the preserved volume.
 
 > **Note:** the Tailscale `-1` hostname question is tracked separately and is not a gate for
 > this plan — record whatever hostname the box joins as.
@@ -401,7 +401,7 @@ ssh key all still present.)
 
 Run: `tofu -chdir=tofu/box apply -var box_on=true`
 Expected: recreates the server + attachment reading infra outputs; box rejoins the tailnet.
-Verify: `tailscale status | grep jauntbox-tsultrim` → online, and `/home` still populated.
+Verify: `tailscale status | grep jauntbox-alice` → online, and `/home` still populated.
 
 - [ ] **Step 4: Confirm the `box` root cannot express durable changes**
 
