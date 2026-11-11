@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/WA-Systems-EU/jaunt/internal/secrets"
 )
 
 const secretsMarker = "/run/jauntbox/secrets/.loaded"
@@ -55,4 +57,18 @@ func tryUnlock(ctx context.Context, d Deps) {
 	if err := EnsureUnlocked(ctx, d); err != nil {
 		fmt.Fprintf(attachOut, "warning: could not unlock the box: %v\n", err)
 	}
+}
+
+// UnlockNote is the hint shown by unlock and status while the laptop holds no
+// BOX_SUDO_PASSWORD (empty once one is set).
+func UnlockNote(d Deps) string {
+	keys, err := d.Secrets.EnvKeys()
+	if err == nil {
+		for _, k := range keys {
+			if k == secrets.BoxSudoPassword {
+				return ""
+			}
+		}
+	}
+	return "note: sudo on the box has no password yet; set one with `jauntbox secrets set BOX_SUDO_PASSWORD` and run `jauntbox unlock`"
 }

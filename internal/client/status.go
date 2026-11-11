@@ -19,6 +19,8 @@ type StatusReport struct {
 	Locked bool
 	// Err describes why BoxStatus is missing although the box is online.
 	Err string
+	// Note is a hint to print, e.g. that the box user has no sudo password.
+	Note string
 }
 
 // Status reports the provider's view of the box, tailnet presence and, when
@@ -31,7 +33,7 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	if b == nil {
 		return StatusReport{}, nil
 	}
-	rep := StatusReport{Box: b}
+	rep := StatusReport{Box: b, Note: UnlockNote(d)}
 	online, err := d.Mesh.DeviceOnline(ctx, hostname(d.Cfg.User))
 	if err != nil {
 		rep.Err = "tailnet check failed: " + err.Error()

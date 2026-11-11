@@ -17,6 +17,11 @@ const (
 	AppKeyFile   = "github-app.pem"
 	AppMetaFile  = "github-app.json"
 	AgentEnvFile = "agents.env"
+
+	// BoxSudoPassword is the agents.env key holding the box user's sudo
+	// password. It travels in the unlock bundle but is applied with chpasswd
+	// on the box and never stored there.
+	BoxSudoPassword = "BOX_SUDO_PASSWORD"
 )
 
 var (
@@ -94,13 +99,27 @@ func parseEnv(b []byte) (keys []string, vals map[string]string) {
 	return keys, vals
 }
 
+// ExtractEnv removes key from env-file content and returns its value (the
+// last one if repeated) and the remaining content. found is false when absent.
+func ExtractEnv(data []byte, key string) (value string, found bool, rest []byte) {
+	var out strings.Builder
+	for _, l := range strings.SplitAfter(string(data), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimRight(l, "\r\n"), "="); ok && k == key {
+			value, found = v, true
+			continue
+		}
+		out.WriteString(l)
+	}
+	return value, found, []byte(out.String())
+}
+
 // SetEnv sets key=value in agents.env, replacing an existing line for key.
 func (s Store) SetEnv(key, value string) error {
 	if !EnvKeyRE.MatchString(key) {
 		return fmt.Errorf("invalid env key %q (want %s)", key, EnvKeyRE)
 	}
 	if strings.ContainsAny(value, "\r\n") {
-		return errors.New("value must be a single line")
+		return fmt.Errorf("the value for %s must be a single line", key)
 	}
 	b, err := s.Get(AgentEnvFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {

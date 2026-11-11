@@ -224,6 +224,9 @@ func unlockCmd(cfgPath *string) *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "the box is unlocked")
+			if note := client.UnlockNote(d); note != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), note)
+			}
 			return nil
 		},
 	}

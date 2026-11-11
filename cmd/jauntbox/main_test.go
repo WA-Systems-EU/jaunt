@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"github.com/WA-Systems-EU/jaunt/internal/client"
 	"github.com/WA-Systems-EU/jaunt/internal/forge"
 	"github.com/WA-Systems-EU/jaunt/internal/minter"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -366,4 +368,68 @@ func TestPickOwner(t *testing.T) {
 			t.Errorf("prompt:\n%s", out.String())
 		}
 	}
+}
+
+const pwBundle = `{"files":{"agents.env":"` + "Qk9YX1NVRE9fUEFTU1dPUkQ9aHVudGVyMgpPVEhFUj0xCg==" + `"}}` // BOX_SUDO_PASSWORD=hunter2\nOTHER=1\n
+
+func TestSecretsLoadSetsPasswordNotStored(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "s")
+	var got [][]byte
+	err := loadSecretsWith(strings.NewReader(pwBundle), dir, func() (string, error) { return "alice", nil },
+		func(in []byte) error { got = append(got, append([]byte(nil), in...)); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || string(got[0]) != "alice:hunter2\n" {
+		t.Fatalf("chpasswd stdin = %q", got)
+	}
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		b, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+		if strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "BOX_SUDO_PASSWORD") {
+			t.Fatalf("password leaked into vault file %s: %q", e.Name(), b)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "agents.env")); string(b) != "OTHER=1\n" {
+		t.Fatalf("agents.env = %q", b)
+	}
+}
+
+func TestSecretsLoadPasswordFailureHidesValue(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "s")
+	err := loadSecretsWith(strings.NewReader(pwBundle), dir, func() (string, error) { return "alice", nil },
+		func(in []byte) error { return chpasswdFailure(1, string(in)) })
+	if err == nil || !strings.Contains(err.Error(), "setting the box user's sudo password failed (chpasswd exit 1)") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("error leaks password: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "agents.env")); string(b) != "OTHER=1\n" {
+		t.Fatalf("other secrets not loaded: %q", b)
+	}
+	if _, e := os.Stat(filepath.Join(dir, ".loaded")); e != nil {
+		t.Fatalf("marker missing: %v", e)
+	}
+}
+
+func TestSecretsLoadOnlyPasswordLoadsEmptyVault(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "s")
+	b64 := "Qk9YX1NVRE9fUEFTU1dPUkQ9aHVudGVyMgo=" // BOX_SUDO_PASSWORD=hunter2\n
+	var got []byte
+	err := loadSecretsWith(strings.NewReader(`{"files":{"agents.env":"`+b64+`"}}`), dir, func() (string, error) { return "alice", nil },
+		func(in []byte) error { got = in; return nil })
+	if err != nil || string(got) != "alice:hunter2\n" {
+		t.Fatalf("err=%v got=%q", err, got)
+	}
+	if _, e := os.Stat(filepath.Join(dir, "agents.env")); e == nil {
+		t.Fatal("empty agents.env should not be written")
+	}
+}
+
+// chpasswdFailure is what a failing chpasswd looks like to the caller: a real
+// *exec.ExitError wrapped in text that echoes the input line.
+func chpasswdFailure(code int, echoed string) error {
+	err := exec.Command("sh", "-c", "exit "+strconv.Itoa(code)).Run()
+	return fmt.Errorf("chpasswd: bad line %q: %w", echoed, err)
 }

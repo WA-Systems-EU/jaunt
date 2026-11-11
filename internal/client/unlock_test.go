@@ -173,3 +173,33 @@ func TestPushSecretsEmptyStoreRefuses(t *testing.T) {
 		t.Fatalf("remote used: %v", r.order)
 	}
 }
+
+func TestBundleWithOnlyPasswordUnlocks(t *testing.T) {
+	d, _, _, r, _, _ := newDeps(t)
+	withSecrets(t, &d, "agents.env", "BOX_SUDO_PASSWORD=hunter2\n")
+	if err := PushSecrets(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.inputs) != 1 {
+		t.Fatalf("inputs = %d", len(r.inputs))
+	}
+}
+
+func TestUnlockNotesMissingPassword(t *testing.T) {
+	const want = "note: sudo on the box has no password yet; set one with `jauntbox secrets set BOX_SUDO_PASSWORD` and run `jauntbox unlock`"
+	d, _, _, _, _, _ := newDeps(t)
+	withSecrets(t, &d, "agents.env", "OTHER=1\n")
+	if got := UnlockNote(d); got != want {
+		t.Fatalf("note = %q", got)
+	}
+	d2, _, _, _, _, _ := newDeps(t)
+	withSecrets(t, &d2, "agents.env", "OTHER=1\nBOX_SUDO_PASSWORD=x\n")
+	if got := UnlockNote(d2); got != "" {
+		t.Fatalf("note with password set = %q", got)
+	}
+	d3, _, _, _, _, _ := newDeps(t)
+	withSecrets(t, &d3)
+	if got := UnlockNote(d3); got != want {
+		t.Fatalf("note without store = %q", got)
+	}
+}

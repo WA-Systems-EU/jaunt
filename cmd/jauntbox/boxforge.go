@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/forge"
 	"github.com/WA-Systems-EU/jaunt/internal/minter"
@@ -176,9 +177,37 @@ func gitCredential(op string, in io.Reader, out, errw io.Writer, mint func(repo 
 // errCredential makes git-credential exit 1 after it already printed its line.
 var errCredential = errors.New("git-credential failed")
 
-// loadSecretsFrom reads one JSON bundle (at most maxSecretsInput bytes) and
-// loads it into dir. Errors never include the input.
+// loadSecretsFrom is loadSecretsWith with the real box user and chpasswd.
 func loadSecretsFrom(r io.Reader, dir string) error {
+	return loadSecretsWith(r, dir, boxUser, runChpasswd)
+}
+
+// boxUser is the box user's name from the box description.
+func boxUser() (string, error) {
+	info, err := boxinfo.Read(boxinfo.Path)
+	if err != nil {
+		return "", err
+	}
+	if info.User == "" {
+		return "", errors.New("box description has no user")
+	}
+	return info.User, nil
+}
+
+// runChpasswd feeds "<user>:<password>\n" to chpasswd. Its stderr is dropped
+// and only the exit status is reported, because chpasswd may echo the input.
+func runChpasswd(stdin []byte) error {
+	cmd := exec.Command("/usr/sbin/chpasswd")
+	cmd.Stdin = bytes.NewReader(stdin)
+	return cmd.Run()
+}
+
+// loadSecretsWith reads one JSON bundle (at most maxSecretsInput bytes) and
+// loads it into dir. BOX_SUDO_PASSWORD, if present in agents.env, is removed
+// from what is stored and applied with chpasswd instead; if that fails the
+// other secrets are still loaded and the failure is returned afterwards.
+// Errors never include the input.
+func loadSecretsWith(r io.Reader, dir string, user func() (string, error), chpasswd func(stdin []byte) error) error {
 	data, err := io.ReadAll(io.LimitReader(r, maxSecretsInput+1))
 	if err != nil {
 		return fmt.Errorf("read secrets: %w", err)
@@ -190,5 +219,39 @@ func loadSecretsFrom(r io.Reader, dir string) error {
 	if err := json.Unmarshal(data, &b); err != nil {
 		return errors.New("secret bundle is not valid JSON")
 	}
-	return vault.Load(dir, b)
+	var pw string
+	var havePW bool
+	if env, ok := b.Files[secrets.AgentEnvFile]; ok {
+		var rest []byte
+		pw, havePW, rest = secrets.ExtractEnv(env, secrets.BoxSudoPassword)
+		if havePW {
+			if len(bytes.TrimSpace(rest)) == 0 {
+				delete(b.Files, secrets.AgentEnvFile)
+			} else {
+				b.Files[secrets.AgentEnvFile] = rest
+			}
+		}
+	}
+	if err := vault.Load(dir, b); err != nil {
+		return err
+	}
+	if !havePW {
+		return nil
+	}
+	const failMsg = "setting the box user's sudo password failed"
+	if pw == "" || strings.ContainsAny(pw, "\r\n\x00") {
+		return errors.New(failMsg + " (the stored password is empty or not a single line)")
+	}
+	name, err := user()
+	if err != nil {
+		return fmt.Errorf("%s (box user unknown: %v)", failMsg, err)
+	}
+	if err := chpasswd([]byte(name + ":" + pw + "\n")); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return fmt.Errorf("%s (chpasswd exit %d)", failMsg, ee.ExitCode())
+		}
+		return errors.New(failMsg + " (chpasswd could not run)")
+	}
+	return nil
 }

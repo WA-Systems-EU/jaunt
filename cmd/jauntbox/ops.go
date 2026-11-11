@@ -60,6 +60,9 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			}
 			fmt.Fprintf(out, "%s: %s, server type %s, created %s, on tailnet: %v\n",
 				rep.Box.Name, rep.Box.Status, rep.Box.ServerType, rep.Box.Created.Format(time.RFC3339), rep.Online)
+			if rep.Note != "" {
+				fmt.Fprintln(out, rep.Note)
+			}
 			if rep.Locked {
 				fmt.Fprintln(out, vault.ErrLocked)
 			}
