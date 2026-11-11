@@ -279,3 +279,14 @@ Box created from `06b5592`, `small` profile.
 | 19. Root daemon socket denied | Pass. |
 | 14. Supervisor deletes the box at `down` | Not run (unchanged by 03a apart from root ssh; skipped). |
 | 16. `down` with root refused | Not run (skipped). |
+
+### 2026-11-11: Plan 03 checks (agent containers, first pass)
+
+Box created from `ddfd650`.
+
+| Check | Result |
+|---|---|
+| 1, 2, 12. First `jauntctl agent`: image build, `claude` and `mise` as the non-root uid, Claude opens in the pane | Pass (build time and onboarding prompts not recorded). |
+| 3–10, 4b, 6b. Isolation from `attach --shell`: uid, read-only git files, `.git` busy, metadata/tailnet/host blocked, no vault, token only, push lands | Pass. |
+| 11. DOCKER-USER (IPv4 and IPv6) and INPUT rules, ACCEPT above DROP | Pass. Note: our INPUT rules sit above `-j ts-input`; a tailscaled restart puts its jump first again (harmless for containers). |
+| 13–22. Run handling, wrap-up, fallback, unattended, resume, teardown, cancel | Not run yet. |
