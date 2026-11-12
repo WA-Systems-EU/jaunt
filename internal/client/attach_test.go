@@ -28,7 +28,8 @@ type scriptRemote struct {
 	noSupervisor     bool   // the supervisor check exits non-zero (not installed)
 	checkFails       int    // the first checkFails supervisor checks fail with checkErr
 	checkErr         error
-	checkOut         string // stdout of a successful supervisor check (the --version line)
+	checkOut         string   // stdout of a successful supervisor check (the --version line)
+	inputs           [][]byte // stdin of each RunInput
 }
 
 func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
@@ -60,8 +61,9 @@ func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte,
 	}
 	return nil, nil
 }
-func (r *scriptRemote) RunInput(_ context.Context, _ string, _ []byte, args ...string) ([]byte, error) {
+func (r *scriptRemote) RunInput(_ context.Context, _ string, stdin []byte, args ...string) ([]byte, error) {
 	r.cmds = append(r.cmds, "input:"+strings.Join(args, " "))
+	r.inputs = append(r.inputs, stdin)
 	return nil, nil
 }
 func (r *scriptRemote) Copy(_ context.Context, _, _, remote string) error {

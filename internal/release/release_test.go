@@ -204,14 +204,25 @@ func TestBoxFetchScriptInvalidVersion(t *testing.T) {
 	}
 }
 
-func runScript(t *testing.T, script, unameOut string) (int, string) {
+// runScript runs the script the way the box does: `sh -s` with the script on
+// stdin (ssh re-parses argv, so it is never passed as an argument). uname
+// answers unameOut; shims adds more PATH commands (name -> sh body).
+func runScript(t *testing.T, script, unameOut string, shims ...map[string]string) (int, string) {
 	t.Helper()
 	bin := t.TempDir()
-	shim := "#!/bin/sh\necho " + unameOut + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "uname"), []byte(shim), 0o755); err != nil {
-		t.Fatal(err)
+	all := map[string]string{"uname": "echo " + unameOut}
+	for _, m := range shims {
+		for k, v := range m {
+			all[k] = v
+		}
 	}
-	cmd := exec.Command("sh", "-c", script)
+	for name, body := range all {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("sh", "-s")
+	cmd.Stdin = strings.NewReader(script)
 	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -285,4 +296,58 @@ func TestBoxFetchScript(t *testing.T) {
 			t.Fatalf("exit %d: %s", code, msg)
 		}
 	})
+
+	t.Run("set -eu stops at a failing step", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFixtures(t, dir, "0.4.0", "amd64", archive, "")
+		out := filepath.Join(t.TempDir(), "jauntctl")
+		marker := filepath.Join(t.TempDir(), "curl-ran")
+		code, msg := runScript(t, boxFetchScript("file://"+dir, "0.4.0", out), "x86_64", map[string]string{
+			"mktemp": "exit 1",
+			"curl":   "touch " + marker + "; exit 1",
+		})
+		if code == 0 {
+			t.Fatalf("exit 0: %s", msg)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("the script went on after mktemp failed (set -e not in force): %s", msg)
+		}
+	})
+
+	t.Run("archive without jauntctl", func(t *testing.T) {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gz)
+		tw.WriteHeader(&tar.Header{Name: "README.md", Mode: 0o644, Size: 2})
+		tw.Write([]byte("x\n"))
+		tw.Close()
+		gz.Close()
+		dir := t.TempDir()
+		writeFixtures(t, dir, "0.4.0", "amd64", buf.Bytes(), "")
+		out := filepath.Join(t.TempDir(), "jauntctl")
+		code, msg := runScript(t, boxFetchScript("file://"+dir, "0.4.0", out), "x86_64")
+		if code != ExitArchive {
+			t.Fatalf("exit %d, want ExitArchive: %s", code, msg)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Error("out should not exist")
+		}
+	})
+}
+
+func TestBoxFetchScriptHTTPSOnly(t *testing.T) {
+	s, err := BoxFetchScript(GitHubBase+"/v0.4.0", "0.4.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(s, "--proto '=https' --proto-redir '=https'"); n != 2 {
+		t.Errorf("https base: %d curl calls restricted to https, want 2:\n%s", n, s)
+	}
+	s, err = BoxFetchScript("file:///tmp/rel/v0.4.0", "0.4.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(s, "--proto") {
+		t.Errorf("file base must not restrict protocols:\n%s", s)
+	}
 }

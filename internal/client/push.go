@@ -322,7 +322,8 @@ func boxExit(err error) (int, bool) {
 // stageBinary leaves the box's jauntctl at /tmp/jauntctl: a local file is
 // copied; a release is downloaded by the box itself, and when the box cannot
 // reach the download the laptop fetches it and copies it over. A checksum
-// mismatch or an unsupported architecture is fatal, never retried.
+// mismatch, an unsupported architecture or an archive without jauntctl is
+// fatal, never retried.
 func stageBinary(ctx context.Context, d Deps, src boxSource) error {
 	if src.Version == "" {
 		return rootCopy(ctx, d, src.Local, "/tmp/jauntctl")
@@ -332,7 +333,9 @@ func stageBinary(ctx context.Context, d Deps, src boxSource) error {
 	if err != nil {
 		return &fatalStageError{err}
 	}
-	_, err = rootRun(ctx, d, "sh", "-c", script)
+	// The script goes on stdin: ssh joins remote args with spaces and root's
+	// login shell re-parses them, so `sh -c script` would run only `set -eu`.
+	_, err = rootRunInput(ctx, d, []byte(script), "sh", "-s")
 	if err == nil {
 		return nil
 	}
@@ -345,6 +348,8 @@ func stageBinary(ctx context.Context, d Deps, src boxSource) error {
 		return &fatalStageError{fmt.Errorf("the box downloaded jauntctl %s but its checksum does not match (%s): %w", src.Version, base, release.ErrChecksum)}
 	case release.ExitArch:
 		return &fatalStageError{fmt.Errorf("the box has an unsupported architecture for jauntctl %s: %w", src.Version, err)}
+	case release.ExitArchive:
+		return &fatalStageError{fmt.Errorf("the jauntctl %s archive from %s holds no jauntctl binary: %w", src.Version, base, err)}
 	case release.ExitDownload:
 		return fetchOnLaptop(ctx, d, src.Version, base, err)
 	}
@@ -369,6 +374,9 @@ func fetchOnLaptop(ctx context.Context, d Deps, version, base string, boxErr err
 	dest := filepath.Join(dir, "jauntctl")
 	hc := &http.Client{Timeout: 5 * time.Minute}
 	if err := release.FetchBox(ctx, hc, base, version, arch, dest); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err() // Ctrl-C: left open, the caller closes the steps as interrupted
+		}
 		if errors.Is(err, release.ErrChecksum) {
 			return &fatalStageError{err}
 		}

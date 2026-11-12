@@ -29,6 +29,7 @@ const (
 	ExitDownload = 2
 	ExitChecksum = 3
 	ExitArch     = 4
+	ExitArchive  = 5 // the verified archive holds no jauntctl
 )
 
 // ErrChecksum means the archive's checksum was missing or did not match.
@@ -68,7 +69,8 @@ func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) 
 // BoxFetchScript returns a sh script, run as root on the box, that downloads
 // the jauntctl archive for the box's architecture, verifies its checksum and
 // leaves the binary at /tmp/jauntctl. Exit codes: ExitDownload, ExitChecksum,
-// ExitArch.
+// ExitArch, ExitArchive. Run it with the script on stdin (`sh -s`): ssh joins
+// and re-parses remote arguments, so `sh -c script` would lose set -eu.
 func BoxFetchScript(base, version string) (string, error) {
 	if !ValidVersion(version) {
 		return "", fmt.Errorf("invalid release version %q", version)
@@ -77,15 +79,19 @@ func BoxFetchScript(base, version string) (string, error) {
 }
 
 func boxFetchScript(base, version, out string) string {
+	curl := "curl -fsSL --retry 3"
+	if strings.HasPrefix(base, "https://") {
+		curl += " --proto '=https' --proto-redir '=https'" // never follow a redirect to plain http
+	}
 	return `set -eu
 case "$(uname -m)" in x86_64|amd64) a=amd64 ;; aarch64|arm64) a=arm64 ;; *) echo "unsupported box architecture: $(uname -m)" >&2; exit 4 ;; esac
 d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
 f="jauntctl_` + version + `_linux_$a.tar.gz"
 b=` + shQuote(base) + `
-curl -fsSL --retry 3 -o "$d/$f" "$b/$f" || exit 2
-curl -fsSL --retry 3 -o "$d/checksums.txt" "$b/checksums.txt" || exit 2
+` + curl + ` -o "$d/$f" "$b/$f" || exit 2
+` + curl + ` -o "$d/checksums.txt" "$b/checksums.txt" || exit 2
 (cd "$d" && grep " $f\$" checksums.txt | sha256sum -c --status -) || { echo "checksum mismatch for $f" >&2; exit 3; }
-tar -xzf "$d/$f" -C "$d" jauntctl
+tar -xzf "$d/$f" -C "$d" jauntctl || { echo "no jauntctl in $f" >&2; exit 5; }
 install -m 0755 "$d/jauntctl" ` + shQuote(out) + `
 `
 }

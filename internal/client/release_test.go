@@ -33,24 +33,29 @@ func pretendLinuxAmd64(t *testing.T) {
 
 // stageRemote is a root remote that scripts the fetch script's and uname's answers.
 type stageRemote struct {
-	fetchExit int // exit status of the sh -c script; 0 = success
+	fetchExit int // exit status of the fetch script (sh -s); 0 = success
 	uname     string
 	cmds      [][]string
+	inputs    [][]byte // stdin of each RunInput
 	copies    []string // content of each copied file
 	copyDsts  []string
 }
 
 func (r *stageRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
 	r.cmds = append(r.cmds, args)
-	if len(args) > 0 && args[0] == "sh" && r.fetchExit != 0 {
-		return nil, mkExit(r.fetchExit)
-	}
 	if len(args) == 2 && args[0] == "uname" {
 		return []byte(r.uname + "\n"), nil
 	}
 	return nil, nil
 }
-func (r *stageRemote) RunInput(context.Context, string, []byte, ...string) ([]byte, error) {
+func (r *stageRemote) RunInput(_ context.Context, _ string, stdin []byte, args ...string) ([]byte, error) {
+	r.cmds = append(r.cmds, args)
+	r.inputs = append(r.inputs, stdin)
+	if len(args) > 0 && args[0] == "sh" {
+		if r.fetchExit != 0 {
+			return nil, mkExit(r.fetchExit)
+		}
+	}
 	return nil, nil
 }
 func (r *stageRemote) Copy(_ context.Context, _, local, remote string) error {
@@ -126,10 +131,69 @@ func TestStageReleaseRunsFetchOnBox(t *testing.T) {
 	if len(r.copies) != 0 || len(r.cmds) != 1 {
 		t.Fatalf("copies=%d cmds=%v", len(r.copies), r.cmds)
 	}
-	c := r.cmds[0]
-	if len(c) != 3 || c[0] != "sh" || c[1] != "-c" ||
-		!strings.Contains(c[2], "jauntctl_0.4.0_linux_") || !strings.Contains(c[2], "http://example.invalid/rel/v0.4.0") {
-		t.Fatalf("cmd = %v", c)
+	// ssh joins remote args with spaces and the login shell re-parses them,
+	// so the script must travel on stdin, never as an argument.
+	if c := r.cmds[0]; len(c) != 2 || c[0] != "sh" || c[1] != "-s" {
+		t.Fatalf("cmd = %q, want [sh -s]", c)
+	}
+	want, err := release.BoxFetchScript(release.BaseURL("http://example.invalid/rel", "0.4.0"), "0.4.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.inputs) != 1 || string(r.inputs[0]) != want {
+		t.Fatalf("stdin = %q, want the fetch script", r.inputs)
+	}
+}
+
+func TestStageArchiveIsFatal(t *testing.T) {
+	r := &stageRemote{fetchExit: release.ExitArchive}
+	d := relDeps(t, r, "http://example.invalid")
+	var fe *fatalStageError
+	if err := stageBinary(context.Background(), d, boxSource{Version: "0.4.0"}); !errors.As(err, &fe) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(r.cmds) != 1 || len(r.copies) != 0 {
+		t.Fatalf("fell back to the laptop: cmds=%v copies=%d", r.cmds, len(r.copies))
+	}
+}
+
+// A Ctrl-C while the laptop fallback downloads must surface as the
+// interruption, not as a fatal "is it a published release?" error.
+func TestFetchOnLaptopCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		cancel()
+		<-ctx.Done()
+	}))
+	defer srv.Close()
+	r := &stageRemote{fetchExit: release.ExitDownload, uname: "x86_64"}
+	d := relDeps(t, r, srv.URL)
+	err := stageBinary(ctx, d, boxSource{Version: "0.4.0"})
+	var fe *fatalStageError
+	if !errors.Is(err, context.Canceled) || errors.As(err, &fe) {
+		t.Fatalf("err = %v, want bare context.Canceled", err)
+	}
+}
+
+func TestPushBinaryCancelledDuringLaptopFetchLeavesStepOpen(t *testing.T) {
+	fastPoll(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		cancel()
+		<-ctx.Done()
+	}))
+	defer srv.Close()
+	r := &stageRemote{fetchExit: release.ExitDownload, uname: "x86_64"}
+	d := relDeps(t, r, srv.URL)
+	rec := withRec(&d)
+	err := PushBinary(ctx, d, time.Minute)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	for _, e := range rec.Events {
+		if strings.HasPrefix(e, "fail ") {
+			t.Fatalf("step failed on Ctrl-C: %v", rec.Events)
+		}
 	}
 }
 
@@ -184,7 +248,7 @@ func TestPushBinaryReleaseMissing(t *testing.T) {
 	if want := "fail Box reachable: " + err.Error(); !contains(rec.Events, want) {
 		t.Fatalf("no %q in %v", want, rec.Events)
 	}
-	if n := len(r.cmds); n != 2 { // one sh -c, one uname
+	if n := len(r.cmds); n != 2 { // one sh -s, one uname
 		t.Fatalf("remote commands = %d (%v), want no retry", n, fmt.Sprint(r.cmds))
 	}
 }
@@ -231,7 +295,7 @@ func TestExistingBoxOldVersionReinstalls(t *testing.T) {
 	if len(rec.Events) < 3 || rec.Events[0] != "start Install supervisor" || rec.Events[1] != "detail Install supervisor: 0.4.0 → 0.4.1" {
 		t.Fatalf("events = %v", rec.Events)
 	}
-	if !strings.Contains(strings.Join(r.cmds, "\n"), "jauntctl_0.4.1_linux_") {
+	if !contains(r.cmds, "input:sh -s") || !strings.Contains(string(bytes.Join(r.inputs, nil)), "jauntctl_0.4.1_linux_") {
 		t.Errorf("no fetch: %v", r.cmds)
 	}
 }
@@ -251,7 +315,7 @@ func TestExistingBoxSameVersionSkips(t *testing.T) {
 	if err := EnsureSupervisor(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
-	if !contains(rec.Events, "skip Install supervisor: already running") || strings.Contains(strings.Join(r.cmds, "\n"), "jauntctl_0.4.1") {
+	if !contains(rec.Events, "skip Install supervisor: already running") || len(r.inputs) != 0 || strings.Contains(strings.Join(r.cmds, "\n"), "jauntctl_0.4.1") {
 		t.Fatalf("events=%v cmds=%v", rec.Events, r.cmds)
 	}
 }
