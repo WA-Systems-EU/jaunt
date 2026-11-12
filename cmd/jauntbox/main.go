@@ -25,6 +25,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
 	"github.com/WA-Systems-EU/jaunt/internal/secrets"
 	"github.com/WA-Systems-EU/jaunt/internal/session"
+	"github.com/WA-Systems-EU/jaunt/internal/version"
 )
 
 func stateDir() string {
@@ -132,6 +133,7 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
+		Version:       version.Current().Version,
 		// Without a home directory there is no default config path: demand --config.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if defaultCfgErr != nil && !cmd.Flags().Changed("config") {
@@ -213,6 +215,7 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 			return nil
 		},
 	}
+	root.SetVersionTemplate(version.Current().Line("jauntbox") + "\n")
 
 	root.AddCommand(initCmd(&cfgPath), up, push, acl, secretsCmd(&cfgPath), setupCmd(&cfgPath), unlockCmd(&cfgPath))
 	root.AddCommand(clientOpsCmds(&cfgPath, load)...)

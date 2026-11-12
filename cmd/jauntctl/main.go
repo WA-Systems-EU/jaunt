@@ -22,6 +22,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/lifecycle"
 	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
 	"github.com/WA-Systems-EU/jaunt/internal/vault"
+	"github.com/WA-Systems-EU/jaunt/internal/version"
 )
 
 // newBoxCmd is the jauntctl root.
@@ -33,7 +34,8 @@ func newBoxCmd() *cobra.Command {
 		SilenceErrors: true,
 		// Accept anything so that a laptop command gets a pointed message
 		// rather than cobra's generic "unknown command".
-		Args: cobra.ArbitraryArgs,
+		Args:    cobra.ArbitraryArgs,
+		Version: version.Current().Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return boxPreRun(cmd)
 		},
@@ -51,6 +53,7 @@ func newBoxCmd() *cobra.Command {
 	// sudo gets a pointed refusal instead of being silently honoured.
 	root.PersistentFlags().String("config", "", "")
 	_ = root.PersistentFlags().MarkHidden("config")
+	root.SetVersionTemplate(version.Current().Line("jauntctl") + "\n")
 	root.AddCommand(boxCmds()...)
 	root.AddCommand(boxOnlyCmds()...)
 	root.AddCommand(agentCmd(defaultAgentDeps()))
@@ -200,6 +203,7 @@ func boxCmds() []*cobra.Command {
 				"verdict":  map[string]string{"action": actions[v.Action], "reason": v.Reason},
 				"deadline": map[string]any{"time": dl, "reason": dlReason},
 				"locked":   vault.Locked(vault.Dir),
+				"version":  version.Current().Version,
 			}
 			if !night.IsZero() {
 				out["night_until"] = night

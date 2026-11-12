@@ -19,3 +19,20 @@ jobs:
       - run: bash provision/agent/agent_test.sh
       - name: shellcheck
         run: shellcheck --severity=warning provision/*.sh provision/agent/jaunt-* provision/agent/agent_test.sh internal/cloudinit/units/*.sh
+  cross:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build every release target
+        run: |
+          for os in linux darwin freebsd; do
+            for a in amd64 arm64; do
+              GOOS=$os GOARCH=$a CGO_ENABLED=0 go build -o /dev/null ./cmd/jauntbox || exit 1
+            done
+          done
+          for a in amd64 arm64; do
+            GOOS=linux GOARCH=$a CGO_ENABLED=0 go build -o /dev/null ./cmd/jauntctl || exit 1
+          done

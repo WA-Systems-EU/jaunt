@@ -55,7 +55,7 @@ func lstatAt(dirfd int, name string) (unix.Stat_t, bool, error) {
 	return st, true, nil
 }
 
-func isType(st unix.Stat_t, t uint32) bool { return st.Mode&unix.S_IFMT == t }
+func isType(st unix.Stat_t, t uint32) bool { return uint32(st.Mode)&unix.S_IFMT == t }
 
 // guardFiles checks the files the container gets read-only over the
 // checkout: .git/config (a regular file), .git/hooks and .git/modules
