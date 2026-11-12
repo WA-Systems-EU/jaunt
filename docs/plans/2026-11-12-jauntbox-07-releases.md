@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship jauntbox as versioned GitHub Releases for six targets, installable with `install.sh`, with the box always running the laptop's release version.
+**Goal:** Split the laptop client (`jauntbox`) and the box side (`jauntctl`) into two binaries, and ship them as versioned GitHub Releases installable with `install.sh`, with the box always running the laptop's release version.
 
-**Architecture:** A small `internal/version` package names every build (ldflags for releases, `debug.ReadBuildInfo` otherwise). A new `internal/release` package knows release asset names, builds the box-side fetch script and does the laptop fallback download. `internal/client` picks the box binary source (release fetch on the box, laptop copy for dev builds or `box_binary`) and reinstalls a box whose version differs. GoReleaser and a tag workflow publish; `site/install.sh` installs.
+**Architecture:** `cmd/jauntbox` (laptop) and `cmd/jauntctl` (box) become separate programs sharing the module's internal packages. A small `internal/version` package names every build (ldflags for releases, `debug.ReadBuildInfo` otherwise). A new `internal/release` package knows release asset names, builds the box-side fetch script and does the laptop fallback download. `internal/client` picks the box binary source (release fetch on the box, laptop copy for dev builds or `box_binary`) and reinstalls a box whose version differs. GoReleaser and a tag workflow publish; `site/install.sh` installs.
 
 **Tech Stack:** Go (cobra), GoReleaser v2 (`goreleaser/goreleaser-action@v6`, `version: "~> v2"`), GitHub Actions (`actions/attest-build-provenance@v2`), POSIX sh.
 
@@ -13,7 +13,8 @@
 ## Global Constraints
 
 - Targets: `linux`, `darwin`, `freebsd` × `amd64`, `arm64`; `CGO_ENABLED=0`, `-trimpath`. No Windows.
-- Archive name: `jauntbox_<version>_<os>_<arch>.tar.gz` (version without `v`), containing `jauntbox`, `LICENSE`, `README.md`; one `checksums.txt` (sha256, `<hex>  <file>` lines).
+- Two binaries: `jauntbox` (laptop; six targets) and `jauntctl` (box; `linux/amd64`, `linux/arm64`).
+- Archive names: `jauntbox_<version>_<os>_<arch>.tar.gz` and `jauntctl_<version>_linux_<arch>.tar.gz` (version without `v`), each containing its binary, `LICENSE`, `README.md`; one `checksums.txt` for all eight (sha256, `<hex>  <file>` lines).
 - Download base: `https://github.com/WA-Systems-EU/jaunt/releases/download/v<version>`.
 - First release `v0.4.0`. The existing tag `v0.1.0` is never moved or deleted.
 - `--version` line: `jauntbox 0.4.0 (commit abc1234, built 2026-11-13)`; dev: `jauntbox dev (commit abc1234+dirty)` (`+dirty` only when modified). `jauntctl --version` prints the same with `jauntctl` as the first word.
@@ -33,12 +34,34 @@
 
 ---
 
-### Task 1: Version in every binary, six targets build
+### Task 0: Split jauntbox and jauntctl into two binaries
+
+**Files:**
+- Create: `cmd/jauntctl/main.go` and move into `cmd/jauntctl/` every box-only file and test from `cmd/jauntbox/` (`agent.go`, `agent_test.go`, `boxforge.go`, `boxforge_test.go`, and the box parts of `main.go`: `newBoxCmd`, `boxCmds`, `boxOnlyCmds`, `boxPreRun`, `underSudo`, `sudoScrubbedEnv`, `boxSup` and whatever they alone use)
+- Modify: `cmd/jauntbox/main.go` (laptop root only), `internal/client/push.go` (`installCmd` source path), `.github/workflows/ci.yml`, `README.md` and `CONTRIBUTING.md` build lines
+
+**Interfaces:**
+- Produces:
+  - `cmd/jauntctl`: `func newBoxCmd() *cobra.Command` (unchanged behaviour; `Use: "jauntctl"`), `main()` runs it whatever `os.Args[0]` is.
+  - `cmd/jauntbox`: `main()` runs `newClientCmd()`; `rootFor` and `BoxName` dispatch are gone.
+  - `var LaptopCommands = []string{...}` in a small shared package `internal/cli` (used by `cmd/jauntctl`, checked by a `cmd/jauntbox` test) — the names of the laptop root's visible commands (`init`, `up`, `down`, `resize`, `status`, `ssh`, `attach`, `night`, `unlock`, `secrets`, `setup`, `acl-snippet`, `push`, plus any other visible client command at the time of the move); `jauntctl <one of them>` returns the same message as today: `"<name>" is a laptop command: run ` + "`jauntbox <name>`" + ` on your laptop`.
+  - Shared helpers both binaries need move to an internal package (e.g. `internal/cli`), not duplicated.
+  - Box install: the staged file is `/tmp/jauntctl`; `installCmd` installs it to `/usr/local/bin/jauntctl` and keeps `ln -sf jauntctl /usr/local/bin/jauntbox`.
+  - Dev box binary: `BoxBinaryPath` (until Task 3 replaces it) returns `cfg.BoxBinary` when set, else on linux/amd64 the file `jauntctl` in the directory of `os.Executable()` when it exists, else the error `no jauntctl to install on the box: build it next to jauntbox (go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl) or set box_binary`.
+
+- [ ] **Step 1: Write failing tests.** In `cmd/jauntctl`: `TestLaptopCommandOnBox` (`jauntctl up` → error containing `jauntbox up` and `on your laptop`). In `cmd/jauntbox`: `TestLaptopCommandsMatchClient` (every visible client root command is in `cli.LaptopCommands`, and every entry is a visible client command). In `cmd/jauntbox`: `TestNoBoxAliases` (the client root has no `supervise`, `mint`, `box-status`, `agent-net` command; hidden or not). In `internal/client`: `TestBoxBinaryPathSibling` (temp dir with fake `jauntbox` executable path via the `osExecutable` var and a `jauntctl` file next to it → that path; missing → the error above; `box_binary` set → wins).
+- [ ] **Step 2: Run** `go test ./cmd/... ./internal/client/` — FAIL.
+- [ ] **Step 3: Move the code** (`git mv` for whole files so history follows). Every existing box test must still pass in its new package. `cmd/jauntbox` must no longer import `internal/agentrun`, `internal/supervisor` or other box-only packages: verify with `go list -deps ./cmd/jauntbox | grep -E 'internal/(agentrun|supervisor)'` printing nothing.
+- [ ] **Step 4: Run** `go vet ./... && go test ./...` — PASS; `go build -o /tmp/jb/ ./cmd/jauntbox ./cmd/jauntctl` builds both.
+- [ ] **Step 5: CI:** the existing jobs build and test both commands (they already run `./...`); nothing else to add until Task 1's cross job.
+- [ ] **Step 6: Commit** `refactor(jauntbox): split the laptop client and the box side into jauntbox and jauntctl`.
+
+### Task 1: Version in every binary, all targets build
 
 **Files:**
 - Create: `internal/version/version.go`, `internal/version/version_test.go`
-- Modify: `internal/agentrun/guard.go:58` (the `isType` line), `cmd/jauntbox/main.go` (both roots), `cmd/jauntbox/main.go` box-status output map (~line 310), `.github/workflows/ci.yml`
-- Test: `cmd/jauntbox/version_test.go`
+- Modify: `internal/agentrun/guard.go:58` (the `isType` line), `cmd/jauntbox/main.go` (client root), `cmd/jauntctl` (box root and the box-status output map), `.github/workflows/ci.yml`
+- Test: `cmd/jauntbox/version_test.go`, `cmd/jauntctl/version_test.go`
 
 **Interfaces:**
 - Produces:
@@ -60,8 +83,8 @@
 - [ ] **Step 2: Run** `go test ./internal/version/` — FAIL (package missing).
 - [ ] **Step 3: Implement `internal/version/version.go`.** Commit shortened to 7 chars, date to `YYYY-MM-DD`. Pseudo-version test: `module.IsPseudoVersion` from `golang.org/x/mod/module` if already in `go.sum`, else the regex `-\d{14}-[0-9a-f]{12}$`.
 - [ ] **Step 4: Run** `go test ./internal/version/` — PASS.
-- [ ] **Step 5: Wire `--version`.** Set `root.Version = version.Current().Version` and `root.SetVersionTemplate(version.Current().Line("jauntbox") + "\n")` on the client root and the same with `"jauntctl"` on the box root. Add `"version": version.Current().Version` to the box-status output map. Test in `cmd/jauntbox/version_test.go`: `TestVersionFlag` runs `newClientCmd()` and `newBoxCmd()` with `--version`, asserts stdout starts with `jauntbox ` / `jauntctl ` and no error; `--version` on `jauntctl` must not trip `boxPreRun`.
-- [ ] **Step 6: Fix the cross-build.** `internal/agentrun/guard.go:58` becomes `uint32(st.Mode)&unix.S_IFMT == t`. Verify: `for os in linux darwin freebsd; do for a in amd64 arm64; do GOOS=$os GOARCH=$a CGO_ENABLED=0 go build -o /dev/null ./cmd/jauntbox || exit 1; done; done` — all six succeed.
+- [ ] **Step 5: Wire `--version`.** Set `root.Version = version.Current().Version` and `root.SetVersionTemplate(version.Current().Line("jauntbox") + "\n")` on the client root and the same with `"jauntctl"` on the box root. Add `"version": version.Current().Version` to the box-status output map. Tests `TestVersionFlag` in each command package run its root with `--version` and assert stdout starts with `jauntbox ` / `jauntctl ` and no error; `--version` on `jauntctl` must not trip `boxPreRun`.
+- [ ] **Step 6: Fix the cross-build.** `internal/agentrun/guard.go:58` becomes `uint32(st.Mode)&unix.S_IFMT == t`. Verify: `for os in linux darwin freebsd; do for a in amd64 arm64; do GOOS=$os GOARCH=$a CGO_ENABLED=0 go build -o /dev/null ./cmd/jauntbox || exit 1; done; done; for a in amd64 arm64; do GOOS=linux GOARCH=$a CGO_ENABLED=0 go build -o /dev/null ./cmd/jauntctl || exit 1; done` — all eight succeed.
 - [ ] **Step 7: CI cross-build job.** In `.github/workflows/ci.yml` add job `cross` (ubuntu-latest, setup-go from `go.mod`) running the loop from Step 6.
 - [ ] **Step 8: Run** `go vet ./... && go test ./...` — PASS.
 - [ ] **Step 9: Commit** `feat(jauntbox): --version on jauntbox and jauntctl; build for linux, macOS and FreeBSD`.
@@ -76,22 +99,22 @@
 - Produces:
   - `const GitHubBase = "https://github.com/WA-Systems-EU/jaunt/releases/download"`
   - `func BaseURL(root, version string) string` → `root + "/v" + version`
-  - `func ArchiveName(version, goos, goarch string) string`
+  - `func ArchiveName(name, version, goos, goarch string) string` — `name` is `"jauntbox"` or `"jauntctl"`.
   - `func ValidVersion(v string) bool` — semver release or pre-release only (guards shell interpolation).
-  - `func BoxFetchScript(base, version string) (string, error)` — a `sh` script run as root on the box that leaves the binary at `/tmp/jauntbox` (mode 0755). Exit codes: `2` download failed, `3` checksum missing or wrong, `4` unsupported architecture. Error for an invalid version.
+  - `func BoxFetchScript(base, version string) (string, error)` — a `sh` script run as root on the box that downloads the `jauntctl` archive and leaves the binary at `/tmp/jauntctl` (mode 0755). Exit codes: `2` download failed, `3` checksum missing or wrong, `4` unsupported architecture. Error for an invalid version.
   - `const (ExitDownload = 2; ExitChecksum = 3; ExitArch = 4)`
   - `var ErrChecksum = errors.New("checksum mismatch")`
-  - `func Fetch(ctx context.Context, hc *http.Client, base, version, goos, goarch, dest string) error` — downloads the archive and `checksums.txt`, verifies (wrapping `ErrChecksum` on a missing line or wrong sum), extracts the `jauntbox` entry to `dest` with mode 0755. A non-200 is an error naming the URL.
+  - `func FetchBox(ctx context.Context, hc *http.Client, base, version, goarch, dest string) error` — downloads `jauntctl_<version>_linux_<goarch>.tar.gz` and `checksums.txt`, verifies (wrapping `ErrChecksum` on a missing line or wrong sum), extracts the `jauntctl` entry to `dest` with mode 0755. A non-200 is an error naming the URL.
   - `func ArchFromUname(m string) (string, error)` — `x86_64|amd64`→`amd64`, `aarch64|arm64`→`arm64`.
 
-- [ ] **Step 1: Write failing tests** with a fixture helper that builds a `.tar.gz` holding `jauntbox` (content `"#!/bin/sh\necho fake\n"`), `LICENSE`, `README.md`, and a matching `checksums.txt`:
-  - `TestArchiveName`: `("0.4.0","darwin","arm64")` → `"jauntbox_0.4.0_darwin_arm64.tar.gz"`.
+- [ ] **Step 1: Write failing tests** with a fixture helper that builds a `jauntctl_<v>_linux_<arch>.tar.gz` holding `jauntctl` (content `"#!/bin/sh\necho fake\n"`), `LICENSE`, `README.md`, and a matching `checksums.txt`:
+  - `TestArchiveName`: `("jauntbox","0.4.0","darwin","arm64")` → `"jauntbox_0.4.0_darwin_arm64.tar.gz"`; `("jauntctl","0.4.0","linux","amd64")` → `"jauntctl_0.4.0_linux_amd64.tar.gz"`.
   - `TestValidVersion`: true for `0.4.0`, `0.5.0-rc.1`; false for `dev`, `v0.4.0`, `0.4.0; rm -rf /`, `""`.
-  - `TestFetchOK` (httptest serving `/v0.4.0/<archive>` and `/v0.4.0/checksums.txt`): dest holds the fake binary, mode 0755.
-  - `TestFetchChecksumMismatch` and `TestFetchMissingLine`: `errors.Is(err, ErrChecksum)`; dest not created.
-  - `TestFetch404`: error contains the archive URL.
+  - `TestFetchBoxOK` (httptest serving `/v0.4.0/<archive>` and `/v0.4.0/checksums.txt`): dest holds the fake binary, mode 0755.
+  - `TestFetchBoxChecksumMismatch` and `TestFetchBoxMissingLine`: `errors.Is(err, ErrChecksum)`; dest not created.
+  - `TestFetchBox404`: error contains the archive URL.
   - `TestArchFromUname`: the four mappings; `"riscv64"` → error containing `unsupported box architecture`.
-  - `TestBoxFetchScript` (skip unless `sh`, `curl`, `sha256sum`, `tar` exist): fixtures in a temp dir served as `file://<dir>`; run the script with `uname` shimmed via a `PATH` dir holding a fake `uname` printing `x86_64`, and `/tmp/jauntbox` redirected by making the script's output path a parameter of a test-only helper `boxFetchScript(base, version, out string)`. Cases: OK → out file runs and prints `fake`; corrupted archive → exit 3; missing archive → exit 2; fake `uname` printing `riscv64` → exit 4. `BoxFetchScript("…","dev")` → error.
+  - `TestBoxFetchScript` (skip unless `sh`, `curl`, `sha256sum`, `tar` exist): fixtures in a temp dir served as `file://<dir>`; run the script with `uname` shimmed via a `PATH` dir holding a fake `uname` printing `x86_64`, and `/tmp/jauntctl` redirected by making the script's output path a parameter of a test-only helper `boxFetchScript(base, version, out string)`. Cases: OK → out file runs and prints `fake`; corrupted archive → exit 3; missing archive → exit 2; fake `uname` printing `riscv64` → exit 4. `BoxFetchScript("…","dev")` → error.
 - [ ] **Step 2: Run** `go test ./internal/release/` — FAIL.
 - [ ] **Step 3: Implement `internal/release/release.go`.** The script, with `<base>`, `<version>` and `<out>` substituted (all validated or constant):
 
@@ -99,12 +122,12 @@
 set -eu
 case "$(uname -m)" in x86_64|amd64) a=amd64 ;; aarch64|arm64) a=arm64 ;; *) echo "unsupported box architecture: $(uname -m)" >&2; exit 4 ;; esac
 d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
-f="jauntbox_<version>_linux_$a.tar.gz"
+f="jauntctl_<version>_linux_$a.tar.gz"
 curl -fsSL --retry 3 -o "$d/$f" "<base>/$f" || exit 2
 curl -fsSL --retry 3 -o "$d/checksums.txt" "<base>/checksums.txt" || exit 2
 (cd "$d" && grep " $f\$" checksums.txt | sha256sum -c --status -) || { echo "checksum mismatch for $f" >&2; exit 3; }
-tar -xzf "$d/$f" -C "$d" jauntbox
-install -m 0755 "$d/jauntbox" "<out>"
+tar -xzf "$d/$f" -C "$d" jauntctl
+install -m 0755 "$d/jauntctl" "<out>"
 ```
 
 - [ ] **Step 4: Run** `go test ./internal/release/` — PASS.
@@ -121,20 +144,20 @@ install -m 0755 "$d/jauntbox" "<out>"
 - Produces:
   - `Deps.Build version.Build` (zero value → callers use `version.Current()`; set in tests) and `Deps.ReleaseRoot string` (empty → `release.GitHubBase`).
   - `type boxSource struct { Local string; Version string }` — exactly one set.
-  - `func boxBinarySource(d Deps) (boxSource, error)`: `cfg.BoxBinary` set → `Local`; build `Release()` → `Version`; else linux/amd64 → `Local: osExecutable()`; else error `box_binary must be set for a development build on a non-linux/amd64 laptop`.
-  - `func stageBinary(ctx context.Context, d Deps, src boxSource) error` — leaves the binary at `/tmp/jauntbox` on the box: `Local` → `rootCopy` (today); `Version` → `rootRun(sh -c <BoxFetchScript>)`; on exit `release.ExitDownload` → laptop fallback: `rootRun("uname", "-m")` → `release.ArchFromUname` → `release.Fetch` to a temp file → `rootCopy`; exit `ExitChecksum` or `ExitArch` → hard error (`ExitChecksum` wraps `release.ErrChecksum`). ssh failures keep their `ErrRootSSH`/`ErrSSHUnreachable` meaning so `copyAndInstall`'s retry loop is unchanged.
+  - `func boxBinarySource(d Deps) (boxSource, error)`: `cfg.BoxBinary` set → `Local`; build `Release()` → `Version`; else Task 0's dev rule (the `jauntctl` next to the executable on linux/amd64, else its error).
+  - `func stageBinary(ctx context.Context, d Deps, src boxSource) error` — leaves the binary at `/tmp/jauntctl` on the box: `Local` → `rootCopy` (today); `Version` → `rootRun(sh -c <BoxFetchScript>)`; on exit `release.ExitDownload` → laptop fallback: `rootRun("uname", "-m")` → `release.ArchFromUname` → `release.FetchBox` to a temp file → `rootCopy`; exit `ExitChecksum` or `ExitArch` → hard error (`ExitChecksum` wraps `release.ErrChecksum`). ssh failures keep their `ErrRootSSH`/`ErrSSHUnreachable` meaning so `copyAndInstall`'s retry loop is unchanged.
   - `copyAndInstall` takes a `boxSource` instead of `bin string` and calls `stageBinary` where it called `rootCopy`.
 
 - [ ] **Step 1: Write failing tests** in `internal/client/release_test.go` using the existing `newDeps`/fake remote helpers:
   - `TestSourceBoxBinaryWins`: `cfg.BoxBinary="/x"`, release build → `Local=="/x"`.
   - `TestSourceRelease`: build `{Version:"0.4.0"}` → `Version=="0.4.0"`.
   - `TestSourceDevNonLinux` (skip on linux/amd64): dev build, no `box_binary` → the error above.
-  - `TestStageReleaseRunsFetchOnBox`: release source; the fake root remote records a `sh -c` call whose script contains `jauntbox_0.4.0_linux_` and `<ReleaseRoot>/v0.4.0`; no `Copy`.
+  - `TestStageReleaseRunsFetchOnBox`: release source; the fake root remote records a `sh -c` call whose script contains `jauntctl_0.4.0_linux_` and `<ReleaseRoot>/v0.4.0`; no `Copy`.
   - `TestStageFallsBackToLaptop`: fake root returns exit 2 for the script and `x86_64` for `uname -m`; `ReleaseRoot` points at an httptest server with valid fixtures → one `Copy` of a file whose content is the fixture binary.
   - `TestStageChecksumOnBoxIsFatal`: exit 3 → `errors.Is(err, release.ErrChecksum)`, no `Copy`.
   - `TestPushBinaryReleaseMissing` (Review Focus 1): exit 2 on the box, httptest 404 for everything → `PushBinary` returns an error containing `0.4.0` and the release URL; the "Install supervisor" step (or "Box reachable") is recorded as failed.
 - [ ] **Step 2: Run** `go test ./internal/client/ -run 'Source|Stage|ReleaseMissing'` — FAIL.
-- [ ] **Step 3: Implement** the interfaces above; delete `BoxBinaryPath` and update its callers (`EnsureSupervisor`, `PushBinary`).
+- [ ] **Step 3: Implement** the interfaces above; `BoxBinaryPath` folds into `boxBinarySource`; update its callers (`EnsureSupervisor`, `PushBinary`).
 - [ ] **Step 4: Run** `go test ./internal/client/` — PASS (existing push tests keep passing with a dev `Deps.Build` on linux/amd64).
 - [ ] **Step 5: Commit** `feat(jauntbox): the box downloads the laptop's release, with the laptop as fallback`.
 
@@ -176,8 +199,8 @@ install -m 0755 "$d/jauntbox" "<out>"
 
 - [ ] **Step 1: `CHANGELOG.md`** (Keep a Changelog). Section `## [0.4.0] - 2026-11-13` with: a one-paragraph summary (personal self-deleting Hetzner box on your tailnet; secrets and a private GitHub App; agents in their own containers; reaching your own services; the terminal UI); `### Upgrade notes`: "First release. Install with `install.sh`. `box_binary` is now only needed for development builds; the next `jauntbox up` reinstalls the box binary at 0.4.0."
 - [ ] **Step 2: `scripts/changelog-section.sh` and its test** — test cases: `0.4.0` prints the summary and not the next section's heading; `9.9.9` exits 1.
-- [ ] **Step 3: `.goreleaser.yaml`** (`version: 2`): one build `./cmd/jauntbox`, binary `jauntbox`, `env: [CGO_ENABLED=0]`, `flags: [-trimpath]`, `goos: [linux, darwin, freebsd]`, `goarch: [amd64, arm64]`, ldflags above plus `-s -w`; archive `name_template: "jauntbox_{{ .Version }}_{{ .Os }}_{{ .Arch }}"`, `formats: [tar.gz]`, files `LICENSE`, `README.md`; `checksum.name_template: checksums.txt`; `release.prerelease: auto`; `changelog.disable: true`; `release.extra_files: [{glob: site/install.sh}]`.
-- [ ] **Step 4: Verify locally:** `go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean --skip=publish` produces six archives and `checksums.txt` in `dist/`; `tar -tzf dist/jauntbox_*_linux_amd64.tar.gz` lists `jauntbox`, `LICENSE`, `README.md`; the extracted linux/amd64 binary prints a `jauntbox <snapshot> (commit …)` line. Add `dist/` to `.gitignore`.
+- [ ] **Step 3: `.goreleaser.yaml`** (`version: 2`): build `jauntbox` from `./cmd/jauntbox` (`goos: [linux, darwin, freebsd]`, `goarch: [amd64, arm64]`) and build `jauntctl` from `./cmd/jauntctl` (`goos: [linux]`, `goarch: [amd64, arm64]`), both `env: [CGO_ENABLED=0]`, `flags: [-trimpath]`, ldflags above plus `-s -w`; two archives by build id, `name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"` (or per-archive literal names giving exactly the Global Constraints names), `formats: [tar.gz]`, files `LICENSE`, `README.md`; `checksum.name_template: checksums.txt`; `release.prerelease: auto`; `changelog.disable: true`; `release.extra_files: [{glob: site/install.sh}]`.
+- [ ] **Step 4: Verify locally:** `go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean --skip=publish` produces eight archives and one `checksums.txt` in `dist/`; `tar -tzf dist/jauntbox_*_linux_amd64.tar.gz` lists `jauntbox`, `LICENSE`, `README.md`; `tar -tzf dist/jauntctl_*_linux_arm64.tar.gz` lists `jauntctl`; the extracted linux/amd64 binary prints a `jauntbox <snapshot> (commit …)` line. Add `dist/` to `.gitignore`.
 - [ ] **Step 5: `.github/workflows/release.yml`**: `on: push: tags: ["v*"]`; `permissions: contents: write, id-token: write, attestations: write`; job 1 reruns CI (`uses: ./.github/workflows/ci.yml` after adding `workflow_call:` to `ci.yml`); job 2 (needs 1): checkout with `fetch-depth: 0`, setup-go, `scripts/changelog-section.sh "${GITHUB_REF_NAME#v}" > notes.md` (fails the job when missing — Review Focus 5), `goreleaser/goreleaser-action@v6` with `version: "~> v2"` and `args: release --clean --release-notes notes.md`, then `actions/attest-build-provenance@v2` with `subject-path: 'dist/*.tar.gz, dist/checksums.txt'`.
 - [ ] **Step 6: Write `scripts/install_test.sh` first** (fails while `site/install.sh` is missing), using the snapshot `dist/` from Step 4 copied to a temp dir laid out as `<root>/v0.0.0-test/` with the archive renamed to version `0.0.0-test` and a regenerated `checksums.txt`, served as `file://`. Cases: `--version 0.0.0-test --dir $tmp/bin` installs and the binary runs; a corrupted archive → non-zero exit, nothing installed; `PATH` shim dirs that offer only `shasum` (and only `sha256`) still verify (Review Focus 3); `uname` shim printing `MINGW64_NT` → "unsupported" error; target dir not on `PATH` → output mentions adding it to `PATH`; latest resolution with `JAUNTBOX_LATEST_URL` pointing at a `file://…/v0.0.0-test` path.
 - [ ] **Step 7: Write `site/install.sh`** per the spec's install.sh section: `uname -s` → `linux|darwin|freebsd`, `uname -m` → `amd64|arm64`; latest = last path segment of `curl -fsSLI -o /dev/null -w '%{url_effective}' "$JAUNTBOX_LATEST_URL"` with the `v` stripped; checksum with `sha256sum`, else `shasum -a 256`, else `sha256 -q`; install with `mkdir -p` + `install -m 0755` (or `cp` + `chmod`); print `jauntbox --version` at the end.
@@ -189,7 +212,7 @@ install -m 0755 "$d/jauntbox" "<out>"
 **Files:**
 - Modify: `README.md`, `CONTRIBUTING.md`, `site/index.html`, `site/quickstart.html`, `site/docs.html`, `site/roadmap.html`, `site/faq.html` (only if it exists on the branch by then), `docs/jauntbox/SMOKE.md`, `examples/jauntbox.yaml` (the `box_binary` comment)
 
-- [ ] **Step 1: README and quick start:** Install section first: `curl -fsSL https://www.jauntbox.eu/install.sh | sh`, pinning with `sh -s -- --version 0.4.0`, then `go install github.com/WA-Systems-EU/jaunt/cmd/jauntbox@v0.4.0`, then building from source. Remove "During the beta you build it from source; packaged installs come later" and every claim that `box_binary` is required off Linux amd64; say it is only for development builds. Mention `jauntbox --version` and the version line in `status`.
+- [ ] **Step 1: README and quick start:** two binaries: `jauntbox` on the laptop, `jauntctl` on the box (installed by `jauntbox`, never by hand); building from source builds both (`go build -o ~/bin/ ./cmd/jauntbox ./cmd/jauntctl`). Install section first: `curl -fsSL https://www.jauntbox.eu/install.sh | sh`, pinning with `sh -s -- --version 0.4.0`, then `go install github.com/WA-Systems-EU/jaunt/cmd/jauntbox@v0.4.0`, then building from source. Remove "During the beta you build it from source; packaged installs come later" and every claim that `box_binary` is required off Linux amd64; say it is only for development builds. Mention `jauntbox --version` and the version line in `status`.
 - [ ] **Step 2: `CONTRIBUTING.md`:** the numbering rules verbatim from the spec's "Numbering rules" section, then the release checklist: CHANGELOG section with Upgrade notes first; update the site version marker; CI green on `trunk`; when the release touches the box, live smoke (`up`, `status`, `down`) with an `-rc` tag first; push the tag; check the release page, the attestation (`gh attestation verify <archive> -R WA-Systems-EU/jaunt`) and `install.sh`.
 - [ ] **Step 3: Site:** "Pack light" on `index.html` shows the `install.sh` line instead of the clone/build block and a small `v0.4.0` marker (existing classes only, so `styles.css` needs no rebuild; rebuild it if a new class is unavoidable); docs `#config` row for `box_binary`; roadmap marks releases done; FAQ "What do I need on my laptop?" drops "built from source during the beta".
 - [ ] **Step 4: `SMOKE.md`:** add "Plan 07 checks (releases)": `install.sh` on Linux and on GhostBSD/FreeBSD; `jauntbox --version`; `up` from a release laptop on a new box (the box fetches; `jauntctl --version` on the box matches); `up` on a box running an older version reinstalls with `old → new`; `status` shows the version line; `gh attestation verify`.

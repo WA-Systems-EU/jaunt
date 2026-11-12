@@ -49,6 +49,18 @@ Semantic versioning, still 0.x:
 
 Why v0.4.0 and not lower: `v0.1.0` is taken, and Go's `@latest` picks the highest tag, so any release must sort above it; 0.4 matches the owner's own rating and leaves 0.5 for the first release shaped by real use.
 
+## Two binaries (owner's decision, in 0.4.0)
+
+Today one binary answers as `jauntbox` (laptop) or `jauntctl` (box) by the name it is run as. From 0.4.0 they are two programs built from the same module:
+
+- `cmd/jauntbox`: the laptop client only. Built for the six laptop targets. It contains no box code (agent containers, supervisor, network rules, git guards).
+- `cmd/jauntctl`: the box side only. Built for `linux/amd64` and `linux/arm64`.
+- The hidden transition aliases on the laptop tree (`jauntbox supervise` and the other box commands, "remove in plan 03") are removed: every unit calls `/usr/local/bin/jauntctl`.
+- On the box, `/usr/local/bin/jauntbox` stays a symlink to `jauntctl`, and `jauntctl` ignores the name it is run as. A laptop command typed on the box still gets "is a laptop command: run `jauntbox <cmd>` on your laptop" (from a fixed list of laptop command names, since the box binary no longer contains the laptop tree).
+- `go install github.com/WA-Systems-EU/jaunt/cmd/jauntbox@vX.Y.Z` installs the laptop client; `install.sh` installs only `jauntbox`.
+- Release archives: `jauntbox_<version>_<os>_<arch>.tar.gz` (six) and `jauntctl_<version>_linux_<arch>.tar.gz` (two), one `checksums.txt` for all eight.
+- The box downloads the `jauntctl` archive. A development laptop on Linux amd64 copies the `jauntctl` file that sits next to its own executable (`go build -o ~/bin/ ./cmd/jauntbox ./cmd/jauntctl` builds both); without it, or on another OS, it needs `box_binary` pointing at a Linux `jauntctl`.
+
 ## The version in the binary
 
 - Release builds set the version, commit and build date at link time (GoReleaser ldflags into one small package, e.g. `internal/version`).
@@ -58,22 +70,22 @@ Why v0.4.0 and not lower: `v0.1.0` is taken, and Go's `@latest` picks the highes
 
 ## The box gets the laptop's version
 
-- **Release laptop build** (a real version, not `dev`; a pre-release laptop counts and fetches its exact pre-release; a Go pseudo-version from `go install` of an untagged commit counts as `dev`): the box downloads `jauntbox_<version>_linux_<box arch>.tar.gz` and `checksums.txt` from that version's GitHub Release, checks the archive's SHA-256 against `checksums.txt`, unpacks and installs it exactly where `installCmd` installs today (`/usr/local/bin/jauntctl`, `jauntbox` symlink). The download runs on the box (it has public egress; this replaces the scp). The box arch comes from the profile's existing `arch` field (`amd64` for every profile today).
+- **Release laptop build** (a real version, not `dev`; a pre-release laptop counts and fetches its exact pre-release; a Go pseudo-version from `go install` of an untagged commit counts as `dev`): the box downloads `jauntctl_<version>_linux_<box arch>.tar.gz` and `checksums.txt` from that version's GitHub Release, checks the archive's SHA-256 against `checksums.txt`, unpacks and installs it exactly where `installCmd` installs today (`/usr/local/bin/jauntctl`, `jauntbox` symlink). The download runs on the box (it has public egress; this replaces the scp). The box arch comes from the profile's existing `arch` field (`amd64` for every profile today).
 - A checksum mismatch fails hard, with no fallback: it points at tampering or a broken release, not at GitHub being unreachable.
 - If the box cannot download (GitHub unreachable), the laptop downloads the same two files itself, checks them, and copies the binary as today. Then it fails with a clear message only if both paths fail.
-- **Development build** (`dev`): today's behaviour, unchanged: copy the laptop's binary on Linux amd64, else `box_binary`.
+- **Development build** (`dev`): copy the `jauntctl` next to the laptop's executable on Linux amd64, else `box_binary`.
 - `box_binary`, when set, always wins (for testing a local build on the box). Today `BoxBinaryPath` ignores it on a Linux amd64 laptop; that changes.
 - **Mismatch**: `status` shows the box's version next to the laptop's, flagged when they differ. `up` and bare `jauntbox` on an existing box whose version differs from a release laptop reinstall the box binary (the existing "Install supervisor" step), with a detail line `0.4.0 → 0.4.1`. A box whose version can't be read (every box running a pre-0.4.0 binary: no `version` in `box-status`) counts as different, so a release laptop reinstalls it too; the 0.4.0 entry needs no upgrade note for it. A dev laptop against a release box, or the reverse, only warns.
 
-## Building for six targets
+## Building the targets
 
-Today the code does not compile for macOS or FreeBSD: `internal/agentrun/guard.go` compares `st.Mode & unix.S_IFMT` with mismatched integer types off Linux. That package only runs on the box. The builder makes all six targets build (a Linux build tag on the box-only code, or a type conversion), and CI cross-builds all six on every push so it stays that way.
+Today the code does not compile for macOS or FreeBSD: `internal/agentrun/guard.go` compares `st.Mode & unix.S_IFMT` with mismatched integer types off Linux. After the split the laptop binary no longer imports that package; the one-line type conversion is still applied. CI cross-builds `jauntbox` for all six targets and `jauntctl` for both Linux targets on every push.
 
 ## Publishing
 
 - `.github/workflows/release.yml`, on push of a `v*` tag:
   - runs the existing CI checks first (tests, shell tests, shellcheck);
-  - GoReleaser builds the six targets (`CGO_ENABLED=0`, `-trimpath`), produces `jauntbox_<version>_<os>_<arch>.tar.gz` (binary, `LICENSE`, `README.md`) and `checksums.txt`;
+  - GoReleaser builds `jauntbox` for the six targets and `jauntctl` for the two Linux ones (`CGO_ENABLED=0`, `-trimpath`), produces the eight archives (binary, `LICENSE`, `README.md`) and `checksums.txt`;
   - publishes the GitHub Release with the notes taken from that version's `CHANGELOG.md` section; a tag with a pre-release suffix is marked pre-release;
   - attests build provenance for the archives and `checksums.txt`.
 - The release workflow fails if `CHANGELOG.md` has no section for the tag.
