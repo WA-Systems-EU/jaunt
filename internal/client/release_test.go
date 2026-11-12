@@ -18,6 +18,7 @@ import (
 
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/release"
+	"github.com/WA-Systems-EU/jaunt/internal/ui"
 	"github.com/WA-Systems-EU/jaunt/internal/version"
 )
 
@@ -185,5 +186,91 @@ func TestPushBinaryReleaseMissing(t *testing.T) {
 	}
 	if n := len(r.cmds); n != 2 { // one sh -c, one uname
 		t.Fatalf("remote commands = %d (%v), want no retry", n, fmt.Sprint(r.cmds))
+	}
+}
+
+func TestVersionPlan(t *testing.T) {
+	rel := version.Build{Version: "0.4.0"}
+	dev := version.Build{Version: "dev"}
+	cases := []struct {
+		name         string
+		laptop       version.Build
+		box          string
+		reinstall    bool
+		detail, warn string
+	}{
+		{"unknown", rel, "", true, "unknown → 0.4.0", ""},
+		{"older", rel, "0.3.9", true, "0.3.9 → 0.4.0", ""},
+		{"box dev", rel, "dev", false, "", "the box runs a development build; this laptop is 0.4.0"},
+		{"laptop dev", dev, "0.4.0", false, "", "the box runs 0.4.0; this laptop is a development build"},
+		{"equal", rel, "0.4.0", false, "", ""},
+		{"both dev", dev, "dev", false, "", ""},
+	}
+	for _, c := range cases {
+		re, detail, warn := versionPlan(c.laptop, c.box)
+		if re != c.reinstall || detail != c.detail || warn != c.warn {
+			t.Errorf("%s: got (%v, %q, %q)", c.name, re, detail, warn)
+		}
+	}
+}
+
+func existingBox(t *testing.T, laptop, checkOut string) (Deps, *scriptRemote, *ui.Recorder) {
+	d, _, r := attachFixture(t)
+	r.checkOut = checkOut
+	d.Build = version.Build{Version: laptop}
+	d.ReleaseRoot = "http://example.invalid/rel"
+	return d, r, withRec(&d)
+}
+
+func TestExistingBoxOldVersionReinstalls(t *testing.T) {
+	d, r, rec := existingBox(t, "0.4.1", "jauntctl 0.4.0 (commit abc1234, built 2026-11-13)\n")
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Events) < 3 || rec.Events[0] != "start Install supervisor" || rec.Events[1] != "detail Install supervisor: 0.4.0 → 0.4.1" {
+		t.Fatalf("events = %v", rec.Events)
+	}
+	if !strings.Contains(strings.Join(r.cmds, "\n"), "jauntctl_0.4.1_linux_") {
+		t.Errorf("no fetch: %v", r.cmds)
+	}
+}
+
+func TestExistingBoxNoVersionReinstalls(t *testing.T) {
+	d, _, rec := existingBox(t, "0.4.1", "")
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Events) < 2 || rec.Events[1] != "detail Install supervisor: unknown → 0.4.1" {
+		t.Fatalf("events = %v", rec.Events)
+	}
+}
+
+func TestExistingBoxSameVersionSkips(t *testing.T) {
+	d, r, rec := existingBox(t, "0.4.1", "jauntctl 0.4.1 (commit abc1234, built 2026-11-13)\n")
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(rec.Events, "skip Install supervisor: already running") || strings.Contains(strings.Join(r.cmds, "\n"), "jauntctl_0.4.1") {
+		t.Fatalf("events=%v cmds=%v", rec.Events, r.cmds)
+	}
+}
+
+func TestExistingBoxDevWarns(t *testing.T) {
+	d, _, rec := existingBox(t, "0.4.1", "jauntctl dev (commit abc1234)\n")
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(rec.Events, "warn Install supervisor: the box runs a development build; this laptop is 0.4.1") ||
+		!contains(rec.Events, "skip Install supervisor: already running") {
+		t.Fatalf("events = %v", rec.Events)
+	}
+}
+
+func TestInstallSupervisorNoWaitSpawnsForReinstall(t *testing.T) {
+	d, _, _ := existingBox(t, "0.4.1", "jauntctl 0.4.0\n")
+	spawned := 0
+	d.Spawn = func(...string) error { spawned++; return nil }
+	if err := InstallSupervisor(context.Background(), d, false); err != nil || spawned != 1 {
+		t.Fatalf("err=%v spawned=%d", err, spawned)
 	}
 }

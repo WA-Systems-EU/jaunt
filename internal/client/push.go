@@ -12,6 +12,7 @@ import (
 
 	"github.com/WA-Systems-EU/jaunt/internal/release"
 	"github.com/WA-Systems-EU/jaunt/internal/ui"
+	"github.com/WA-Systems-EU/jaunt/internal/version"
 )
 
 var pollInterval = 10 * time.Second
@@ -45,7 +46,29 @@ func installCmd(user string) string {
 		"{ systemctl enable --now jauntbox-agent-net.service || true; }"
 }
 
-const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer"
+// supervisorCheck exits 0 when the supervisor is installed and enabled; its
+// stdout is the installed jauntctl's --version line (empty when unreadable).
+const supervisorCheck = "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer && { /usr/local/bin/jauntctl --version 2>/dev/null || true; }"
+
+// versionPlan compares this laptop's build with the version the box reports
+// ("" = unknown). A release laptop reinstalls an unknown or different box
+// version; a development build on either side is only warned about.
+func versionPlan(laptop version.Build, box string) (reinstall bool, detail string, warn string) {
+	switch {
+	case laptop.Release():
+		switch {
+		case box == "":
+			return true, "unknown → " + laptop.Version, ""
+		case box == "dev":
+			return false, "", "the box runs a development build; this laptop is " + laptop.Version
+		case box != laptop.Version:
+			return true, box + " → " + laptop.Version, ""
+		}
+	case box != "" && box != "dev":
+		return false, "", "the box runs " + box + "; this laptop is a development build"
+	}
+	return false, "", ""
+}
 
 // Supervisor check retries: a box that has only just come online may refuse
 // the first ssh, which must not be mistaken for a missing supervisor. Vars so
@@ -61,7 +84,7 @@ var (
 // Without it the safety net would delete the box under a working human. The
 // box has already been seen online and provisioned, so the push is one step.
 func EnsureSupervisor(ctx context.Context, d Deps) error {
-	ok, err := supervisorInstalled(ctx, d)
+	ok, detail, err := supervisorInstalled(ctx, d)
 	if err != nil {
 		return err
 	}
@@ -74,6 +97,9 @@ func EnsureSupervisor(ctx context.Context, d Deps) error {
 		return err
 	}
 	install := d.steps().Start("Install supervisor")
+	if detail != "" {
+		install.Detail(detail)
+	}
 	return copyAndInstall(ctx, d, src, time.Now().Add(DefaultPushWait), DefaultPushWait, nil, install)
 }
 
@@ -87,25 +113,36 @@ func notInstalled(err error) bool {
 	return errors.As(err, &ee) && ee.ExitCode() >= 0 && ee.ExitCode() != exitSSHFailure
 }
 
-// supervisorInstalled reports whether the box already runs the supervisor,
-// recording the "Install supervisor" step as skipped when it does. A failing
-// ssh is retried a few times; a clean "not installed" answer decides at once.
-func supervisorInstalled(ctx context.Context, d Deps) (bool, error) {
+// supervisorInstalled reports whether the box already runs the supervisor at
+// the laptop's version, recording the "Install supervisor" step as skipped
+// when it does (with a warning when the versions cannot be reconciled). When
+// the box needs a reinstall for its version it returns false and the detail to
+// show on the step. A failing ssh is retried a few times; a clean "not
+// installed" answer decides at once.
+func supervisorInstalled(ctx context.Context, d Deps) (bool, string, error) {
 	for attempt := 1; ; attempt++ {
-		_, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck)
+		out, err := d.Remote.Run(ctx, hostname(d.Cfg.User), supervisorCheck)
 		if err == nil {
-			d.steps().Start("Install supervisor").Skip("already running")
-			return true, nil
+			reinstall, detail, warn := versionPlan(d.build(), version.ParseLine(string(out)))
+			if reinstall {
+				return false, detail, nil
+			}
+			step := d.steps().Start("Install supervisor")
+			if warn != "" {
+				step.Warn(warn)
+			}
+			step.Skip("already running")
+			return true, "", nil
 		}
 		if ctx.Err() != nil {
-			return false, ctx.Err() // Ctrl-C killed ssh: not an answer about the box
+			return false, "", ctx.Err() // Ctrl-C killed ssh: not an answer about the box
 		}
 		if notInstalled(err) || attempt >= checkAttempts {
-			return false, nil
+			return false, "", nil
 		}
 		select {
 		case <-ctx.Done():
-			return false, ctx.Err()
+			return false, "", ctx.Err()
 		case <-time.After(checkGap):
 		}
 	}
@@ -118,8 +155,8 @@ func InstallSupervisor(ctx context.Context, d Deps, wait bool) error {
 	if wait {
 		return EnsureSupervisor(ctx, d)
 	}
-	// Already installed: do not re-push over a running supervisor, but still unlock.
-	ok, err := supervisorInstalled(ctx, d)
+	// Already installed at this version: do not re-push, but still unlock.
+	ok, _, err := supervisorInstalled(ctx, d)
 	if err != nil {
 		return err
 	}

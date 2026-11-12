@@ -437,7 +437,7 @@ func TestUpWaitErrorWording(t *testing.T) {
 }
 
 func TestSupervisorCheckNeedsJauntctl(t *testing.T) {
-	if supervisorCheck != "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer" {
+	if supervisorCheck != "test -x /usr/local/bin/jauntctl && systemctl is-enabled --quiet jauntbox-supervise.timer && { /usr/local/bin/jauntctl --version 2>/dev/null || true; }" {
 		t.Fatalf("supervisorCheck = %q", supervisorCheck)
 	}
 }

@@ -28,6 +28,7 @@ type scriptRemote struct {
 	noSupervisor     bool   // the supervisor check exits non-zero (not installed)
 	checkFails       int    // the first checkFails supervisor checks fail with checkErr
 	checkErr         error
+	checkOut         string // stdout of a successful supervisor check (the --version line)
 }
 
 func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
@@ -42,7 +43,7 @@ func (r *scriptRemote) Run(_ context.Context, _ string, args ...string) ([]byte,
 		if r.noSupervisor {
 			return nil, errNotInstalled
 		}
-		return nil, nil
+		return []byte(r.checkOut), nil
 	case args[0] == "test" && args[1] == "-x":
 		r.tests++
 		if r.tests <= r.testFails {

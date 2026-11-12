@@ -21,6 +21,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 	"github.com/WA-Systems-EU/jaunt/internal/secrets"
 	"github.com/WA-Systems-EU/jaunt/internal/ui"
+	"github.com/WA-Systems-EU/jaunt/internal/version"
 )
 
 // --- fakes -----------------------------------------------------------------
@@ -583,5 +584,25 @@ func TestUpExistingBoxWaitsForDevTools(t *testing.T) {
 	got := strings.Join(stepEvents(rec), " | ")
 	if !strings.HasSuffix(got, "Box found | Box online | Dev tools installed | Install supervisor | Unlock secrets") {
 		t.Fatalf("steps = %s", got)
+	}
+}
+
+func TestStatusShowsVersions(t *testing.T) {
+	f := statusFx(t)
+	f.d.Build = version.Build{Version: "0.4.1"}
+	f.rem.boxStatus = strings.Replace(sampleBoxStatus, `"locked":false`, `"locked":false,"version":"0.4.0"`, 1)
+	stdout, _, err := f.run(context.Background(), "status")
+	if err != nil || !strings.Contains(stdout, "version  0.4.0 (this laptop 0.4.1)\n") {
+		t.Fatalf("err=%v stdout:\n%s", err, stdout)
+	}
+	f.rem.boxStatus = strings.Replace(sampleBoxStatus, `"locked":false`, `"locked":false,"version":"0.4.1"`, 1)
+	stdout, _, _ = f.run(context.Background(), "status")
+	if !strings.Contains(stdout, "version  0.4.1\n") {
+		t.Fatalf("equal:\n%s", stdout)
+	}
+	f.rem.boxStatus = sampleBoxStatus
+	stdout, _, _ = f.run(context.Background(), "status")
+	if !strings.Contains(stdout, "version  unknown (this laptop 0.4.1)\n") {
+		t.Fatalf("absent:\n%s", stdout)
 	}
 }

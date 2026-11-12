@@ -170,10 +170,11 @@ func resizeFrom(ctx context.Context, d client.Deps) string {
 }
 
 const (
-	ansiTeal = "\x1b[38;2;79;194;185m"
-	ansiRed  = "\x1b[38;2;255;106;92m"
-	ansiDim  = "\x1b[38;2;111;129;150m"
-	ansiOff  = "\x1b[0m"
+	ansiTeal   = "\x1b[38;2;79;194;185m"
+	ansiYellow = "\x1b[38;2;240;195;80m"
+	ansiRed    = "\x1b[38;2;255;106;92m"
+	ansiDim    = "\x1b[38;2;111;129;150m"
+	ansiOff    = "\x1b[0m"
 )
 
 // printStatus writes the status summary to stdout (or only the box's raw JSON
@@ -228,6 +229,14 @@ func printStatus(cmd *cobra.Command, cfg config.Config, rep client.StatusReport,
 			fmt.Fprintln(out, "secrets  locked")
 		} else {
 			fmt.Fprintln(out, "secrets  unlocked")
+		}
+		switch {
+		case rep.BoxVersion == "":
+			fmt.Fprintf(out, "version  unknown (this laptop %s)\n", rep.LaptopVersion)
+		case rep.BoxVersion == rep.LaptopVersion:
+			fmt.Fprintln(out, "version  "+rep.BoxVersion)
+		default:
+			fmt.Fprintln(out, paint(ansiYellow, fmt.Sprintf("version  %s (this laptop %s)", rep.BoxVersion, rep.LaptopVersion)))
 		}
 		var st struct {
 			Verdict  struct{ Action, Reason string }

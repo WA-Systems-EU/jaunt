@@ -24,6 +24,10 @@ type StatusReport struct {
 	// UnlockErr is why the attempt to unlock the box failed (empty store,
 	// refused ssh, ...); empty when it worked or was not needed.
 	UnlockErr string
+	// BoxVersion is the jauntctl version the box reports ("" when unknown);
+	// LaptopVersion is this build's.
+	BoxVersion    string
+	LaptopVersion string
 }
 
 // Status reports the provider's view of the box, tailnet presence and, when
@@ -36,7 +40,7 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	if b == nil {
 		return StatusReport{}, nil
 	}
-	rep := StatusReport{Box: b, Note: UnlockNote(d)}
+	rep := StatusReport{Box: b, Note: UnlockNote(d), LaptopVersion: d.build().Version}
 	online, err := d.Mesh.DeviceOnline(ctx, hostname(d.Cfg.User))
 	if err != nil {
 		rep.Err = "tailnet check failed: " + err.Error()
@@ -61,10 +65,12 @@ func Status(ctx context.Context, d Deps) (StatusReport, error) {
 	if json.Valid(out) {
 		rep.BoxStatus = out
 		var st struct {
-			Locked bool `json:"locked"`
+			Locked  bool   `json:"locked"`
+			Version string `json:"version"`
 		}
 		_ = json.Unmarshal(out, &st)
 		rep.Locked = st.Locked
+		rep.BoxVersion = st.Version
 	} else {
 		rep.Err = "box-status returned invalid JSON: " + string(out)
 	}
