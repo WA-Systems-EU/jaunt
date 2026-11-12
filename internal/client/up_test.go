@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -293,14 +292,6 @@ func TestWithoutSpawnNeverSpawns(t *testing.T) {
 	}
 }
 
-func TestBoxBinaryPathNonLinuxRequiresConfig(t *testing.T) {
-	// On linux/amd64 the running executable is used; elsewhere box_binary is required.
-	p, err := BoxBinaryPath(config.Config{BoxBinary: "/x/jauntbox"})
-	if err != nil || p == "" {
-		t.Fatalf("p=%q err=%v", p, err)
-	}
-}
-
 type flakyCopyRemote struct {
 	fakeRemote
 	copyFails int
@@ -570,29 +561,23 @@ func TestInstallCmdSetsHostGitGuards(t *testing.T) {
 	}
 }
 
-func TestBoxBinaryPathSibling(t *testing.T) {
+func TestBoxBinarySourceSibling(t *testing.T) {
 	old := osExecutable
 	t.Cleanup(func() { osExecutable = old })
 	dir := t.TempDir()
 	osExecutable = func() (string, error) { return filepath.Join(dir, "jauntbox"), nil }
+	pretendLinuxAmd64(t)
 
-	// box_binary, when set, always wins
-	if p, err := BoxBinaryPath(config.Config{BoxBinary: "/x/jauntctl"}); err != nil || p != "/x/jauntctl" {
-		t.Fatalf("box_binary: p=%q err=%v", p, err)
-	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
-		t.Skip("the sibling jauntctl is used on linux/amd64 only")
-	}
 	want := "no jauntctl to install on the box: build it next to jauntbox (go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl) or set box_binary"
-	if _, err := BoxBinaryPath(config.Config{}); err == nil || err.Error() != want {
+	if _, err := boxBinarySource(Deps{}); err == nil || err.Error() != want {
 		t.Fatalf("missing sibling: err = %v, want %q", err, want)
 	}
 	sib := filepath.Join(dir, "jauntctl")
 	if err := os.WriteFile(sib, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := BoxBinaryPath(config.Config{}); err != nil || p != sib {
-		t.Fatalf("sibling: p=%q err=%v", p, err)
+	if s, err := boxBinarySource(Deps{}); err != nil || s.Local != sib {
+		t.Fatalf("sibling: s=%+v err=%v", s, err)
 	}
 }
 

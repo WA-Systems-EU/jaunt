@@ -17,9 +17,11 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/mesh"
 	"github.com/WA-Systems-EU/jaunt/internal/policy"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
+	"github.com/WA-Systems-EU/jaunt/internal/release"
 	"github.com/WA-Systems-EU/jaunt/internal/remote"
 	"github.com/WA-Systems-EU/jaunt/internal/secrets"
 	"github.com/WA-Systems-EU/jaunt/internal/ui"
+	"github.com/WA-Systems-EU/jaunt/internal/version"
 )
 
 // volumeDetachTimeout bounds how long Up waits for the home volume to be
@@ -55,6 +57,10 @@ type Deps struct {
 	// the caller can finish the step stream. created tells whether this run
 	// created the box.
 	BeforeAttach func(created bool)
+	// Build is this binary's build; the zero value means version.Current().
+	Build version.Build
+	// ReleaseRoot is the release download root; empty means release.GitHubBase.
+	ReleaseRoot string
 }
 
 // steps returns the progress reporter, never nil.
@@ -206,24 +212,55 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 	return res, nil
 }
 
-// BoxBinaryPath returns the linux/amd64 jauntctl binary to install on the box:
-// box_binary when set, else on a linux/amd64 laptop the jauntctl next to this
-// executable.
-func BoxBinaryPath(cfg config.Config) (string, error) {
-	if cfg.BoxBinary != "" {
-		return cfg.BoxBinary, nil
+// Runtime platform, vars so tests can pretend to be another machine.
+var (
+	runtimeGOOS   = runtime.GOOS
+	runtimeGOARCH = runtime.GOARCH
+)
+
+// boxSource says where the box's jauntctl comes from: a local file to copy or
+// a release version to download. Exactly one is set.
+type boxSource struct {
+	Local   string
+	Version string
+}
+
+// build returns the running build, d.Build unless it is the zero value.
+func (d Deps) build() version.Build {
+	if d.Build == (version.Build{}) {
+		return version.Current()
 	}
-	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+	return d.Build
+}
+
+func (d Deps) releaseRoot() string {
+	if d.ReleaseRoot == "" {
+		return release.GitHubBase
+	}
+	return d.ReleaseRoot
+}
+
+// boxBinarySource picks the box binary: box_binary when set, else the release
+// matching this build, else (a dev build) on a linux/amd64 laptop the
+// jauntctl next to this executable.
+func boxBinarySource(d Deps) (boxSource, error) {
+	if d.Cfg.BoxBinary != "" {
+		return boxSource{Local: d.Cfg.BoxBinary}, nil
+	}
+	if b := d.build(); b.Release() {
+		return boxSource{Version: b.Version}, nil
+	}
+	if runtimeGOOS == "linux" && runtimeGOARCH == "amd64" {
 		exe, err := osExecutable()
 		if err != nil {
-			return "", err
+			return boxSource{}, err
 		}
 		p := filepath.Join(filepath.Dir(exe), "jauntctl")
 		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
-			return p, nil
+			return boxSource{Local: p}, nil
 		}
 	}
-	return "", errors.New("no jauntctl to install on the box: build it next to jauntbox (go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl) or set box_binary")
+	return boxSource{}, errors.New("no jauntctl to install on the box: build it next to jauntbox (go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl) or set box_binary")
 }
 
 // WithoutSpawn returns a copy of d whose Spawn does nothing, for callers that

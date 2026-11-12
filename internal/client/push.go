@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
+	"github.com/WA-Systems-EU/jaunt/internal/release"
 	"github.com/WA-Systems-EU/jaunt/internal/ui"
 )
 
@@ -66,12 +69,12 @@ func EnsureSupervisor(ctx context.Context, d Deps) error {
 		tryUnlock(ctx, d)
 		return nil
 	}
-	bin, err := BoxBinaryPath(d.Cfg)
+	src, err := boxBinarySource(d)
 	if err != nil {
 		return err
 	}
 	install := d.steps().Start("Install supervisor")
-	return copyAndInstall(ctx, d, bin, time.Now().Add(DefaultPushWait), DefaultPushWait, nil, install)
+	return copyAndInstall(ctx, d, src, time.Now().Add(DefaultPushWait), DefaultPushWait, nil, install)
 }
 
 // notInstalled reports whether err is the remote check command itself failing
@@ -153,7 +156,7 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 	if wait <= 0 {
 		wait = DefaultPushWait
 	}
-	bin, err := BoxBinaryPath(d.Cfg)
+	src, err := boxBinarySource(d)
 	if err != nil {
 		return err
 	}
@@ -188,7 +191,7 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 	}
 	joined.Done()
 
-	return copyAndInstall(ctx, d, bin, deadline, wait, steps.Start("Box reachable"), nil)
+	return copyAndInstall(ctx, d, src, deadline, wait, steps.Start("Box reachable"), nil)
 }
 
 // copyAndInstall copies the binary to the box and installs the supervisor,
@@ -202,7 +205,7 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 // reach is the "Box reachable" step, open until the copy works (nil when the
 // box is already known to be reachable); install is the "Install supervisor"
 // step, passed open for a re-push or started after the copy otherwise.
-func copyAndInstall(ctx context.Context, d Deps, bin string, deadline time.Time, wait time.Duration, reach, install ui.Step) error {
+func copyAndInstall(ctx context.Context, d Deps, src boxSource, deadline time.Time, wait time.Duration, reach, install ui.Step) error {
 	host := hostname(d.Cfg.User)
 	fail := func(err error) error {
 		if install != nil {
@@ -214,8 +217,12 @@ func copyAndInstall(ctx context.Context, d Deps, bin string, deadline time.Time,
 	}
 	var rootSince time.Time
 	for {
-		err := rootCopy(ctx, d, bin, "/tmp/jauntctl")
+		err := stageBinary(ctx, d, src)
 		if err != nil {
+			var fe *fatalStageError
+			if errors.As(err, &fe) {
+				return fail(err)
+			}
 			err = fmt.Errorf("copy binary: %w", err)
 		} else {
 			if install == nil {
@@ -255,4 +262,78 @@ func copyAndInstall(ctx context.Context, d Deps, bin string, deadline time.Time,
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// fatalStageError is a staging failure that retrying cannot fix: a checksum
+// mismatch, an unsupported architecture, a release that does not exist.
+type fatalStageError struct{ err error }
+
+func (e *fatalStageError) Error() string { return e.err.Error() }
+func (e *fatalStageError) Unwrap() error { return e.err }
+
+// boxExit returns the exit status of a remote command that ran and failed.
+func boxExit(err error) (int, bool) {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && !errors.Is(err, ErrRootSSH) {
+		return ee.ExitCode(), true
+	}
+	return 0, false
+}
+
+// stageBinary leaves the box's jauntctl at /tmp/jauntctl: a local file is
+// copied; a release is downloaded by the box itself, and when the box cannot
+// reach the download the laptop fetches it and copies it over. A checksum
+// mismatch or an unsupported architecture is fatal, never retried.
+func stageBinary(ctx context.Context, d Deps, src boxSource) error {
+	if src.Version == "" {
+		return rootCopy(ctx, d, src.Local, "/tmp/jauntctl")
+	}
+	base := release.BaseURL(d.releaseRoot(), src.Version)
+	script, err := release.BoxFetchScript(base, src.Version)
+	if err != nil {
+		return &fatalStageError{err}
+	}
+	_, err = rootRun(ctx, d, "sh", "-c", script)
+	if err == nil {
+		return nil
+	}
+	code, ok := boxExit(err)
+	if !ok {
+		return err
+	}
+	switch code {
+	case release.ExitChecksum:
+		return &fatalStageError{fmt.Errorf("the box downloaded jauntctl %s but its checksum does not match (%s): %w", src.Version, base, release.ErrChecksum)}
+	case release.ExitArch:
+		return &fatalStageError{fmt.Errorf("the box has an unsupported architecture for jauntctl %s: %w", src.Version, err)}
+	case release.ExitDownload:
+		return fetchOnLaptop(ctx, d, src.Version, base, err)
+	}
+	return fmt.Errorf("fetching jauntctl %s on the box: %w", src.Version, err)
+}
+
+// fetchOnLaptop downloads the release on this machine and copies it to the box.
+func fetchOnLaptop(ctx context.Context, d Deps, version, base string, boxErr error) error {
+	out, err := rootRun(ctx, d, "uname", "-m")
+	if err != nil {
+		return err
+	}
+	arch, err := release.ArchFromUname(string(out))
+	if err != nil {
+		return &fatalStageError{err}
+	}
+	dir, err := os.MkdirTemp("", "jauntctl-release")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	dest := filepath.Join(dir, "jauntctl")
+	hc := &http.Client{Timeout: 5 * time.Minute}
+	if err := release.FetchBox(ctx, hc, base, version, arch, dest); err != nil {
+		if errors.Is(err, release.ErrChecksum) {
+			return &fatalStageError{err}
+		}
+		return &fatalStageError{fmt.Errorf("jauntctl %s could not be downloaded, neither by the box (%v) nor by this machine; is %s a published release? %w", version, boxErr, base, err)}
+	}
+	return rootCopy(ctx, d, dest, "/tmp/jauntctl")
 }
