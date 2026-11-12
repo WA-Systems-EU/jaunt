@@ -9,7 +9,7 @@ timezone: Europe/Paris             # IANA name; all limit times are evaluated he
 location: fsn1
 image: ubuntu-26.04
 volume_size_gb: 100                # persistent /home volume
-box_binary: ""                     # path to the on-box supervisor binary
+box_binary: ""                     # a linux jauntctl to install on the box; default: the jauntctl next to jauntbox
 
 default_profile: small
 profiles:                          # server types are placeholders until verified

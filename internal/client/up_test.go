@@ -7,7 +7,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -220,11 +223,11 @@ func TestPushBinaryWaitsForMesh(t *testing.T) {
 	if m.polls != 3 {
 		t.Fatalf("polls = %d", m.polls)
 	}
-	if len(r.order) != 3 || r.order[0] != "copy:/tmp/jauntbox" || r.order[1] != "run" || r.order[2] != "run" {
+	if len(r.order) != 3 || r.order[0] != "copy:/tmp/jauntctl" || r.order[1] != "run" || r.order[2] != "run" {
 		t.Fatalf("order = %v", r.order)
 	}
 	want := "[" + installCmd("alice") + "]"
-	if r.cmds[0] != want || installCmd("alice") != "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true && runuser -u alice -- git config --global diff.ignoreSubmodules all && runuser -u alice -- git config --global status.submoduleSummary false && runuser -u alice -- git config --global submodule.recurse false && runuser -u alice -- git config --global core.fsmonitor false && { systemctl enable --now jauntbox-agent-net.service || true; }" {
+	if r.cmds[0] != want || installCmd("alice") != "cd / && install -m 0755 /tmp/jauntctl /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && runuser -u alice -- git config --global --replace-all credential.https://github.com.helper '' && runuser -u alice -- git config --global --add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && runuser -u alice -- git config --global credential.https://github.com.useHttpPath true && runuser -u alice -- git config --global diff.ignoreSubmodules all && runuser -u alice -- git config --global status.submoduleSummary false && runuser -u alice -- git config --global submodule.recurse false && runuser -u alice -- git config --global core.fsmonitor false && { systemctl enable --now jauntbox-agent-net.service || true; }" {
 		t.Fatalf("cmd = %q", r.cmds[0])
 	}
 	assertRemoteUnused(t, d)
@@ -319,7 +322,7 @@ func TestPushBinaryRetriesCopyUntilUserExists(t *testing.T) {
 	d, _, _, _, _, _ := newDeps(t)
 	r := &flakyCopyRemote{copyFails: 2}
 	d.Root = r
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +337,7 @@ func TestPushBinaryCopyTimeoutReportsLastError(t *testing.T) {
 	defer func() { pollInterval = old }()
 	d, _, _, _, _, _ := newDeps(t)
 	d.Root = &flakyCopyRemote{copyFails: 1 << 30}
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	err := PushBinary(context.Background(), d, 20*time.Millisecond)
 	if err == nil || !strings.Contains(err.Error(), "user not created yet") {
 		t.Fatalf("err = %v", err)
@@ -490,7 +493,7 @@ func TestRootSSHFailureNamesACLSnippet(t *testing.T) {
 		withBox(p)
 		p.waitErr = errors.New("still there") // down: the box is not already gone
 		r.err, r.inputErr = cause, cause
-		osExecutable = func() (string, error) { return "/bin/true", nil }
+		osExecutable = func() (string, error) { return fakeExe, nil }
 		var err error
 		if f == nil {
 			var rep StatusReport
@@ -534,7 +537,7 @@ func TestPushBinaryRootRefusedFailsFast(t *testing.T) {
 	d, _, _, _, _, _ := newDeps(t)
 	r := &rootRefusedRemote{}
 	d.Root = r
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	start := time.Now()
 	err := PushBinary(context.Background(), d, time.Hour)
 	if !errors.Is(err, ErrRootSSH) || !strings.Contains(err.Error(), "acl-snippet") {
@@ -565,4 +568,51 @@ func TestInstallCmdSetsHostGitGuards(t *testing.T) {
 	if !strings.HasSuffix(cmd, step) || i < strings.Index(cmd, "core.fsmonitor false") {
 		t.Fatalf("agent-net step must come last, after the git guards: %s", cmd)
 	}
+}
+
+func TestBoxBinaryPathSibling(t *testing.T) {
+	old := osExecutable
+	t.Cleanup(func() { osExecutable = old })
+	dir := t.TempDir()
+	osExecutable = func() (string, error) { return filepath.Join(dir, "jauntbox"), nil }
+
+	// box_binary, when set, always wins
+	if p, err := BoxBinaryPath(config.Config{BoxBinary: "/x/jauntctl"}); err != nil || p != "/x/jauntctl" {
+		t.Fatalf("box_binary: p=%q err=%v", p, err)
+	}
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("the sibling jauntctl is used on linux/amd64 only")
+	}
+	want := "no jauntctl to install on the box: build it next to jauntbox (go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl) or set box_binary"
+	if _, err := BoxBinaryPath(config.Config{}); err == nil || err.Error() != want {
+		t.Fatalf("missing sibling: err = %v, want %q", err, want)
+	}
+	sib := filepath.Join(dir, "jauntctl")
+	if err := os.WriteFile(sib, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := BoxBinaryPath(config.Config{}); err != nil || p != sib {
+		t.Fatalf("sibling: p=%q err=%v", p, err)
+	}
+}
+
+// fakeExe is a jauntbox executable path with a jauntctl next to it, so that
+// BoxBinaryPath finds a box binary in every test that pushes one.
+var fakeExe string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "jauntbox-client-test")
+	if err != nil {
+		panic(err)
+	}
+	fakeExe = filepath.Join(dir, "jauntbox")
+	for _, n := range []string{"jauntbox", "jauntctl"} {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			panic(err)
+		}
+	}
+	osExecutable = func() (string, error) { return fakeExe, nil }
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/WA-Systems-EU/jaunt/internal/agent"
 	"github.com/WA-Systems-EU/jaunt/internal/agentrun"
 	"github.com/WA-Systems-EU/jaunt/internal/boxinfo"
+	"github.com/WA-Systems-EU/jaunt/internal/cli"
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
 	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
@@ -34,10 +35,6 @@ import (
 // jauntctlPath is the only jauntctl the sudoers line lets the box user run
 // without a password; every root re-exec goes through exactly this path.
 const jauntctlPath = "/usr/local/bin/jauntctl"
-
-// errReported makes jauntctl exit 1 without printing: the root part already
-// wrote its error to the terminal.
-var errReported = errors.New("already reported")
 
 // sudoUser is the box user a root agent command acts for.
 type sudoUser struct {
@@ -55,7 +52,7 @@ type agentDeps struct {
 	// exec replaces the process (syscall.Exec), so a TTY passes through.
 	exec func(path string, argv, env []string) error
 	// sudo runs `sudo -n jauntctl args...` with the terminal's stdin and
-	// stderr, stdout to the writer; a non-zero exit is errReported.
+	// stderr, stdout to the writer; a non-zero exit is cli.ErrReported.
 	sudo func(args []string, stdout io.Writer) error
 
 	// root side
@@ -103,7 +100,7 @@ func runSudo(args []string, stdout io.Writer) error {
 	err := c.Run()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
-		return errReported
+		return cli.ErrReported
 	}
 	return err
 }
@@ -575,25 +572,13 @@ func listCmd(d *agentDeps) *cobra.Command {
 					ports = strings.Join(p, ",")
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, s.Repo, s.Branch, s.Mode, s.State,
-					s.StartedAt.Local().Format("2006-01-02 15:04"), shortDuration(s.Max), ip, ports)
+					s.StartedAt.Local().Format("2006-01-02 15:04"), cli.ShortDuration(s.Max), ip, ports)
 			}
 			return tw.Flush()
 		},
 	}
 	c.Flags().BoolVar(&asJSON, "json", false, "print a JSON array")
 	return c
-}
-
-// shortDuration prints 8h0m0s as 8h and 1h30m0s as 1h30m.
-func shortDuration(d time.Duration) string {
-	s := d.String()
-	if strings.HasSuffix(s, "m0s") {
-		s = strings.TrimSuffix(s, "0s")
-	}
-	if strings.HasSuffix(s, "h0m") {
-		s = strings.TrimSuffix(s, "0m")
-	}
-	return s
 }
 
 func stopAgentCmd(d *agentDeps) *cobra.Command {

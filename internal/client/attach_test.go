@@ -82,7 +82,7 @@ func attachFixture(t *testing.T) (Deps, *fakeProv, *scriptRemote) {
 	oldGap := checkGap
 	checkGap = time.Millisecond
 	t.Cleanup(func() { provisionPoll, checkGap = oldProv, oldGap })
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	attachOut = io.Discard
 	sleepFn = func(context.Context, time.Duration) error { return nil }
 	t.Cleanup(func() { osExecutable, attachOut, sleepFn = oldExe, oldOut, oldSleep })
@@ -109,7 +109,7 @@ func TestAttachUpThenExec(t *testing.T) {
 		t.Fatalf("exec = %v", got)
 	}
 	joined := strings.Join(r.cmds, "\n")
-	pushed := strings.Index(joined, "copy:/tmp/jauntbox")
+	pushed := strings.Index(joined, "copy:/tmp/jauntctl")
 	created := strings.Index(joined, "workspace create --cwd /home/alice/src/b --label b --no-focus")
 	if pushed < 0 || created < pushed {
 		t.Fatalf("push must precede workspace creation:\n%s", joined)
@@ -145,7 +145,7 @@ func TestAttachExistingBoxEnsuresSupervisorBeforeAttach(t *testing.T) {
 	err := Attach(context.Background(), d, session.Herdr{}, false, func([]string) (int, error) {
 		attached = true
 		joined := strings.Join(r.cmds, "\n")
-		if !strings.Contains(joined, "copy:/tmp/jauntbox") || !strings.Contains(joined, "systemctl enable --now jauntbox-supervise.timer") {
+		if !strings.Contains(joined, "copy:/tmp/jauntctl") || !strings.Contains(joined, "systemctl enable --now jauntbox-supervise.timer") {
 			t.Errorf("supervisor not installed before attach:\n%s", joined)
 		}
 		return 0, nil
@@ -188,7 +188,7 @@ func TestInstallSupervisorOnExistingBox(t *testing.T) {
 	if err := InstallSupervisor(context.Background(), d, true); err != nil || spawned != 1 {
 		t.Fatalf("foreground: err=%v spawned=%d", err, spawned)
 	}
-	if !strings.Contains(strings.Join(r.cmds, "\n"), "copy:/tmp/jauntbox") {
+	if !strings.Contains(strings.Join(r.cmds, "\n"), "copy:/tmp/jauntctl") {
 		t.Errorf("foreground did not push: %v", r.cmds)
 	}
 }

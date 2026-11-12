@@ -30,7 +30,7 @@ import (
 // maxSecretsInput bounds the bundle `secrets-load` accepts on stdin.
 const maxSecretsInput = 1 << 20
 
-// boxOnlyCmds are box commands with no laptop transition alias.
+// boxOnlyCmds builds the secrets, GitHub token and agent network commands.
 func boxOnlyCmds() []*cobra.Command {
 	load := &cobra.Command{
 		Use:   "secrets-load",
@@ -182,7 +182,7 @@ func printRepos(w io.Writer, rs []forge.Repo, asJSON bool) error {
 // sudoMint asks the root-only `mint` command for a token. Its stderr line
 // (locked, not set up, not installed) becomes the error verbatim.
 func sudoMint(repo string) (forge.Token, error) {
-	c := exec.Command("sudo", "-n", "/usr/local/bin/jauntctl", "mint", repo)
+	c := exec.Command("sudo", "-n", jauntctlPath, "mint", repo)
 	var stdout, stderr bytes.Buffer
 	c.Stdout, c.Stderr = &stdout, &stderr
 	if err := c.Run(); err != nil {
@@ -190,7 +190,7 @@ func sudoMint(repo string) (forge.Token, error) {
 		if i := strings.LastIndex(msg, "\n"); i >= 0 {
 			msg = msg[i+1:]
 		}
-		msg = strings.TrimPrefix(msg, BoxName+": ")
+		msg = strings.TrimPrefix(msg, "jauntctl: ")
 		if msg == "" {
 			msg = "could not mint a token: " + err.Error()
 		}

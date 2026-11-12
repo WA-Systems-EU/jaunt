@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/WA-Systems-EU/jaunt/internal/cli"
 	"github.com/WA-Systems-EU/jaunt/internal/client"
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
@@ -137,6 +138,7 @@ func newFx(t *testing.T) *fx {
 	cfg.User = "alice"
 	cfg.Timezone = "Europe/Paris"
 	cfg.SSHPublicKey = "ssh-ed25519 AAAA"
+	cfg.BoxBinary = "/bin/true" // the fake remote never reads it
 	f := &fx{log: &tLog{}}
 	f.prov, f.mesh = &tProv{log: f.log}, &tMesh{}
 	f.rem = &tRemote{log: f.log}
@@ -281,8 +283,8 @@ func TestUpInterruptAfterCreateHandsOff(t *testing.T) {
 		return false
 	}
 	_, stderr, err := f.run(ctx, "up")
-	if !errors.Is(err, errReported) {
-		t.Fatalf("want errReported (exit 1, nothing more printed), got %v", err)
+	if !errors.Is(err, cli.ErrReported) {
+		t.Fatalf("want cli.ErrReported (exit 1, nothing more printed), got %v", err)
 	}
 	if f.log.count("spawn:internal-push") != 1 {
 		t.Fatalf("spawns: %v", f.log.lines)

@@ -472,21 +472,8 @@ func TestAgentListUserSideReexecs(t *testing.T) {
 	}
 }
 
-func TestLaptopAgentIsWrongSide(t *testing.T) {
-	root := rootFor("jauntbox")
-	root.SetArgs([]string{"--config", filepath.Join(t.TempDir(), "c.yaml"), "agent", "--unattended", "x"})
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-	err := root.Execute()
-	want := "\"agent\" is a box command: run `jauntctl agent` on the box, in your repository's folder"
-	if err == nil || err.Error() != want {
-		t.Fatalf("err = %v, want %q", err, want)
-	}
-}
-
 func TestJauntctlHasAgent(t *testing.T) {
-	v, _ := names(rootFor("jauntctl"))
-	if !v["agent"] {
+	if !has(newBoxCmd(), "agent") {
 		t.Fatal("jauntctl lacks agent")
 	}
 }

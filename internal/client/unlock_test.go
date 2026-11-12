@@ -90,7 +90,7 @@ func TestPushBinaryUnlocksAfterInstall(t *testing.T) {
 	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"copy:/tmp/jauntbox", "run", "run", "runinput"}
+	want := []string{"copy:/tmp/jauntctl", "run", "run", "runinput"}
 	if strings.Join(r.order, ",") != strings.Join(want, ",") {
 		t.Fatalf("order = %v", r.order)
 	}

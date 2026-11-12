@@ -18,6 +18,8 @@ open-source CLI that a single person needs to run their own box.
 - Open an issue first for anything bigger than a small fix, so we can agree on the
   approach.
 - Keep commits to plain conventional messages (`fix(jauntbox): …`, `feat(jauntbox): …`).
+- The laptop client is `cmd/jauntbox`, the box side `cmd/jauntctl`; code both need lives
+  under `internal/`. Build both with `go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl`.
 - Tests never call real Hetzner, Tailscale, GitHub or Docker. Use the existing fakes and
   `httptest`. Run `go vet ./... && go test ./...` and the shell tests under `provision/`
   before you open a pull request.

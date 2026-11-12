@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/WA-Systems-EU/jaunt/internal/cli"
 	"github.com/WA-Systems-EU/jaunt/internal/client"
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/lifecycle"
@@ -110,13 +111,13 @@ func readyLinesAt(cfg config.Config, lim config.Limits, elapsedFrom, now, deadli
 		if dd := day(dl); dd != "" {
 			at = dd + " " + at
 		}
-		first = fmt.Sprintf("Deletes itself at %s (%s) or after %s idle.", at, reason, shortDuration(time.Duration(lim.IdleDay)))
+		first = fmt.Sprintf("Deletes itself at %s (%s) or after %s idle.", at, reason, cli.ShortDuration(time.Duration(lim.IdleDay)))
 	} else {
 		at := dl.Format("15:04")
 		if dd := day(dl); dd != "" {
 			at += " " + dd
 		}
-		first = fmt.Sprintf("Past its deadline (%s, %s); deletes itself once you're idle for %s.", at, reason, shortDuration(time.Duration(lim.HumanActiveWindow)))
+		first = fmt.Sprintf("Past its deadline (%s, %s); deletes itself once you're idle for %s.", at, reason, cli.ShortDuration(time.Duration(lim.HumanActiveWindow)))
 	}
 	lines := []string{first, "Open it with jauntbox, or ssh " + hostnameFor(user) + "."}
 	return "Ready in " + ui.FormatDuration(now.Sub(elapsedFrom)) + ".", lines
@@ -228,10 +229,10 @@ func handOff(ctx context.Context, cmd *cobra.Command, spawn func(...string) erro
 	steps.Close()
 	if serr := spawn("internal-push"); serr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "could not start the background install: %v (run `jauntbox internal-push`)\n", serr)
-		return errReported
+		return cli.ErrReported
 	}
 	fmt.Fprintln(cmd.ErrOrStderr(), "the box keeps getting ready in the background; log: "+filepath.Join(stateDir(), "push.log"))
-	return errReported
+	return cli.ErrReported
 }
 
 func upDetached(ctx context.Context, cmd *cobra.Command, d client.Deps, steps *tracked, profile string) error {

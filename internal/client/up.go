@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -204,15 +206,24 @@ func Up(ctx context.Context, d Deps, profile string) (UpResult, error) {
 	return res, nil
 }
 
-// BoxBinaryPath returns the linux/amd64 jauntbox binary to install on the box.
+// BoxBinaryPath returns the linux/amd64 jauntctl binary to install on the box:
+// box_binary when set, else on a linux/amd64 laptop the jauntctl next to this
+// executable.
 func BoxBinaryPath(cfg config.Config) (string, error) {
+	if cfg.BoxBinary != "" {
+		return cfg.BoxBinary, nil
+	}
 	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
-		return osExecutable()
+		exe, err := osExecutable()
+		if err != nil {
+			return "", err
+		}
+		p := filepath.Join(filepath.Dir(exe), "jauntctl")
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+			return p, nil
+		}
 	}
-	if cfg.BoxBinary == "" {
-		return "", fmt.Errorf("box_binary must be set on non-linux/amd64 clients")
-	}
-	return cfg.BoxBinary, nil
+	return "", errors.New("no jauntctl to install on the box: build it next to jauntbox (go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl) or set box_binary")
 }
 
 // WithoutSpawn returns a copy of d whose Spawn does nothing, for callers that

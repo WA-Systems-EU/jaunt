@@ -13,6 +13,7 @@ import (
 
 	"github.com/WA-Systems-EU/jaunt/internal/agentrun"
 	"github.com/WA-Systems-EU/jaunt/internal/events"
+	"github.com/WA-Systems-EU/jaunt/internal/lifecycle"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
 )
@@ -51,7 +52,7 @@ func TestDownWaitsForAgentTeardown(t *testing.T) {
 		t.Fatal(err)
 	}
 	grace := time.Duration(pol.Limits.WrapUpGrace)
-	want := grace + supervisor.TimerInterval + supervisor.PassTimeout + 2*time.Minute
+	want := grace + lifecycle.TimerInterval + lifecycle.PassTimeout + 2*time.Minute
 	if downWait(grace) != want {
 		t.Fatalf("downWait = %v, want %v", downWait(grace), want)
 	}

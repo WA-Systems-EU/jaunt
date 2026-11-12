@@ -141,8 +141,9 @@ jauntbox unlock                                # push secrets to the box: after 
 - Tokens are revoked before the box deletes itself; `token.revoked` events are written
   to `/home/.jauntbox/events.jsonl` on the volume.
 - Box-side commands answer to `jauntctl` (`supervise`, `stop`, `night-set`,
-  `box-status`, `secrets-load`, `mint`, `repos`, `git-credential`). A `jauntbox`
-  symlink to it remains on the box for old units.
+  `box-status`, `secrets-load`, `mint`, `repos`, `git-credential`, `agent`), a separate
+  program built from `cmd/jauntctl`. A `jauntbox` symlink to it remains on the box for
+  old units; it runs `jauntctl` all the same.
 - **Upgrading.** After upgrading jauntbox, run `jauntbox` or `jauntbox up` once against
   an existing box before `jauntbox down`, so the box gets `jauntctl`.
 
@@ -340,7 +341,14 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 06 (terminal UI) are built and merged. Plan 03's live smoke is partly done; Plans 04 and 06
 have not been smoke-tested yet. Plan 05 (provider layer) is written, not built. Release
 work (version stamping, GoReleaser binaries, a Homebrew tap, semver 0.x) is planned; until
-then you build from source.
+then you build from source. jauntbox is two programs: `jauntbox` on your laptop and
+`jauntctl` on the box. Build both into the same folder, so that jauntbox finds the
+`jauntctl` it installs on the box (on a Linux amd64 laptop; elsewhere set `box_binary` to a
+Linux amd64 `jauntctl`):
+
+```sh
+go build -o ~/bin/ ./cmd/jauntbox ./cmd/jauntctl
+```
 
 - Design: [`docs/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/specs/2026-11-09-jauntbox-single-machine-design.md)
 - Plans: [`docs/plans/`](docs/plans/)

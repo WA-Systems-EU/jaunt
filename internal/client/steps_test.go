@@ -92,7 +92,7 @@ func TestPushBinaryRecordsSteps(t *testing.T) {
 	fastPoll(t)
 	d, _, _, _, _, _ := newDeps(t)
 	r := withRec(&d)
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	if err := PushBinary(context.Background(), d, time.Minute); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestPushBinaryTimeoutFailsBoxReachable(t *testing.T) {
 	d, _, _, _, _, _ := newDeps(t)
 	r := withRec(&d)
 	d.Root = &flakyCopyRemote{copyFails: 1 << 30}
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	err := PushBinary(context.Background(), d, 20*time.Millisecond)
 	if err == nil {
 		t.Fatal("want error")
@@ -142,7 +142,7 @@ func TestRootSSHRetryIsAWarning(t *testing.T) {
 	d, _, _, _, _, _ := newDeps(t)
 	rec := withRec(&d)
 	d.Root = &rootRefusedRemote{}
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	var err error
 	out := captureStderr(t, func() { err = PushBinary(context.Background(), d, time.Hour) })
 	if err == nil {
@@ -295,7 +295,7 @@ func TestResizeWaitsForNewBox(t *testing.T) {
 	d, p, _, _, _, spawns := newDeps(t)
 	withBox(p)
 	rec := withRec(&d)
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	if _, err := Resize(context.Background(), d, "big"); err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestAttachRecordsStepsAndPrintsNothingElse(t *testing.T) {
 
 func TestResizeFailureModes(t *testing.T) {
 	fastPoll(t)
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	t.Run("push never gets ssh", func(t *testing.T) {
 		d, p, _, _, _, spawns := newDeps(t)
 		withBox(p)
@@ -607,7 +607,7 @@ func TestResizeEndsWithDevTools(t *testing.T) {
 	d, p, _, _, _, _ := newDeps(t)
 	withBox(p)
 	rec := withRec(&d)
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	if _, err := Resize(context.Background(), d, "big"); err != nil {
 		t.Fatal(err)
 	}
@@ -723,7 +723,7 @@ func TestUnreachableBoxRetriesWithoutWarning(t *testing.T) {
 	rec := withRec(&d)
 	r := &bootingRemote{}
 	d.Root = r
-	osExecutable = func() (string, error) { return "/bin/true", nil }
+	osExecutable = func() (string, error) { return fakeExe, nil }
 	if err := PushBinary(context.Background(), d, time.Hour); err != nil {
 		t.Fatalf("err = %v", err)
 	}

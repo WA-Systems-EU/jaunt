@@ -621,15 +621,15 @@ func TestSuperviseUnitTimeoutExceedsPassBudget(t *testing.T) {
 			fmt.Sscan(v, &secs)
 		}
 	}
-	if time.Duration(secs)*time.Second != PassTimeout {
-		t.Fatalf("TimeoutStartSec=%d does not match PassTimeout %v", secs, PassTimeout)
+	if time.Duration(secs)*time.Second != lifecycle.PassTimeout {
+		t.Fatalf("TimeoutStartSec=%d does not match PassTimeout %v", secs, lifecycle.PassTimeout)
 	}
 	tb, err := os.ReadFile("../cloudinit/units/jauntbox-supervise.timer")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(tb), fmt.Sprintf("\nOnUnitActiveSec=%dmin\n", int(TimerInterval/time.Minute))) {
-		t.Fatalf("supervise.timer does not match TimerInterval %v:\n%s", TimerInterval, tb)
+	if !strings.Contains(string(tb), fmt.Sprintf("\nOnUnitActiveSec=%dmin\n", int(lifecycle.TimerInterval/time.Minute))) {
+		t.Fatalf("supervise.timer does not match TimerInterval %v:\n%s", lifecycle.TimerInterval, tb)
 	}
 	// The 600 s limit covers 2 runs in the worst case (all timeouts hit).
 	if need := MaxPassBudget(2); time.Duration(secs)*time.Second < need {

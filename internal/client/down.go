@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/WA-Systems-EU/jaunt/internal/events"
-	"github.com/WA-Systems-EU/jaunt/internal/supervisor"
+	"github.com/WA-Systems-EU/jaunt/internal/lifecycle"
 )
 
 // goneCheckWait is how long Down waits to see whether the box is already gone
@@ -24,7 +24,7 @@ const downMargin = 2 * time.Minute
 // that sees it elapsed, that pass (agent finishes with their fallback
 // pushes, token revoke; systemd caps it at PassTimeout) and a margin.
 func downWait(grace time.Duration) time.Duration {
-	return grace + supervisor.TimerInterval + supervisor.PassTimeout + downMargin
+	return grace + lifecycle.TimerInterval + lifecycle.PassTimeout + downMargin
 }
 
 // Down deletes the box. Unless force is set it first asks the box to wrap up

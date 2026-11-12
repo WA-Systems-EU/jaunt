@@ -1,5 +1,6 @@
 # go
 /jauntbox
+/jauntctl
 /dist/
 *.test
 coverage.out

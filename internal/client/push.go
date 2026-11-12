@@ -28,7 +28,7 @@ const DefaultPushWait = 15 * time.Minute
 func installCmd(user string) string {
 	// cd / first: git exits 128 when the cwd (/root over ssh) is unreadable for the user.
 	git := "runuser -u " + user + " -- git config --global "
-	return "cd / && install -m 0755 /tmp/jauntbox /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && " +
+	return "cd / && install -m 0755 /tmp/jauntctl /usr/local/bin/jauntctl && ln -sf jauntctl /usr/local/bin/jauntbox && systemctl enable --now jauntbox-supervise.timer && " +
 		git + "--replace-all credential.https://github.com.helper '' && " +
 		git + "--add credential.https://github.com.helper '/usr/local/bin/jauntctl git-credential' && " +
 		git + "credential.https://github.com.useHttpPath true && " +
@@ -147,7 +147,7 @@ func neverJoined(ctx context.Context, d Deps, host string, wait time.Duration) e
 	return fmt.Errorf("%s never joined the tailnet within %s; deleted it (%s)", host, wait, hint)
 }
 
-// PushBinary waits for the box to appear on the tailnet, copies the jauntbox
+// PushBinary waits for the box to appear on the tailnet, copies the jauntctl
 // binary to it and enables the supervisor.
 func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 	if wait <= 0 {
@@ -214,7 +214,7 @@ func copyAndInstall(ctx context.Context, d Deps, bin string, deadline time.Time,
 	}
 	var rootSince time.Time
 	for {
-		err := rootCopy(ctx, d, bin, "/tmp/jauntbox")
+		err := rootCopy(ctx, d, bin, "/tmp/jauntctl")
 		if err != nil {
 			err = fmt.Errorf("copy binary: %w", err)
 		} else {

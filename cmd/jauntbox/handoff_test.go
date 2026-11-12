@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WA-Systems-EU/jaunt/internal/cli"
 	"github.com/WA-Systems-EU/jaunt/internal/config"
 	"github.com/WA-Systems-EU/jaunt/internal/provider"
 )
@@ -15,8 +16,8 @@ import (
 // internal-push after the foreground poll, the interrupted line, then the note.
 func assertHandedOff(t *testing.T, f *fx, stderr string, err error) {
 	t.Helper()
-	if !errors.Is(err, errReported) {
-		t.Fatalf("want errReported, got %v", err)
+	if !errors.Is(err, cli.ErrReported) {
+		t.Fatalf("want cli.ErrReported, got %v", err)
 	}
 	if f.log.count("spawn:internal-push") != 1 {
 		t.Fatalf("spawns: %v", f.log.lines)
@@ -63,7 +64,7 @@ func TestResizeInterruptDuringDownSpawnsNothing(t *testing.T) {
 		}
 	}
 	_, stderr, err := f.run(ctx, "resize", "big")
-	if err == nil || errors.Is(err, errReported) {
+	if err == nil || errors.Is(err, cli.ErrReported) {
 		t.Fatalf("want the plain error, got %v", err)
 	}
 	if len(f.spawn) != 0 {
@@ -99,7 +100,7 @@ func TestBareInterruptBeforeBoxSpawnsNothing(t *testing.T) {
 	defer cancel()
 	f.prov.hook = cancel // Ctrl-C while the SSH key is ensured: no server yet
 	_, _, err := f.run(ctx, "--nested")
-	if err == nil || errors.Is(err, errReported) || len(f.spawn) != 0 {
+	if err == nil || errors.Is(err, cli.ErrReported) || len(f.spawn) != 0 {
 		t.Fatalf("err=%v spawns=%v", err, f.spawn)
 	}
 }
