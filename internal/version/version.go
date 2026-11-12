@@ -29,7 +29,7 @@ type Build struct {
 var (
 	pseudoRe  = regexp.MustCompile(`[-.]\d{14}-[0-9a-f]{12}$`)
 	releaseRe = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
-	lineRe    = regexp.MustCompile(`^\S+ (\S+) \(`)
+	lineRe    = regexp.MustCompile(`^\S+ (\S+)(?: \(|$)`)
 )
 
 func short(s string, n int) string {
@@ -64,10 +64,6 @@ func Current() Build {
 			case "vcs.revision":
 				if b.Commit == "" {
 					b.Commit = short(s.Value, 7)
-				}
-			case "vcs.time":
-				if b.Date == "" {
-					b.Date = short(s.Value, 10)
 				}
 			case "vcs.modified":
 				b.Dirty = s.Value == "true"

@@ -48,6 +48,7 @@ func TestLocalBuild(t *testing.T) {
 		Main: debug.Module{Version: "(devel)"},
 		Settings: []debug.BuildSetting{
 			{Key: "vcs.revision", Value: "abc1234def5678"},
+			{Key: "vcs.time", Value: "2026-11-10T09:00:00Z"},
 			{Key: "vcs.modified", Value: "true"},
 		},
 	})
@@ -67,10 +68,24 @@ func TestParseLine(t *testing.T) {
 	for in, want := range map[string]string{
 		"jauntctl 0.4.0 (commit a, built b)\n": "0.4.0",
 		"jauntctl dev (commit a)":              "dev",
+		"jauntctl 0.4.0\n":                     "0.4.0",
+		"jauntctl dev":                         "dev",
 		"Error: unknown flag: --version":       "",
 	} {
 		if got := ParseLine(in); got != want {
 			t.Errorf("ParseLine(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestParseLineRoundTrip(t *testing.T) {
+	for _, b := range []Build{
+		{"0.4.0", "abc1234", "2026-11-13", false},
+		{"dev", "abc1234", "", true},
+		{"0.4.0", "", "", false},
+	} {
+		if got := ParseLine(b.Line("x")); got != b.Version {
+			t.Errorf("ParseLine(%q) = %q, want %q", b.Line("x"), got, b.Version)
 		}
 	}
 }

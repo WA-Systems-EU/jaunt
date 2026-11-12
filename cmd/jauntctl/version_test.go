@@ -12,7 +12,7 @@ func TestVersionFlag(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	root.SetArgs([]string{"--version"})
+	root.SetArgs([]string{"--version", "--config", "x"})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
