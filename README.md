@@ -55,7 +55,8 @@ jauntbox down                       # wrap up and delete the box (the volume sta
 `jauntbox up` stays in the foreground and shows each step with its time. A new box goes
 through Policy and limits, SSH key, firewall, volume, Server created, Joined the tailnet,
 Box reachable, Install supervisor, Unlock secrets and Dev tools installed, then ends on
-`Ready in 2m31s.` with the time the box deletes itself and the `ssh` command. If the box
+`Ready in 2m31s.` with the time the box deletes itself and how to open it (`jauntbox`, or
+`ssh jauntbox-<user>`). If the box
 is already past its deadline it says so. `down`, `resize` and bare `jauntbox` show steps
 too. Press Ctrl-C once the server exists and the box keeps getting ready in the background
 (log: `push.log`); a second Ctrl-C quits. `--detach` returns as soon as the box exists.

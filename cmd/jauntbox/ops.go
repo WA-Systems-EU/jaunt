@@ -112,7 +112,7 @@ func clientOpsCmds(cfgPath *string, load func(string) (client.Deps, error)) []*c
 			if err != nil {
 				return handOff(cmd.Context(), cmd, d.Spawn, steps, res, err)
 			}
-			finishUp(cmd.Context(), steps, d, startedAt, startedAt)
+			finishUp(cmd.Context(), steps, d, startedAt, startedAt, false)
 			return nil
 		}),
 	}

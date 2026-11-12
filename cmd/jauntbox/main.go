@@ -388,7 +388,7 @@ func newClientCmdWith(load func(string) (client.Deps, error)) *cobra.Command {
 			d.BeforeAttach = func(created bool) {
 				attached = true
 				if created {
-					finishUp(ctx, steps, d, startedAt, startedAt)
+					finishUp(ctx, steps, d, startedAt, startedAt, true)
 				}
 				steps.Close()
 			}

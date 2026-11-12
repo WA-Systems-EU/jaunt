@@ -118,19 +118,23 @@ func readyLinesAt(cfg config.Config, lim config.Limits, elapsedFrom, now, deadli
 		}
 		first = fmt.Sprintf("Past its deadline (%s, %s); deletes itself once you're idle for %s.", at, reason, shortDuration(time.Duration(lim.HumanActiveWindow)))
 	}
-	lines := []string{first, "ssh " + hostnameFor(user)}
+	lines := []string{first, "Open it with jauntbox, or ssh " + hostnameFor(user) + "."}
 	return "Ready in " + ui.FormatDuration(now.Sub(elapsedFrom)) + ".", lines
 }
 
 // finishUp ends the stream with the Ready line; warned turns the final
-// full stop into ", with warnings."
-func finishUp(ctx context.Context, t *tracked, d client.Deps, startedAt, boxUpAt time.Time) {
+// full stop into ", with warnings." attaching drops the "Open it" hint,
+// since bare jauntbox attaches right after.
+func finishUp(ctx context.Context, t *tracked, d client.Deps, startedAt, boxUpAt time.Time, attaching bool) {
 	lim := d.Cfg.Limits
 	if pol, err := d.Policy.Load(ctx); err == nil { // what the supervisor enforces
 		lim = pol.Limits
 	}
 	cfg := d.Cfg
 	summary, lines := readyLinesAt(cfg, lim, startedAt, d.Now(), boxUpAt, cfg.User)
+	if attaching {
+		lines = lines[:len(lines)-1]
+	}
 	if t.warned.Load() {
 		summary = strings.TrimSuffix(summary, ".") + ", with warnings."
 	}
@@ -202,7 +206,7 @@ func upCmd(cfgPath *string, load func(string) (client.Deps, error)) *cobra.Comma
 			if !res.Created && !res.Box.Created.IsZero() {
 				boxUpAt = res.Box.Created // a running box dies by its own clock
 			}
-			finishUp(ctx, steps, d, startedAt, boxUpAt)
+			finishUp(ctx, steps, d, startedAt, boxUpAt, false)
 			return nil
 		},
 	}

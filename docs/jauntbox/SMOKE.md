@@ -234,7 +234,7 @@ result column.
 
 | Check | Result |
 |---|---|
-| 1. `jauntbox up small` on a new box shows each step (Policy and limits, SSH key, firewall, volume, Server created, Joined the tailnet, Box reachable, Install supervisor, Unlock secrets, Dev tools installed) with its time, and ends on `Ready in …` with the deletion time and the `ssh` line | |
+| 1. `jauntbox up small` on a new box shows each step (Policy and limits, SSH key, firewall, volume, Server created, Joined the tailnet, Box reachable, Install supervisor, Unlock secrets, Dev tools installed) with its time, and ends on `Ready in …` with the deletion time and the "Open it with jauntbox, or ssh jauntbox-<user>." line | |
 | 2. `jauntbox up small \| cat` (box already up, then on a new box) prints plain lines only: no escape bytes, no spinner, one line per finished step | |
 | 3. Ctrl-C during Joined the tailnet or Box reachable (after Server created) prints the note naming `push.log`; `jauntbox status` a few minutes later shows the box ready. A second Ctrl-C during the foreground wait quits | |
 | 4. `jauntbox down` shows its steps and ends cleanly; `jauntbox down` again says "no box running" | |

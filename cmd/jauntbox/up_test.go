@@ -191,6 +191,9 @@ func TestUpPlainWhenNotTTY(t *testing.T) {
 	if !strings.Contains(stderr, "● Ready in") {
 		t.Fatalf("no Ready line:\n%s", stderr)
 	}
+	if !strings.Contains(stderr, "Open it with jauntbox, or ssh jauntbox-alice.") {
+		t.Fatalf("no Open it hint:\n%s", stderr)
+	}
 	if !strings.Contains(stderr, "jauntbox · alice · small (cpx42) · fsn1") {
 		t.Fatalf("header:\n%s", stderr)
 	}
@@ -259,7 +262,7 @@ func TestReadyLines(t *testing.T) {
 	if sum != "Ready in 41s." {
 		t.Fatalf("summary %q", sum)
 	}
-	want := []string{"Deletes itself at 19:00 (evening cutoff) or after 2h idle.", "ssh jauntbox-alice"}
+	want := []string{"Deletes itself at 19:00 (evening cutoff) or after 2h idle.", "Open it with jauntbox, or ssh jauntbox-alice."}
 	if strings.Join(lines, "|") != strings.Join(want, "|") {
 		t.Fatalf("lines %q", lines)
 	}
