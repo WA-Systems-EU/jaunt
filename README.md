@@ -29,6 +29,34 @@ jauntbox init            # a short form: detects your user and SSH key, asks for
 jauntbox                 # brings the box up if needed and attaches your persistent session
 ```
 
+## Install
+
+```sh
+curl -fsSL https://www.jauntbox.eu/install.sh | sh                    # latest release, into ~/.local/bin
+curl -fsSL https://www.jauntbox.eu/install.sh | sh -s -- --version 0.4.0   # pin a version (--dir DIR picks the folder)
+go install github.com/WA-Systems-EU/jaunt/cmd/jauntbox@v0.4.0         # the laptop client, with Go
+```
+
+`install.sh` downloads the release for your system and installs it only if the checksum
+matches. It never uses root by default and never picks a pre-release unless you ask for
+that exact version. Check what you have with `jauntbox --version`.
+
+jauntbox is two programs: `jauntbox` on your laptop and `jauntctl` on the box.
+`jauntbox` installs `jauntctl` on the box for you; you never install it by hand. A
+release `jauntbox` makes the box download the same release of `jauntctl` from GitHub and
+check it against `checksums.txt`. If the box can't download, your laptop sends it instead.
+A checksum that doesn't match stops the install.
+
+To build from source, build both programs:
+
+```sh
+go build -o ~/bin/ ./cmd/jauntbox ./cmd/jauntctl
+```
+
+A development build copies the `jauntctl` that sits next to your `jauntbox` (on a Linux
+amd64 laptop). On any other laptop, set `box_binary` to a Linux amd64 `jauntctl`.
+`box_binary` is only for development builds, and it always wins when set.
+
 ## Quick start
 
 Needs a Hetzner Cloud project token (`HCLOUD_TOKEN`) and a Tailscale API key
@@ -44,7 +72,7 @@ Without a terminal (a pipe), with `--plain`, with `NO_COLOR` set or with `TERM=d
 jauntbox init                       # once: config, token checks, prints the ACL snippet
 jauntbox acl-snippet                # reprint the snippet for your tailnet policy
 jauntbox up small                   # live steps until the box is ready (--detach returns at once)
-jauntbox status                     # a short summary; --json prints the raw status
+jauntbox status                     # a short summary with a version line; --json prints the raw status
 jauntbox                            # up (same steps) + attach (reconnects after network drops)
 jauntbox ssh                        # a plain shell on the box
 jauntbox night --until 07:00        # let agents keep the box overnight
@@ -65,6 +93,12 @@ too. Press Ctrl-C once the server exists and the box keeps getting ready in the 
 Output is plain (same symbols, no colour or animation) when it is not going to a terminal,
 when `NO_COLOR` is set to a non-empty value, when `TERM=dumb`, or with the global `--plain`
 flag. The steps go to stderr; `jauntbox status --json` writes only JSON to stdout.
+
+`jauntbox up` (and bare `jauntbox`) on a box that runs another version reinstalls the
+box binary: the "Install supervisor" step shows `0.4.0 → 0.4.1`. If either side is a
+development build it only warns. `jauntbox status` prints a `version` line: `version  0.4.1`
+when the box matches this laptop, `version  0.4.0 (this laptop 0.4.1)` when it doesn't, and
+`version  unknown (this laptop 0.4.1)` when it can't tell.
 
 Live smoke checks and their results: [`docs/jauntbox/SMOKE.md`](docs/jauntbox/SMOKE.md).
 
@@ -338,17 +372,10 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 
 **Beta.** Plans 01 (walking skeleton), 02 (GitHub and secrets), 03a (privilege split),
 03 (agent containers), 04 (agents reach the services you start with `docker compose`) and
-06 (terminal UI) are built and merged. Plan 03's live smoke is partly done; Plans 04 and 06
-have not been smoke-tested yet. Plan 05 (provider layer) is written, not built. Release
-work (version stamping, GoReleaser binaries, a Homebrew tap, semver 0.x) is planned; until
-then you build from source. jauntbox is two programs: `jauntbox` on your laptop and
-`jauntctl` on the box. Build both into the same folder, so that jauntbox finds the
-`jauntctl` it installs on the box (on a Linux amd64 laptop; elsewhere set `box_binary` to a
-Linux amd64 `jauntctl`):
-
-```sh
-go build -o ~/bin/ ./cmd/jauntbox ./cmd/jauntctl
-```
+06 (terminal UI) and 07 (releases) are built and merged. Plan 03's live smoke is partly done; Plans 04 and 06
+have not been smoke-tested yet. Plan 05 (provider layer) is written, not built. Release 0.4.0 is the
+first packaged release; see the [Install](#install) section and [`CHANGELOG.md`](CHANGELOG.md).
+A Homebrew tap and distro packages are not part of 0.4.0.
 
 - Design: [`docs/specs/2026-11-09-jauntbox-single-machine-design.md`](docs/specs/2026-11-09-jauntbox-single-machine-design.md)
 - Plans: [`docs/plans/`](docs/plans/)

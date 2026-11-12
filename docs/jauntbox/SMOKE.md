@@ -246,6 +246,21 @@ result column.
 | 10. `NO_COLOR=1 jauntbox status` and `jauntbox --plain up` print no colour or animation | |
 | 11. `jauntbox up --detach` returns once the server exists; `jauntbox status` later shows the box ready | |
 
+## Plan 07 checks (releases)
+
+Run after the release tag's workflow has finished (or with an `-rc` tag first). Fill in
+the result column.
+
+| Check | Result |
+|---|---|
+| 1. `curl -fsSL https://www.jauntbox.eu/install.sh \| sh` on Linux installs into `~/.local/bin`; `jauntbox --version` prints the release version, a commit and a build date | |
+| 2. The same on GhostBSD or FreeBSD | |
+| 3. `sh -s -- --version <older release>` installs that version; `--dir DIR` installs into `DIR` | |
+| 4. `jauntbox up` from the release laptop on a new box: the box downloads `jauntctl`, and `jauntctl --version` on the box matches the laptop | |
+| 5. `jauntbox up` on a box that runs an older version: "Install supervisor" reinstalls it and shows `old → new`; `jauntctl --version` on the box now matches | |
+| 6. `jauntbox status` shows the `version` line (`version  X`, or `version  X (this laptop Y)` when they differ) | |
+| 7. `gh attestation verify <archive> -R WA-Systems-EU/jaunt` passes for a `jauntbox` and a `jauntctl` archive | |
+
 ## What "good" looks like
 
 - `up` shows each step and ends on Ready within a few minutes.

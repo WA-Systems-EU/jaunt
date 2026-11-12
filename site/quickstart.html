@@ -6,9 +6,9 @@
 <title>jauntbox quick start</title>
 <link rel="canonical" href="https://www.jauntbox.eu/quickstart.html">
 <meta property="og:url" content="https://www.jauntbox.eu/quickstart.html">
-<meta name="description" content="Install jauntbox from source, bring up your first self-deleting cloud dev box on your tailnet and run your first sandboxed coding agent.">
+<meta name="description" content="Install jauntbox, bring up your first self-deleting cloud dev box on your tailnet and run your first sandboxed coding agent.">
 <meta property="og:title" content="jauntbox quick start">
-<meta property="og:description" content="Install jauntbox from source, bring up your first self-deleting cloud dev box on your tailnet and run your first sandboxed coding agent.">
+<meta property="og:description" content="Install jauntbox, bring up your first self-deleting cloud dev box on your tailnet and run your first sandboxed coding agent.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="jauntbox">
 <meta property="og:image" content="https://www.jauntbox.eu/og.png">
@@ -53,20 +53,20 @@
     <div class="mx-auto max-w-4xl py-14 lg:py-20">
       <p class="eyebrow text-route mb-5">Quick start</p>
       <h1 class="font-display font-extrabold uppercase leading-[.95] text-[3rem] sm:text-[4.2rem] tracking-tight">From nothing to your first agent.</h1>
-      <p class="mt-6 text-lg text-muted max-w-[38rem]">Nine steps, about as long as a cup of coffee for the first box. No files to edit, no infrastructure to learn. jauntbox is in beta: you build it from source.</p>
+      <p class="mt-6 text-lg text-muted max-w-[38rem]">Nine steps, about as long as a cup of coffee for the first box. No files to edit, no infrastructure to learn. jauntbox is in beta: one line installs it.</p>
       <ol class="mt-14">
 <li class="relative pl-12 pb-12 last:pb-0">
   <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
   <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">1</span>
   <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Prerequisites</h2>
-<ul class="mt-4 space-y-2.5 list-disc pl-5 marker:text-route text-[15.5px] leading-7"><li>Go, to build the binary.</li><li>A dedicated <a href="https://www.hetzner.com/cloud" class="text-route hover:underline">Hetzner Cloud</a> project and an API token for it (<code class="font-mono text-[13px] text-ink">HCLOUD_TOKEN</code>). Never point jauntbox at a project that holds other resources.</li><li>A <a href="https://tailscale.com" class="text-route hover:underline">Tailscale</a> API key (<code class="font-mono text-[13px] text-ink">TAILSCALE_API_KEY</code>).</li><li>A GitHub organisation or personal account to own the private GitHub App, and <code class="font-mono text-[13px] text-ink">gh</code> logged in on your laptop (or <code class="font-mono text-[13px] text-ink">GITHUB_ADMIN_TOKEN</code> set) for the one-off App setup.</li><li>A <a href="https://docs.anthropic.com/en/docs/claude-code/overview" class="text-route hover:underline">Claude Code</a> credential for the agents: a Claude subscription, and its token from <code class="font-mono text-[13px] text-ink">claude setup-token</code> on your laptop (keep it for step 5). Anthropic API keys are not supported yet.</li></ul>
+<ul class="mt-4 space-y-2.5 list-disc pl-5 marker:text-route text-[15.5px] leading-7"><li>A dedicated <a href="https://www.hetzner.com/cloud" class="text-route hover:underline">Hetzner Cloud</a> project and an API token for it (<code class="font-mono text-[13px] text-ink">HCLOUD_TOKEN</code>). Never point jauntbox at a project that holds other resources.</li><li>A <a href="https://tailscale.com" class="text-route hover:underline">Tailscale</a> API key (<code class="font-mono text-[13px] text-ink">TAILSCALE_API_KEY</code>).</li><li>A GitHub organisation or personal account to own the private GitHub App, and <code class="font-mono text-[13px] text-ink">gh</code> logged in on your laptop (or <code class="font-mono text-[13px] text-ink">GITHUB_ADMIN_TOKEN</code> set) for the one-off App setup.</li><li>A <a href="https://docs.anthropic.com/en/docs/claude-code/overview" class="text-route hover:underline">Claude Code</a> credential for the agents: a Claude subscription, and its token from <code class="font-mono text-[13px] text-ink">claude setup-token</code> on your laptop (keep it for step 5). Anthropic API keys are not supported yet.</li></ul>
 </li>
 <li class="relative pl-12 pb-12 last:pb-0">
   <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>
   <span class="absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-route font-mono text-xs font-bold" style="color: var(--bg)">2</span>
-  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Build from source</h2>
-<p class="mt-4 text-[15.5px] leading-7">During the beta there are no packaged installs.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>git clone https://github.com/WA-Systems-EU/jaunt &amp;&amp; cd jaunt
-<span class="select-none" style="color:#7f8fa3">$ </span>go build -o ~/bin/jauntbox ./cmd/jauntbox</pre></div>
+  <h2 class="font-display text-3xl font-extrabold uppercase leading-tight">Install jauntbox</h2>
+<p class="mt-4 text-[15.5px] leading-7">This installs the latest release into <code class="font-mono text-[13px] text-ink">~/.local/bin</code>. Pin a version with <code class="font-mono text-[13px] text-ink">sh -s -- --version 0.4.0</code>, or pick the folder with <code class="font-mono text-[13px] text-ink">--dir DIR</code>. It checks the checksum before it installs anything.</p><div class="mt-4 min-w-0 rounded-lg bg-board overflow-x-auto"><pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span class="select-none" style="color:#7f8fa3">$ </span>curl -fsSL https://www.jauntbox.eu/install.sh | sh
+<span class="select-none" style="color:#7f8fa3">$ </span>jauntbox --version</pre></div><p class="mt-4 text-[15.5px] leading-7">With Go you can run <code class="font-mono text-[13px] text-ink">go install github.com/WA-Systems-EU/jaunt/cmd/jauntbox@v0.4.0</code> instead. To build from source, run <code class="font-mono text-[13px] text-ink">go build -o ~/bin/ ./cmd/jauntbox ./cmd/jauntctl</code> in a clone of the repository. The box program, <code class="font-mono text-[13px] text-ink">jauntctl</code>, is installed on the box by <code class="font-mono text-[13px] text-ink">jauntbox</code>; you never install it by hand.</p>
 </li>
 <li class="relative pl-12 pb-12 last:pb-0">
   <span class="absolute left-[11px] top-9 bottom-0 w-[2px] route-line" aria-hidden="true"></span>

@@ -628,7 +628,7 @@
         <div>
           <p class="eyebrow text-route mb-3">Beta</p>
           <h2 class="font-display text-5xl sm:text-6xl font-extrabold uppercase leading-none">Pack light.</h2>
-          <p class="mt-4 text-muted max-w-[32rem]">jauntbox is one Go binary, open source under the MIT licence. During the beta you build it from source; packaged installs come later. You need Go, a dedicated Hetzner Cloud project with an API token, and a Tailscale API key. <code class="font-mono text-[13px] text-ink">jauntbox init</code> checks both and writes your config.</p>
+          <p class="mt-4 text-muted max-w-[32rem]">jauntbox is open source under the MIT licence. One line installs the latest release. You need a dedicated Hetzner Cloud project with an API token, and a Tailscale API key. <code class="font-mono text-[13px] text-ink">jauntbox init</code> checks both and writes your config.</p>
           <div class="mt-7 flex flex-wrap gap-3">
             <a href="quickstart.html" class="rounded-md bg-route px-5 py-3 font-semibold hover:opacity-90" style="color: var(--bg)">Get started</a>
             <a href="docs.html" class="rounded-md border border-line px-5 py-3 font-semibold hover:border-ink">Read the docs</a>
@@ -636,11 +636,11 @@
           </div>
         </div>
         <div class="min-w-0 rounded-lg bg-board overflow-x-auto">
-          <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> git clone https://github.com/WA-Systems-EU/jaunt &amp;&amp; cd jaunt
-<span style="color:#7f8fa3">$</span> go build -o ~/bin/jauntbox ./cmd/jauntbox
+          <pre class="font-mono text-sm px-5 py-4 leading-7" style="color:#dfe6ee"><span style="color:#7f8fa3">$</span> curl -fsSL https://www.jauntbox.eu/install.sh | sh
 <span style="color:#7f8fa3">$</span> jauntbox init
 <span style="color:#7f8fa3">$</span> jauntbox up small
 <span style="color:#7f8fa3">$</span> jauntbox</pre>
+          <p class="px-5 pb-4 text-[13px] text-muted">Current release: v0.4.0</p>
         </div>
       </div>
     </div>
