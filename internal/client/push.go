@@ -195,7 +195,9 @@ func PushBinary(ctx context.Context, d Deps, wait time.Duration) error {
 // retrying until deadline. Right after the tailnet join dev-setup.sh may not
 // have created the box user yet, so the runuser steps fail until then. A
 // refused root ssh login is different (stale tailnet policy): it gets its own
-// short budget and the first error is a warning while it retries.
+// short budget and the first error is a warning while it retries. A box that
+// does not answer ssh at all yet (ErrSSHUnreachable, common right after a
+// resize while the new server boots) is just retried until deadline.
 //
 // reach is the "Box reachable" step, open until the copy works (nil when the
 // box is already known to be reachable); install is the "Install supervisor"
@@ -228,7 +230,7 @@ func copyAndInstall(ctx context.Context, d Deps, bin string, deadline time.Time,
 				return nil
 			}
 		}
-		if errors.Is(err, ErrRootSSH) {
+		if errors.Is(err, ErrRootSSH) && !errors.Is(err, ErrSSHUnreachable) {
 			if rootSince.IsZero() {
 				rootSince = time.Now()
 				msg := fmt.Sprintf("%v; retrying for up to %s", err, rootSSHWait)

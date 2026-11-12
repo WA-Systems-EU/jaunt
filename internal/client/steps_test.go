@@ -699,3 +699,55 @@ func TestSupervisorCheckInterruptedStartsNoStep(t *testing.T) {
 		t.Fatalf("events = %v", rec.Events)
 	}
 }
+
+// bootingRemote times out on the first copies, like a resized box that has
+// not finished booting, then works.
+type bootingRemote struct {
+	fakeRemote
+	copies int
+}
+
+func (r *bootingRemote) Copy(ctx context.Context, host, l, rp string) error {
+	r.copies++
+	if r.copies <= 3 {
+		return errors.New("scp to root@" + host + ": exit status 255: ssh: connect to host " + host + " port 22: Connection timed out\nscp: Connection closed")
+	}
+	return r.fakeRemote.Copy(ctx, host, l, rp)
+}
+
+func TestUnreachableBoxRetriesWithoutWarning(t *testing.T) {
+	oldP, oldR := pollInterval, rootSSHWait
+	pollInterval, rootSSHWait = time.Millisecond, 0 // a policy budget would trip at once
+	defer func() { pollInterval, rootSSHWait = oldP, oldR }()
+	d, _, _, _, _, _ := newDeps(t)
+	rec := withRec(&d)
+	r := &bootingRemote{}
+	d.Root = r
+	osExecutable = func() (string, error) { return "/bin/true", nil }
+	if err := PushBinary(context.Background(), d, time.Hour); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	for _, e := range rec.Events {
+		if strings.HasPrefix(e, "warn ") {
+			t.Fatalf("warning for a box still booting: %v", rec.Events)
+		}
+	}
+	if r.copies != 4 {
+		t.Fatalf("copies = %d", r.copies)
+	}
+}
+
+func TestUnreachableIsStillRootSSH(t *testing.T) {
+	d, _, _, _, _, _ := newDeps(t)
+	err := rootErr(d, errors.New("ssh: connect to host x port 22: Connection refused"))
+	if !errors.Is(err, ErrRootSSH) || !errors.Is(err, ErrSSHUnreachable) {
+		t.Fatalf("classification: %v", err)
+	}
+	if strings.Contains(err.Error(), "acl-snippet") || !strings.Contains(err.Error(), "cannot reach") {
+		t.Fatalf("message: %v", err)
+	}
+	refused := rootErr(d, errors.New("tailnet policy does not permit you to SSH as user \"root\""))
+	if errors.Is(refused, ErrSSHUnreachable) || !strings.Contains(refused.Error(), "acl-snippet") {
+		t.Fatalf("policy refusal: %v", refused)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // ErrRootSSH is matched (errors.Is) by a Deps.Root failure that looks like a
@@ -14,16 +15,50 @@ import (
 // user has no sudo for them), so the only remedy is the tailnet policy.
 var ErrRootSSH = errors.New("root ssh failed")
 
+// ErrSSHUnreachable is the part of ErrRootSSH where ssh never got a
+// connection (timed out, refused, no route): the box is not up yet or is
+// gone, which says nothing about the tailnet policy. It also matches
+// ErrRootSSH, so callers that only care "ssh failed" are unchanged.
+var ErrSSHUnreachable = errors.New("box not reachable over ssh")
+
 type rootSSHError struct {
-	host, user string
-	err        error
+	host, user  string
+	err         error
+	unreachable bool
 }
 
 func (e *rootSSHError) Error() string {
+	if e.unreachable {
+		return fmt.Sprintf("cannot reach %s over ssh yet: %v", e.host, e.err)
+	}
 	return fmt.Sprintf("root ssh to %s failed; your tailnet policy must allow ssh as root to tag:jauntbox-%s: run `jauntbox acl-snippet` and update the policy: %v", e.host, e.user, e.err)
 }
-func (e *rootSSHError) Unwrap() error        { return e.err }
-func (e *rootSSHError) Is(target error) bool { return target == ErrRootSSH }
+func (e *rootSSHError) Unwrap() error { return e.err }
+func (e *rootSSHError) Is(target error) bool {
+	return target == ErrRootSSH || (e.unreachable && target == ErrSSHUnreachable)
+}
+
+// unreachableMarks are ssh/scp messages for a connection that never opened.
+// A policy refusal (Tailscale SSH or sshd) gets a connection first, so it
+// never prints these.
+var unreachableMarks = []string{
+	"Connection timed out",
+	"Operation timed out",
+	"Connection refused",
+	"No route to host",
+	"Network is unreachable",
+	"Could not resolve hostname",
+}
+
+func sshUnreachable(err error) bool {
+	msg := err.Error()
+	for _, m := range unreachableMarks {
+		if strings.Contains(msg, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // rootErr wraps err as ErrRootSSH (nil stays nil) and keeps the underlying
 // error in the chain. Run/RunInput go through rootCmdErr, which only wraps
@@ -33,7 +68,7 @@ func rootErr(d Deps, err error) error {
 	if err == nil {
 		return nil
 	}
-	return &rootSSHError{host: hostname(d.Cfg.User), user: d.Cfg.User, err: err}
+	return &rootSSHError{host: hostname(d.Cfg.User), user: d.Cfg.User, err: err, unreachable: sshUnreachable(err)}
 }
 
 // rootCmdErr classifies a Run/RunInput error: ssh failing to connect or log in
