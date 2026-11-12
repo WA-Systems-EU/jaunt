@@ -1,0 +1,52 @@
+version: 2
+
+project_name: jaunt
+
+builds:
+  - id: jauntbox
+    main: ./cmd/jauntbox
+    binary: jauntbox
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [linux, darwin, freebsd]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/WA-Systems-EU/jaunt/internal/version.version={{.Version}}
+      - -X github.com/WA-Systems-EU/jaunt/internal/version.commit={{.FullCommit}}
+      - -X github.com/WA-Systems-EU/jaunt/internal/version.date={{.Date}}
+  - id: jauntctl
+    main: ./cmd/jauntctl
+    binary: jauntctl
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/WA-Systems-EU/jaunt/internal/version.version={{.Version}}
+      - -X github.com/WA-Systems-EU/jaunt/internal/version.commit={{.FullCommit}}
+      - -X github.com/WA-Systems-EU/jaunt/internal/version.date={{.Date}}
+
+archives:
+  - id: jauntbox
+    ids: [jauntbox]
+    formats: [tar.gz]
+    name_template: "jauntbox_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+  - id: jauntctl
+    ids: [jauntctl]
+    formats: [tar.gz]
+    name_template: "jauntctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  prerelease: auto
+  extra_files:
+    - glob: site/install.sh

@@ -2,6 +2,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_call:
 jobs:
   go:
     runs-on: ubuntu-latest
@@ -17,8 +18,10 @@ jobs:
       - run: bash provision/dev-setup_test.sh
       - run: bash provision/jaunt-repos_test.sh
       - run: bash provision/agent/agent_test.sh
+      - run: sh scripts/changelog-section_test.sh
+      - run: sh scripts/install_test.sh
       - name: shellcheck
-        run: shellcheck --severity=warning provision/*.sh provision/agent/jaunt-* provision/agent/agent_test.sh internal/cloudinit/units/*.sh
+        run: shellcheck --severity=warning provision/*.sh provision/agent/jaunt-* provision/agent/agent_test.sh internal/cloudinit/units/*.sh site/install.sh scripts/*.sh
   cross:
     runs-on: ubuntu-latest
     steps:
