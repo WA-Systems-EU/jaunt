@@ -106,5 +106,28 @@ if [ "$rc" -ne 0 ]; then ok "unsupported arch fails"; else bad "unsupported arch
 # 8. bad flag
 sh "$script" --bogus >/dev/null 2>&1 && bad "unknown flag accepted" || ok "unknown flag rejected"
 
+# 9. no release published yet: releases/latest lands on the releases page
+: > "$root/releases"
+out=$(JAUNTBOX_LATEST_URL="file://$root/releases" sh "$script" --dir "$tmp/bin9" 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && [ ! -e "$tmp/bin9" ]; then ok "no release: nothing installed"; else bad "no release (rc=$rc): $out"; fi
+case $out in *"no published jauntbox release found (yet)"*) ok "no release message" ;; *) bad "no 'no published release' message: $out" ;; esac
+
+# 10. a truncated download (curl | sh cut short) runs nothing
+lines=$(wc -l < "$script")
+for keep in $((lines - 1)) $((lines / 2)); do
+  head -n "$keep" "$script" > "$tmp/trunc.sh"
+  out=$(sh "$tmp/trunc.sh" --version "$VER" --dir "$tmp/bin10" 2>&1)
+  case $out in *Downloading*|*Installed*) bad "truncated to $keep lines ran: $out" ;; *)
+    [ ! -e "$tmp/bin10" ] && ok "truncated to $keep lines runs nothing" || bad "truncated to $keep lines installed" ;; esac
+done
+
+# 11. https URLs restrict curl to https, also on redirects
+b="$tmp/path-curl"; mkbase "$b"; rm -f "$b/curl"
+mkshim curl "$b" "echo \"\$*\" >> \"$tmp/curl.log\"; exit 22"
+JAUNTBOX_RELEASE_ROOT=https://example.invalid/dl PATH="$b" /bin/sh "$script" --version "$VER" --dir "$tmp/bin11" >/dev/null 2>&1
+JAUNTBOX_LATEST_URL=https://example.invalid/latest PATH="$b" /bin/sh "$script" --dir "$tmp/bin11" >/dev/null 2>&1
+n=$(grep -c -- "--proto =https --proto-redir =https" "$tmp/curl.log" 2>/dev/null || true)
+if [ "${n:-0}" -eq 2 ]; then ok "https only for https URLs"; else bad "https flags on $n of 2 calls: $(cat "$tmp/curl.log" 2>/dev/null)"; fi
+
 [ "$fail" -eq 0 ] && echo "install_test: PASS"
 exit "$fail"
