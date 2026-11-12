@@ -19,7 +19,9 @@ open-source CLI that a single person needs to run their own box.
   approach.
 - Keep commits to plain conventional messages (`fix(jauntbox): …`, `feat(jauntbox): …`).
 - The laptop client is `cmd/jauntbox`, the box side `cmd/jauntctl`; code both need lives
-  under `internal/`. Build both with `go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl`.
+  under `internal/`. On Linux, build both with `go build -o <dir> ./cmd/jauntbox ./cmd/jauntctl`.
+  `jauntctl` does not compile for macOS or FreeBSD; there, build `./cmd/jauntbox` and then
+  `GOOS=linux GOARCH=amd64 go build -o <dir> ./cmd/jauntctl`.
 - Tests never call real Hetzner, Tailscale, GitHub or Docker. Use the existing fakes and
   `httptest`. Run `go vet ./... && go test ./...` and the shell tests under `provision/`
   before you open a pull request.
@@ -45,7 +47,8 @@ Before you push it:
 2. Update the version marker on the site (`site/index.html`, "Pack light").
 3. Make sure CI is green on `trunk`.
 4. If the release touches the box, run the live smoke (`up`, `status`, `down`, see
-   `docs/jauntbox/SMOKE.md`) with an `-rc` tag first, for example `v0.5.0-rc.1`.
+   `docs/jauntbox/SMOKE.md`) with an `-rc` tag first, for example `v0.5.0-rc.1`. An `-rc` tag uses the CHANGELOG section of its
+   version (`## [0.5.0]`) unless the changelog has an exact `## [0.5.0-rc.1]` section.
 5. Push the tag: `git tag -a v0.5.0 -m "jauntbox 0.5.0" && git push origin v0.5.0`.
 
 After the workflow finishes, check three things:

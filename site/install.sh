@@ -17,7 +17,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --version) [ $# -ge 2 ] || die "--version needs a value"; version=$2; shift 2 ;;
     --dir) [ $# -ge 2 ] || die "--dir needs a value"; dir=$2; shift 2 ;;
-    -h|--help) echo "usage: install.sh [--version X.Y.Z] [--dir DIR]"; exit 0 ;;
+    -h|--help) echo "usage: install.sh [--version X.Y.Z[-rc.N]] [--dir DIR]"; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
 done

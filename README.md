@@ -47,10 +47,18 @@ release `jauntbox` makes the box download the same release of `jauntctl` from Gi
 check it against `checksums.txt`. If the box can't download, your laptop sends it instead.
 A checksum that doesn't match stops the install.
 
-To build from source, build both programs:
+To build from source on Linux, build both programs:
 
 ```sh
 go build -o ~/bin/ ./cmd/jauntbox ./cmd/jauntctl
+```
+
+On macOS or FreeBSD, `jauntctl` does not build for your system. Build the laptop program,
+then build `jauntctl` for Linux and point `box_binary` at it:
+
+```sh
+go build -o ~/bin/ ./cmd/jauntbox
+GOOS=linux GOARCH=amd64 go build -o <dir> ./cmd/jauntctl   # then set box_binary to <dir>/jauntctl
 ```
 
 A development build copies the `jauntctl` that sits next to your `jauntbox` (on a Linux
@@ -372,7 +380,7 @@ jauntctl agent logs [<run>] [--follow]    # a run's Claude log
 
 **Beta.** Plans 01 (walking skeleton), 02 (GitHub and secrets), 03a (privilege split),
 03 (agent containers), 04 (agents reach the services you start with `docker compose`) and
-06 (terminal UI) and 07 (releases) are built and merged. Plan 03's live smoke is partly done; Plans 04 and 06
+06 (terminal UI) are built and merged, and Plan 07 (releases) is built. Plan 03's live smoke is partly done; Plans 04 and 06
 have not been smoke-tested yet. Plan 05 (provider layer) is written, not built. Release 0.4.0 is the
 first packaged release; see the [Install](#install) section and [`CHANGELOG.md`](CHANGELOG.md).
 A Homebrew tap and distro packages are not part of 0.4.0.

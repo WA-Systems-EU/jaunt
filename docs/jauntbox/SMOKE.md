@@ -248,17 +248,18 @@ result column.
 
 ## Plan 07 checks (releases)
 
-Run after the release tag's workflow has finished (or with an `-rc` tag first). Fill in
+Run after the release tag's workflow has finished (or with an `-rc` tag first). `install.sh` never picks a
+pre-release by itself, so when testing an `-rc`, row 1 must pin it: `sh -s -- --version 0.5.0-rc.1`. Fill in
 the result column.
 
 | Check | Result |
 |---|---|
 | 1. `curl -fsSL https://www.jauntbox.eu/install.sh \| sh` on Linux installs into `~/.local/bin`; `jauntbox --version` prints the release version, a commit and a build date | |
 | 2. The same on GhostBSD or FreeBSD | |
-| 3. `sh -s -- --version <older release>` installs that version; `--dir DIR` installs into `DIR` | |
+| 3. `sh -s -- --version <older release>` installs that version (skip for 0.4.0: there is no older archive); `--dir DIR` installs into `DIR` | |
 | 4. `jauntbox up` from the release laptop on a new box: the box downloads `jauntctl`, and `jauntctl --version` on the box matches the laptop | |
 | 5. `jauntbox up` on a box that runs an older version: "Install supervisor" reinstalls it and shows `old → new`; `jauntctl --version` on the box now matches | |
-| 6. `jauntbox status` shows the `version` line (`version  X`, or `version  X (this laptop Y)` when they differ) | |
+| 6. `jauntbox status` shows the `version` line (`version  X`, `version  X (this laptop Y)` when they differ, or `version  unknown (this laptop Y)` when the box version can't be read) | |
 | 7. `gh attestation verify <archive> -R WA-Systems-EU/jaunt` passes for a `jauntbox` and a `jauntctl` archive | |
 
 ## What "good" looks like

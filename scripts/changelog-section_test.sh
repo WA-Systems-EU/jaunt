@@ -11,6 +11,18 @@ cat > "$tmp/CHANGELOG.md" <<'CL'
 
 ## [Unreleased]
 
+## [0.5.0] - 2027-01-01
+
+Five notes.
+
+## [0.4.2-rc.1] - 2026-12-05
+
+RC own notes.
+
+## [0.4.2] - 2026-12-06
+
+Final 0.4.2 notes.
+
 ## [0.4.1] - 2026-12-01
 
 Patch notes.
@@ -38,6 +50,18 @@ case $out in *"Patch notes."*|*"Old stuff."*) echo "FAIL leaked neighbour"; fail
 out=$(CHANGELOG_FILE="$tmp/CHANGELOG.md" sh "$here/changelog-section.sh" 9.9.9 2>/dev/null); rc=$?
 [ "$rc" -eq 1 ] || { echo "FAIL 9.9.9 exit $rc (want 1)"; fail=1; }
 [ -z "$out" ] || { echo "FAIL 9.9.9 printed output"; fail=1; }
+
+out=$(CHANGELOG_FILE="$tmp/CHANGELOG.md" sh "$here/changelog-section.sh" 0.5.0-rc.1); rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL rc fallback exit $rc"; fail=1; }
+case $out in *"Five notes."*) ;; *) echo "FAIL rc did not fall back to base"; fail=1 ;; esac
+
+out=$(CHANGELOG_FILE="$tmp/CHANGELOG.md" sh "$here/changelog-section.sh" 0.4.2-rc.1); rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL exact rc exit $rc"; fail=1; }
+case $out in *"RC own notes."*) ;; *) echo "FAIL exact rc section not used"; fail=1 ;; esac
+case $out in *"Final 0.4.2 notes."*) echo "FAIL exact rc leaked base"; fail=1 ;; esac
+
+out=$(CHANGELOG_FILE="$tmp/CHANGELOG.md" sh "$here/changelog-section.sh" 9.9.9-rc.1 2>/dev/null); rc=$?
+[ "$rc" -eq 1 ] || { echo "FAIL unknown rc exit $rc (want 1)"; fail=1; }
 
 # the real changelog must have 0.4.0
 sh "$here/changelog-section.sh" 0.4.0 >/dev/null 2>&1 || { echo "FAIL real CHANGELOG lacks 0.4.0"; fail=1; }
