@@ -203,6 +203,7 @@ func TestVersionPlan(t *testing.T) {
 		{"older", rel, "0.3.9", true, "0.3.9 → 0.4.0", ""},
 		{"box dev", rel, "dev", false, "", "the box runs a development build; this laptop is 0.4.0"},
 		{"laptop dev", dev, "0.4.0", false, "", "the box runs 0.4.0; this laptop is a development build"},
+		{"laptop dev, box unknown", dev, "", false, "", "the box's version is unknown; this laptop is a development build"},
 		{"equal", rel, "0.4.0", false, "", ""},
 		{"both dev", dev, "dev", false, "", ""},
 	}
@@ -272,5 +273,18 @@ func TestInstallSupervisorNoWaitSpawnsForReinstall(t *testing.T) {
 	d.Spawn = func(...string) error { spawned++; return nil }
 	if err := InstallSupervisor(context.Background(), d, false); err != nil || spawned != 1 {
 		t.Fatalf("err=%v spawned=%d", err, spawned)
+	}
+}
+
+func TestExistingBoxWarningReachesPlainOutput(t *testing.T) {
+	d, _, _ := existingBox(t, "0.4.1", "jauntctl dev (commit abc1234)\n")
+	var buf strings.Builder
+	d.Steps = ui.NewPlain(&buf, time.Now)
+	if err := EnsureSupervisor(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	want := "– Install supervisor already running\n  the box runs a development build; this laptop is 0.4.1\n"
+	if !strings.Contains(buf.String(), want) {
+		t.Fatalf("out = %q", buf.String())
 	}
 }

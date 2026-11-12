@@ -358,7 +358,12 @@ func (s *liveStep) Done() {
 	s.outcome("✓", true, detail)
 }
 
-func (s *liveStep) Skip(reason string) { s.outcome("–", false, cleanLine(reason)) }
+func (s *liveStep) Skip(reason string) {
+	s.l.mu.Lock()
+	warns := s.it.warns
+	s.l.mu.Unlock()
+	s.outcome("–", false, cleanLine(reason), warns...)
+}
 
 func (s *liveStep) Fail(err error, hint string) {
 	s.l.mu.Lock()

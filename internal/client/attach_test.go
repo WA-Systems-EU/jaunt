@@ -75,7 +75,7 @@ func attachFixture(t *testing.T) (Deps, *fakeProv, *scriptRemote) {
 	t.Setenv("HERDR_SESSION", "")
 	d, p, _, _, _, _ := newDeps(t)
 	d.Cfg.DefaultProfile = "small"
-	r := &scriptRemote{}
+	r := &scriptRemote{checkOut: "jauntctl dev (commit abc1234)\n"} // dev box, dev laptop: no version noise
 	d.Remote, d.Root = r, r
 	oldExe, oldOut, oldSleep := osExecutable, attachOut, sleepFn
 	oldProv := provisionPoll

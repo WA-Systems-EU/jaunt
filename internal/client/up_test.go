@@ -37,7 +37,7 @@ func newDeps(t *testing.T) (Deps, *fakeProv, *fakeMesh, *fakeRemote, *recSink, *
 	cfg.SSHPublicKey = "ssh-ed25519 AAAA"
 	p, m, r, s := &fakeProv{}, &fakeMesh{}, &fakeRemote{}, &recSink{}
 	spawns := 0
-	d := Deps{Cfg: cfg, Policy: policy.Local{Cfg: cfg}, Prov: p, Mesh: m, Root: r, Remote: &fakeRemote{}, Events: s,
+	d := Deps{Cfg: cfg, Policy: policy.Local{Cfg: cfg}, Prov: p, Mesh: m, Root: r, Remote: &fakeRemote{out: []byte("jauntctl dev (commit abc1234)\n")}, Events: s,
 		Now: func() time.Time { return fixedNow }, HetznerToken: "hc-T",
 		Spawn: func(args ...string) error {
 			if len(args) != 1 || args[0] != "internal-push" {

@@ -327,3 +327,14 @@ func TestPlainHostileInputSanitised(t *testing.T) {
 		t.Errorf("got %q", out)
 	}
 }
+
+func TestPlainSkipKeepsWarns(t *testing.T) {
+	var buf strings.Builder
+	s := NewPlain(&buf, time.Now)
+	st := s.Start("Install supervisor")
+	st.Warn("the box runs 0.3.0")
+	st.Skip("already running")
+	if got := buf.String(); !strings.Contains(got, "– Install supervisor already running\n  the box runs 0.3.0\n") {
+		t.Fatalf("out = %q", got)
+	}
+}

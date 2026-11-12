@@ -400,3 +400,16 @@ func TestLiveIdleWritesNothing(t *testing.T) {
 		t.Fatalf("idle live renderer wrote %q", got)
 	}
 }
+
+func TestLiveSkipKeepsWarns(t *testing.T) {
+	buf := &lockedBuf{}
+	s, _, _ := newTestLive(buf)
+	st := s.Start("Install supervisor")
+	st.Warn("the box runs 0.3.0")
+	st.Skip("already running")
+	s.Close()
+	out := stripANSI(buf.String())
+	if !strings.Contains(out, "– Install supervisor already running\n  the box runs 0.3.0\n") {
+		t.Fatalf("out = %q", out)
+	}
+}

@@ -144,7 +144,7 @@ func (s *plainStep) Done() {
 func (s *plainStep) Skip(reason string) {
 	s.p.mu.Lock()
 	defer s.p.mu.Unlock()
-	s.writeLocked("–", false, cleanLine(reason))
+	s.writeLocked("–", false, cleanLine(reason), s.warns...)
 }
 
 func (s *plainStep) Fail(err error, hint string) {

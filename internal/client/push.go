@@ -64,7 +64,9 @@ func versionPlan(laptop version.Build, box string) (reinstall bool, detail strin
 		case box != laptop.Version:
 			return true, box + " → " + laptop.Version, ""
 		}
-	case box != "" && box != "dev":
+	case box == "":
+		return false, "", "the box's version is unknown; this laptop is a development build"
+	case box != "dev":
 		return false, "", "the box runs " + box + "; this laptop is a development build"
 	}
 	return false, "", ""
