@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jauntbox FAQ</title>
+<link rel="canonical" href="https://www.jauntbox.eu/faq.html">
+<meta property="og:url" content="https://www.jauntbox.eu/faq.html">
+<meta name="description" content="jauntbox FAQ: why Hetzner, why Tailscale, how it compares with hosted dev environments, cost, agents, and what happens when the box deletes itself.">
+<meta property="og:title" content="jauntbox FAQ">
+<meta property="og:description" content="jauntbox FAQ: why Hetzner, why Tailscale, how it compares with hosted dev environments, cost, agents, and what happens when the box deletes itself.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="jauntbox">
+<meta property="og:image" content="https://www.jauntbox.eu/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://www.jauntbox.eu/og.png">
+<meta name="theme-color" content="#eef2f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1520" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='3' y='8' width='22' height='16' rx='3' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Cpath d='M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8' fill='none' stroke='%2313233a' stroke-width='2'/%3E%3Crect x='3' y='14' width='22' height='3' fill='%23f0b928'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- NAV -->
+<header class="gutter border-b border-line">
+  <div class="mx-auto max-w-6xl flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3 md:py-4">
+    <a href="index.html" class="flex items-center gap-2 no-underline text-ink">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+        <rect x="3" y="8" width="22" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M10 8V5.5A1.5 1.5 0 0 1 11.5 4h5A1.5 1.5 0 0 1 18 5.5V8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="3" y="14" width="22" height="3" fill="var(--tag)"/>
+      </svg>
+      <span class="font-display text-2xl font-extrabold tracking-wide">jauntbox</span>
+    </a>
+    <nav aria-label="Main" class="order-3 basis-full md:order-none md:basis-auto flex flex-wrap items-center gap-x-5 gap-y-0 md:gap-x-7 text-sm text-muted">
+      <a href="index.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Home</a>
+      <a href="quickstart.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Quick start</a>
+      <a href="docs.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Docs</a>
+      <a href="roadmap.html" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">Roadmap</a>
+      <a href="faq.html" aria-current="page" class="py-1 hover:text-ink aria-[current=page]:text-ink aria-[current=page]:font-semibold aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-[6px] aria-[current=page]:decoration-[color:var(--tag)]">FAQ</a>
+      <a href="index.html#enterprise" class="py-1 hover:text-ink">Enterprise <span class="rounded-full bg-tag px-1.5 py-0.5 font-mono text-[10px] uppercase" style="color: var(--tag-ink)">soon</span></a>
+      <a href="https://github.com/WA-Systems-EU/jaunt" class="py-1 hover:text-ink">GitHub</a>
+    </nav>
+    <a href="quickstart.html" class="text-sm font-semibold rounded-md bg-ink text-bg px-4 py-2 hover:opacity-90">Get started</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="gutter">
+    <div class="mx-auto max-w-6xl py-14 lg:py-20">
+      <p class="eyebrow text-route mb-3">FAQ</p>
+      <h1 class="font-display text-5xl sm:text-6xl font-extrabold uppercase leading-none max-w-2xl">Questions before the trip.</h1>
+      <p class="mt-4 text-muted max-w-[40rem]">Why jauntbox is built the way it is, and what to expect. For commands and settings, see the <a href="docs.html" class="text-route hover:underline">docs</a>.</p>
+      <div class="mt-10 grid lg:grid-cols-[13rem_minmax(0,1fr)] gap-10 lg:gap-14 items-start">
+        <nav aria-label="On this page" class="min-w-0 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto rounded-xl border border-line bg-surface lg:border-0 lg:bg-transparent p-4 lg:p-0">
+          <ul class="text-sm columns-2 sm:columns-3 lg:columns-1 gap-6"><li><a href="#choices" class="block py-1 font-semibold text-route hover:underline">The choices</a></li><li><a href="#why-hetzner" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">Why Hetzner?</a></li><li><a href="#why-tailscale" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">Why Tailscale?</a></li><li><a href="#vs-hosted" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">vs hosted dev environments</a></li><li><a href="#why-github" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">Why only GitHub?</a></li><li class="mt-3"><a href="#using" class="block py-1 font-semibold text-route hover:underline">Using it</a></li><li><a href="#work-kept" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">Your work when it deletes</a></li><li><a href="#cost" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">What it costs</a></li><li><a href="#forget" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">If you forget it</a></li><li><a href="#agents" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">Which agents</a></li><li><a href="#laptops" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">Your laptop</a></li><li><a href="#team" class="block py-0.5 pl-3 border-l border-line text-muted hover:text-ink">Teams</a></li></ul>
+        </nav>
+        <div class="min-w-0 max-w-3xl [overflow-wrap:anywhere] space-y-14">
+<section id="choices" class="pt-14 pb-4 border-t border-line first:border-t-0 first:pt-0">
+  <p class="eyebrow text-route mb-3">The choices</p>
+  <h2 class="font-display text-4xl sm:text-5xl font-extrabold uppercase leading-none">Why these pieces</h2>
+<div id="why-hetzner">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">Why Hetzner?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">Hetzner is a European company with data centres in Germany and Finland, and its prices make a box sized for the day affordable: servers are billed by the hour, so a box that runs only while you work costs little (see <a href="index.html#cost" class="text-route hover:underline">the cost estimates</a>). Its API covers everything jauntbox needs (servers, volumes, firewalls and SSH keys) and has a good Go library.</p><p class="mt-4 text-[15.5px] leading-7">Hetzner is the only provider for now. The code talks to it through a provider interface, so other providers can be added later; Scaleway is the first candidate.</p>
+</div>
+<div id="why-tailscale">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">Why Tailscale?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">So the box has no public ports at all. Its cloud firewall blocks every incoming connection, and you reach it only over your tailnet, by a stable name: <code class="font-mono text-[13px] text-ink">jauntbox-&lt;you&gt;</code>.</p><p class="mt-4 text-[15.5px] leading-7"><a href="https://tailscale.com/kb/1193/tailscale-ssh" class="text-route hover:underline">Tailscale SSH</a> ties logins to your tailnet identity, and your tailnet policy decides who may reach the box as root. Tailscale's free personal plan is enough. Headscale (self-hosted Tailscale) and NetBird (German, open source) are on the <a href="roadmap.html" class="text-route hover:underline">roadmap</a>.</p>
+</div>
+<div id="vs-hosted">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">How is this different from Codespaces, Gitpod or Coder?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">The box is your own server, in your own Hetzner project, on your own tailnet: no vendor sits between you and your code. Each coding agent runs locked in its own container on the box, with a token for one repository at a time. And the box deletes itself when you stop working, so it costs almost nothing while you are away (only the small volume).</p>
+</div>
+<div id="why-github">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">Why only GitHub?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">GitHub is the first forge adapter: a private GitHub App mints short-lived tokens for one repository at a time. Gitea and Forgejo adapters are on the <a href="roadmap.html" class="text-route hover:underline">roadmap</a>.</p>
+</div>
+</section>
+<section id="using" class="pt-14 pb-4 border-t border-line first:border-t-0 first:pt-0">
+  <p class="eyebrow text-route mb-3">Using it</p>
+  <h2 class="font-display text-4xl sm:text-5xl font-extrabold uppercase leading-none">Day to day</h2>
+<div id="work-kept">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">What happens to my work when the box deletes itself?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">Your <code class="font-mono text-[13px] text-ink">/home</code> lives on a separate volume that jauntbox never deletes. The next <code class="font-mono text-[13px] text-ink">jauntbox up</code> attaches it again, with your checkouts, shell history and settings.</p>
+</div>
+<div id="cost">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">What does it cost?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">Only the hours the server runs, plus the small volume. See <a href="index.html#cost" class="text-route hover:underline">the cost estimates</a> on the home page. The box cannot keep billing overnight unless you ask it to with <code class="font-mono text-[13px] text-ink">jauntbox night</code>.</p>
+</div>
+<div id="forget">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">What if I forget to turn it off?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">It deletes itself at the evening cutoff, after a maximum uptime, or once you have been idle, unless you are actively working or allowed a night session. A safety net deletes a box whose supervisor stops reporting. See <a href="docs.html#limits" class="text-route hover:underline">limits and self-delete</a>.</p>
+</div>
+<div id="agents">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">Which coding agents work?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">Claude Code for now, with a Claude subscription token (<code class="font-mono text-[13px] text-ink">claude setup-token</code>). Anthropic API keys are not supported yet.</p>
+</div>
+<div id="laptops">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">What do I need on my laptop?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">The jauntbox binary (built from source during the beta), Tailscale and OpenSSH. We use it from Linux and GhostBSD; macOS and Windows are untested. The box itself runs Linux on amd64.</p>
+</div>
+<div id="team">
+  <h3 class="mt-10 font-display text-2xl font-extrabold uppercase leading-tight">Can my team share a box?</h3>
+  <p class="mt-4 text-[15.5px] leading-7">No: jauntbox is one box per person. Team features (a hosted control plane, onboarding and shared policies) are the <a href="index.html#enterprise" class="text-route hover:underline">enterprise edition</a>, coming soon.</p>
+</div>
+</section>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="gutter border-t border-line">
+  <div class="mx-auto max-w-6xl py-8 flex flex-wrap items-center justify-between gap-4 text-sm text-muted">
+    <span><span class="font-display text-lg font-extrabold text-ink">jauntbox</span> · MIT licensed · built by <a href="https://wa-systems.eu" class="text-route hover:underline">WA Systems</a> · <a href="https://github.com/WA-Systems-EU/jaunt" class="text-route hover:underline">GitHub</a></span>
+    <span class="basis-full text-xs">WA Systems also builds an enterprise edition and a hosted control plane on top of jauntbox, in a separate repository.</span>
+    <span>Sibling of <a href="https://getodysseus.dev" class="text-route hover:underline">Odysseus</a>, the lean Rails deploy tool</span>
+  </div>
+</footer>
+</body>
+</html>
